@@ -109,12 +109,32 @@ describe("toCanonicalElements", () => {
         expect(toCanonicalElements([quote])).toEqual([{ type: "reply", messageId: "12345" }]);
     });
 
-    it("未知元素 → 降级 text（toString 保内容）", () => {
-        const video = makeElement("video", { src: "x.mp4" }, ["内容"]);
-        const out = toCanonicalElements([video]) as CanonicalElement[];
-        expect(out).toHaveLength(1);
+    it("video → canonical video（缩略图/宽高由 internal.sendMessage 补全）", () => {
+        const video = makeElement("video", { src: "C:/tmp/a.mp4" });
+        expect(toCanonicalElements([video])).toEqual([{ type: "video", path: "C:/tmp/a.mp4" }]);
+
+        const remote = makeElement("video", { src: "https://x/1.mp4" });
+        expect(toCanonicalElements([remote])).toEqual([{ type: "video", path: "https://x/1.mp4" }]);
+
+        const dataUrl = makeElement("video", { src: "data:video/mp4;base64,AAAA" });
+        expect(toCanonicalElements([dataUrl])).toEqual([
+            { type: "video", path: "data:video/mp4;base64,AAAA" },
+        ]);
+    });
+
+    it("video 缺 src → 降级 text（不丢内容）", () => {
+        const broken = makeElement("video", {}, ["视频"]);
+        const out = toCanonicalElements([broken]) as CanonicalElement[];
         expect(out[0]).toMatchObject({ type: "text" });
         expect((out[0] as { text: string }).text).toContain("video");
+    });
+
+    it("未知元素 → 降级 text（toString 保内容）", () => {
+        const file = makeElement("file", { src: "x.zip" }, ["内容"]);
+        const out = toCanonicalElements([file]) as CanonicalElement[];
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ type: "text" });
+        expect((out[0] as { text: string }).text).toContain("file");
         expect((out[0] as { text: string }).text).toContain("内容");
     });
 

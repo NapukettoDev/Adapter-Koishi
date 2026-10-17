@@ -9,6 +9,8 @@
  *  - img/image → { type: "image", path: attrs.src }（koishi 标准元素是 img；本地路径直接用；http(s) URL 透传——发送前下载，失败回退占位文本）
  *  - face → { type: "face", id: attrs.id }
  *  - audio → { type: "voice", path: attrs.src }（同 img 的 URL 策略）
+ *  - video → { type: "video", path: attrs.src }（缩略图/宽高/时长由 internal.sendMessage
+ *    调 @napuketto/media 补全；data URL 落盘后同样补全）
  *  - quote → { type: "reply", messageId: attrs.id }
  *  - 其他 → 降级 { type: "text", text: toString() }（保内容不丢）
  * 字符串 content（koishi 允许 sendMessage(channelId, "纯文本")）→ 单 text 元素。
@@ -71,32 +73,36 @@ function normalizeMediaPath(path: string): string {
     return path.replace(/\\/g, "/");
 }
 
-/** 媒体元素（img/image/audio）：src 空 → 原样文本；本地路径/file:// → canonical 媒体；http(s) URL 透传（发送前下载）。 */
+/** 媒体元素（img/image/audio/video）：src 空 → 原样文本；本地路径/file:// → canonical 媒体；http(s) URL 透传（发送前下载）。 */
 function mediaElement(
     element: LooseElement,
     attrs: Record<string, unknown>,
-    kind: "image" | "voice",
+    kind: "image" | "voice" | "video",
 ): CanonicalElement {
     const src = String(attrs["src"] ?? "");
     if (src === "") {
         return { type: "text", text: element.toString() };
     }
+    const toMedia = (path: string): CanonicalElement => {
+        if (kind === "image") {
+            return { type: "image", path };
+        }
+        return kind === "voice" ? { type: "voice", path } : { type: "video", path };
+    };
     // file:// URL → 转真实本地路径（fileURLToPath），避免带协议前缀透传给
     // wrapper.node 导致 rich media transfer failed（redposter 实证）
     if (isFileUrl(src)) {
-        const local = normalizeMediaPath(fileURLToPath(src));
-        return kind === "image" ? { type: "image", path: local } : { type: "voice", path: local };
+        return toMedia(normalizeMediaPath(fileURLToPath(src)));
     }
     if (isHttpUrl(src)) {
         // 远程 URL 透传：internal.sendMessage 的 downloadRemoteMedia 下载到本地
         // 临时文件后发送；下载失败回退占位文本（media.ts）
-        return kind === "image" ? { type: "image", path: src } : { type: "voice", path: src };
+        return toMedia(src);
     }
     // 普通本地路径同样规范化（2026-08-09：redposter 实证 file:// 转路径后仍
     // rich media transfer failed——Windows 反斜杠路径透传给 NT 读不到，
     // 需统一转正斜杠；Electron/Chromium 内部按 URL 语义处理路径）
-    const local = normalizeMediaPath(src);
-    return kind === "image" ? { type: "image", path: local } : { type: "voice", path: local };
+    return toMedia(normalizeMediaPath(src));
 }
 
 /** 元素类型 → 处理器（判别式映射表；未收录类型走默认降级 text）。 */
@@ -125,6 +131,8 @@ const elementHandlers: Record<
         return id === null ? { type: "text", text: element.toString() } : { type: "face", id };
     },
     audio: (element, attrs) => mediaElement(element, attrs, "voice"),
+    // koishi 视频元素：h("video", { src }) / h("video", ...)（OneBot video 段）
+    video: (element, attrs) => mediaElement(element, attrs, "video"),
     quote: (element, attrs) => {
         const id = takeId(attrs);
         return id === null
@@ -136,7 +144,7 @@ const elementHandlers: Record<
 /** 单个 koishi 元素 → canonical。 */
 function toCanonicalElement(element: LooseElement): CanonicalElement {
     const attrs = element.attrs ?? {};
-    // 未识别类型（p/video/file/…）：降级 text（保内容不丢，后续扩充）
+    // 未识别类型（p/file/…）：降级 text（保内容不丢，后续扩充）
     return (
         elementHandlers[element.type]?.(element, attrs) ?? {
             type: "text",

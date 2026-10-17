@@ -515,8 +515,9 @@ uid**——注入 groupApi.uinToUid）：
 | `img`（attrs.src） | `{ type: "image", path }` | **koishi 标准元素是 img**（兼容旧 `image` 写法）；本地路径；**http(s) URL 透传**（internal.sendMessage 的 `downloadRemoteMedia` 下载到临时文件后发送，失败回退占位文本 `[图片: url]` + warn，2026-09-08）；**file:// URL 先 `fileURLToPath` 再统一规范化**（见下） |
 | `face`（attrs.id） | `{ type: "face", id }` | |
 | `audio`（attrs.src） | `{ type: "voice", path }` | 本地路径；http(s) URL 同 img 策略（下载后发送，失败回退 `[语音: url]`） |
+| `video`（attrs.src） | `{ type: "video", path }` | 本地路径；http(s)/data URL 同 img 策略落盘；发送前由 `enrichVideoElements` 用 `@napuketto/media` 抽帧补 `thumbPath`/`width`/`height`/`durationSec`（见下） |
 | `quote`（attrs.id） | `{ type: "reply", messageId }` | |
-| 其他（p/br/video/file/…） | `{ type: "text", text: toString() }` | 保内容不丢 |
+| 其他（p/br/file/…） | `{ type: "text", text: toString() }` | 保内容不丢 |
 
 字符串 content（koishi 允许 `sendMessage(channelId, "纯文本")`）→ 单 text 元素；
 空内容 → 空数组 → `sendMessage` 返回 `[]`（不发请求）。
@@ -545,6 +546,23 @@ kernel/`wrapper.node` 始终收到可读取的本地文件路径，不会把整�
 编码，产出标准 `#!SILK_V3` 头文件，实证 `ogg 1.3MB → silk 450KB`）；转码失败回落
 原路径（kernel 发送兜底，不阻断）。依赖：新增 `@napuketto/media`（apps 层自由依赖，
 media 与 kernel 解耦红线不涉及）。
+
+**视频发送补全（2026-10-17）**：`video` → canonical `video` 后、发 IPC
+`msg.sendMessage` 前，`actions/media.ts` 的 `enrichVideoElements` 用
+`@napuketto/media` 的 `getVideoInfo`（ffprobe）与 `extractVideoFrame`（ffmpeg 抽首帧
+PNG）补 `width`/`height`/`durationSec`/`thumbPath`，供 kernel 构造完整
+`videoElement`（QQ 视频消息发送契约需要 thumbPath/thumbMd5/thumbWidth/thumbHeight/
+fileTime）。处理链顺序：`downloadRemoteMedia`（http(s) 视频下载，上限 100MB）→
+`ensureVoiceSilk` → `materializeDataUrlImages` → `materializeDataUrlVideos`
+（`data:video/*;base64,…` 落盘 `.mp4` 等临时文件）→ `enrichVideoElements`；
+所有临时目录在请求结束（成功或失败）后逆序清理。缩略图/元数据生成失败（ffmpeg 缺失、
+非视频文件）→ 打 warn、**去掉缩略图继续发送**（不阻塞其余元素）；kernel 侧再失败会
+按 `SEND_FAILED` 上抛。**验证状态**：kernel 发送侧已于 2026-10-17 18:12 在自建宿主
+实测打通（kernel design.md §8.4：根因是缩略图目标路径必须用视频 md5，不能用缩略图
+内容 md5；群内收到可播放视频）；本层（data URL 落盘 + ffmpeg 抽帧）已由单测覆盖，
+**尚未经真实插件触发做端到端复测**——2026-10-17 18:20 的复测尝试因上游 B 站插件的
+`videoParseMode` 配置问题没走到本层（见 STATUS），复测时只需确认 `thumbPath` 是真实
+本地 PNG 文件、`width`/`height` 取视频宽高。
 
 **可单测**：`elements.ts` / `channel.ts` 纯函数直测；`internal.ts` 注入 mock request
 （`vi.fn`）断言动作名 + params。koishi 主包不 import（HANDOVER §7 坑 1），类型宽松结构。
