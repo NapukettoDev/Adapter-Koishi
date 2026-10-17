@@ -1,6 +1,6 @@
 {
     "name": "koishi-plugin-adapter-napuketto",
-    "version": "0.0.33",
+    "version": "0.0.35",
     "description": "NapukettoQQ内嵌到Koishi的适配器：让Koishi直接驱动NapukettoQQ",
     "contributors": [
         "Oppenheymu <oppenheymu@gmail.com>"
@@ -46,10 +46,10 @@
         "check": "biome check . && tsc --noEmit && tsc --noEmit -p client/tsconfig.json && eslint \"client/**/*.vue\""
     },
     "dependencies": {
-        "@napuketto/adapter": "~0.3.1",
-        "@napuketto/kernel": "~0.1.1",
-        "@napuketto/loader": "~0.0.34",
-        "@napuketto/media": "~0.0.4",
+        "@napuketto/adapter": "~0.3.2",
+        "@napuketto/kernel": "~0.2.0",
+        "@napuketto/loader": "~0.0.35",
+        "@napuketto/media": "~0.0.5",
         "@napuketto/network": "~0.0.2"
     },
     "peerDependencies": {
