@@ -1,0 +1,23 @@
+# 单包工程配置（2026-10-18 独立仓后建立）
+#
+# pnpm 12 把 allowBuilds / minimumReleaseAgeExclude / trustLockfile 这类设置只从
+# pnpm-workspace.yaml 读取（本文件由 `pnpm install` 首次生成，这里补全）。
+# 本仓没有子包；不加 `packages` 即把根包当唯一工程。
+
+# 构建脚本审批：vite/esbuild 依赖 esbuild postinstall，@parcel/watcher 用于
+# 控制台前端构建，vue-demi 是 vue 生态的 postinstall 切换脚本。
+allowBuilds:
+    "@parcel/watcher": true
+    esbuild: true
+    vue-demi: true
+
+# 发版窗口内刚发布的 @napuketto/* 会被默认 1440 分钟发布龄校验拦截
+# （2026-10-17 发布的这组版本），显式豁免。
+minimumReleaseAgeExclude:
+    - "@napuketto/adapter@0.3.2"
+    - "@napuketto/kernel@0.2.0"
+    - "@napuketto/loader@0.0.35"
+    - "@napuketto/media@0.0.5"
+
+# 本仓 lockfile 自产自销，视为可信基础（同主仓理由）。
+trustLockfile: true

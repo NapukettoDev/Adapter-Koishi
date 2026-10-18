@@ -10,7 +10,7 @@
  * （HANDOVER §7 坑 1）；纯逻辑在 payload.ts（可单测）。
  */
 import { type Console, DataService, type Events } from "@koishijs/plugin-console";
-import type { Context } from "koishi";
+import type { Context, Logger } from "koishi";
 import type { LoginPanelPayload } from "./types.js";
 
 // 类型声明扩展（B站模板同款模式）：把本 provider 的 serviceId / relogin 事件
@@ -67,6 +67,17 @@ function qrLoginEventName(selfId: string): string {
 interface LoginPanelOptions {
     /** 登录账号（QQ 号）。 */
     selfId: string;
+    /**
+     * 日志对象（bot 的 logger）。
+     *
+     * ⚠️ 必须注入，不能用 `this.ctx.logger`（2026-10-17 修复）：DataService 的构造
+     * 参数会把 fork ctx 的 runtime.name 改成 `console.services.<serviceId>`，
+     * 该名字与插件的 logger（`onebot`/`NapukettoBot`）不同源，reggol 只按名字
+     * 查 Logger.levels——插件「日志等级」配置对它无效，provider 的 INFO 诊断
+     * 因此无论日志等级调到多低都持续刷屏。注入 bot logger 后等级与插件其余
+     * 日志一致（`logLevel` 生效）。
+     */
+    logger: Logger;
     /** 前端点「重新登录」回调（bot 层按状态发 control login / restart）。 */
     onRelogin?: () => void;
     /** 前端点「扫码登录」回调（bot 层发 control login qr / qrOnly+restart，2026-09-08）。 */
@@ -78,6 +89,9 @@ interface LoginPanelOptions {
 /** 控制台登录面板数据服务（DataService 下行 + relogin 指令上行）。 */
 export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
     private payload: LoginPanelPayload;
+    // 字段名不用 logger：DataService 基类 Service 自带 deprecated 的 `logger`
+    // 实例（名字同为 console.services.*，等级同样不受 logLevel 控制）。
+    private readonly botLogger: Logger;
     private readonly onRelogin: (() => void) | undefined;
     private readonly onQrLogin: (() => void) | undefined;
     private readonly onRefreshQr: (() => void) | undefined;
@@ -98,8 +112,9 @@ export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
         this.onRelogin = options.onRelogin;
         this.onQrLogin = options.onQrLogin;
         this.onRefreshQr = options.onRefreshQr;
+        this.botLogger = options.logger;
         this.payload = { state: "idle", selfId: options.selfId };
-        ctx.logger.info(
+        this.botLogger.debug(
             "[napuketto] 控制台登录面板 provider 已创建: serviceId=%s",
             loginServiceId(options.selfId),
         );
@@ -119,21 +134,22 @@ export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
 
     /** 更新登录状态并推送（每次全量推送——状态变化不频繁，无需 diff）。 */
     update(next: LoginPanelPayload): void {
-        this.ctx.logger.info(
+        this.botLogger.debug(
             "[napuketto] 控制台登录面板 update: state=%s selfId=%s",
             next.state,
             next.selfId,
         );
         this.payload = next;
-        this.refresh();
+        // 推送不阻塞调用方（update 是同步状态回调）；DataService 内部处理推送失败。
+        void this.refresh();
     }
 
     /** DataService 抽象方法：前端 store 请求时返回当前快照。 */
     override async get(): Promise<LoginPanelPayload> {
         // 诊断：控制台客户端连接时 Client.refresh() 会调 get()（PULL 路径）。
         // 若这行不出现 = 服务值未注册到 root store / 客户端没拉取到本服务。
-        // 用 logger（而非 console.log）确保 koishi 日志里可见。
-        this.ctx.logger.info(
+        // debug 级（每次客户端刷新都刷一行，INFO 下应静音）。
+        this.botLogger.debug(
             "[napuketto] get() 被调用（前端 PULL 拉取）: state=%s qr=%s",
             this.payload.state,
             this.payload.qr !== undefined,

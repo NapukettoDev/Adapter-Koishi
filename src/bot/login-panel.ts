@@ -71,6 +71,9 @@ export class NapukettoLoginPanel {
             }
             const provider = new NapukettoLoginProvider(fork, {
                 selfId: this.deps.selfId,
+                // 日志走 bot logger（等级随 logLevel；DataService 的 ctx logger
+                // 名字是 console.services.*，不受插件日志等级控制）
+                logger: this.deps.logger,
                 onRelogin: () => this.requestRelogin(),
                 onQrLogin: () => this.requestQrLogin(),
                 onRefreshQr: () => void this.requestRefreshQr(),
