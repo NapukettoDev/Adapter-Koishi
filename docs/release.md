@@ -55,6 +55,10 @@
 - **E409 `Cannot publish over previously staged version`**：该版本在 npm 暂存区
   等待批准（暂存版本不在 registry 的 versions 列表里，重跑必然再 409）。到
   npmjs.com 的 Staged Packages 批准或拒绝，或 `npm stage list/approve/reject`。
+- **EBADDEVENGINES `Invalid name "pnpm" does not match "npm"`**：npm ≥ 11.5 会在
+  任何命令前校验 `devEngines`，本包声明 `packageManager: pnpm`（`onFail: download`
+  被 npm 当作 error），于是 `npm publish` 连 OIDC 都走不到就退出。publish job 已在
+  解包副本里摘掉 `devEngines`（仓库里的 `package.json` 不动）；本地演练同理，见 §4。
 - **artifact 过期**：审批拖过 30 天后 publish 取不到产物，直接
   `workflow_dispatch` 重跑（detect 会重新判断版本仍未发布）。
 
@@ -63,8 +67,10 @@
 ```bash
 pnpm build && pnpm build:client
 pnpm check && pnpm test
-npm publish --dry-run --access public   # 只打包检查，不发布
 ```
+
+包内容检查走 `pnpm pack --dry-run`（不经过 npm 的 devEngines 校验）；非要
+`npm publish --dry-run` 就先临时删掉 `devEngines`，别提交那个改动。
 
 不要在本地真正 `npm publish`：会绕过 environment 审批与 OIDC 信任链，且
 provenance 缺失。
