@@ -24,11 +24,10 @@
 # publish 显式升级到 11；runner 的 npm 装在系统级 prefix（/usr/local，属 root），
 # 直接 npm install -g 会 EACCES，因此装进用户级 prefix 再前置 PATH。
 #
-# 为什么发包前要摘掉 devEngines：npm ≥ 11.5 会在任何命令前校验 package.json 的
-# devEngines，本包声明 devEngines.packageManager = pnpm（onFail: download 被 npm
-# 当作 error），于是 `npm publish` 直接 EBADDEVENGINES 退出，连 OIDC 都走不到。
-# devEngines 描述的是开发环境约束，与发布产物无关，故只在 publish 的解包副本里
-# 删掉；仓库里的 package.json 保持原样（本地 pnpm 约束不变），产物也不含它。
+# 为什么不用 devEngines 声明 pnpm 版本：npm ≥ 11.5 会在任何命令前校验
+# devEngines.packageManager，声明 pnpm（onFail: download 被 npm 当作 error）会让
+# `npm publish` 直接 EBADDEVENGINES 退出，连 OIDC 都走不到。改用标准
+# packageManager 字段：npm 完全忽略它，pnpm 版本仍由 corepack 钉住。
 #
 # 前置（仓库设置，非代码）：
 #   1. Settings → Environments 建 `release` 并勾 Required reviewers；
@@ -46,7 +45,6 @@
 # verbose 日志然后静默退回无凭证发布。发布步骤已开 NPM_CONFIG_LOGLEVEL=verbose，
 # 日志里看 `POST .../oidc/token/exchange/package/<包名>`：404 = 该包没有匹配的
 # 信任配置（没配 / claim 不符 / 已过期）。
-# 报 EBADDEVENGINES = devEngines 与 npm 冲突（见上文「摘掉 devEngines」）。
 
 name: Release
 
@@ -167,13 +165,6 @@ jobs:
 
             # 不跑 pnpm install：npm publish 不需要 node_modules，且 install 是
             # 构建期代码执行入口，不该出现在持 OIDC token 的 job 里。
-            #
-            # 摘 devEngines：否则 npm ≥ 11.5 以 EBADDEVENGINES 拒绝运行（见文件头）。
-            # 只改解包出来的副本，仓库里的 package.json 不动。
-            - name: 移除 devEngines（npm 与 pnpm 声明冲突）
-              run: |
-                  node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.devEngines;fs.writeFileSync('package.json',JSON.stringify(p,null,4)+'\n');console.log('devEngines removed for publish')"
-
             - name: npm publish（单包）
               working-directory: ${{ github.workspace }}
               env:
