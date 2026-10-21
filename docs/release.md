@@ -65,10 +65,11 @@
 - **E409 `Cannot publish over previously staged version`**：该版本在 npm 暂存区
   等待批准（暂存版本不在 registry 的 versions 列表里，重跑必然再 409）。到
   npmjs.com 的 Staged Packages 批准或拒绝，或 `npm stage list/approve/reject`。
-- **EBADDEVENGINES `Invalid name "pnpm" does not match "npm"`**：npm ≥ 11.5 会在
-  任何命令前校验 `devEngines`，本包声明 `packageManager: pnpm`（`onFail: download`
-  被 npm 当作 error），于是 `npm publish` 连 OIDC 都走不到就退出。publish job 已在
-  解包副本里摘掉 `devEngines`（仓库里的 `package.json` 不动）；本地演练同理，见 §4。
+- **EBADDEVENGINES `Invalid name "pnpm" does not match "npm"`**（历史坑，2026-10-21
+  已消除）：npm ≥ 11.5 会在任何命令前校验 `devEngines`，本包一度用它声明 pnpm
+  （`onFail: download` 被 npm 当作 error），于是 `npm publish` 连 OIDC 都走不到就
+  退出。现改用标准 `packageManager: "pnpm@12.4.1"`：npm 忽略该字段、命令全部恢复，
+  pnpm 版本仍由 corepack 钉住。**不要改回 `devEngines`**。
 - **202 异步处理**：`npm publish` 成功可能只是 registry 的 202「processing」，
   版本要一两分钟才可见；刚发完 `npm view` 404 属正常，不要立刻重发
   （直接查 `https://registry.npmjs.org/<包名>/<版本>` 比 packument 更快）。
@@ -82,8 +83,8 @@ pnpm build && pnpm build:client
 pnpm check && pnpm test
 ```
 
-包内容检查走 `pnpm pack --dry-run`（不经过 npm 的 devEngines 校验）；非要
-`npm publish --dry-run` 就先临时删掉 `devEngines`，别提交那个改动。
+包内容检查走 `pnpm pack --dry-run`；要看 npm 侧的打包视图可用
+`npm publish --dry-run`（`packageManager` 不影响 npm 命令）。
 
 不要在本地真正 `npm publish`：会绕过 environment 审批与 OIDC 信任链，且
 provenance 缺失。
