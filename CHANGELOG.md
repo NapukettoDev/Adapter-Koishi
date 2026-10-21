@@ -1,5 +1,18 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.36
+
+### Patch Changes
+
+- fix(console): 登录面板诊断日志改走 bot logger（debug 级），修复调低「日志等级」仍刷屏
+  
+  - 根因：`NapukettoLoginProvider extends DataService` 时 `this.ctx.logger` 的名字被改成
+    `console.services.<serviceId>`；reggol 按名字查 `Logger.levels`，插件 `logLevel`
+    设置的是 `onebot`，对前者无效，provider 的 INFO 诊断（`get()` / `update()`）因此
+    无论日志等级调到多低都持续输出。
+  - 修复：provider 改为注入 bot logger；`get()`（前端每次 PULL 都触发）与 `update()`
+    降为 debug，默认 `logLevel=debug` 可见，调成 `info`/`error`/`silent` 即静音。
+
 ## 0.0.34
 
 ### Patch Changes

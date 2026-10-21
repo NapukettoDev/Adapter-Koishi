@@ -4,7 +4,7 @@
 [![koishi](https://img.shields.io/badge/koishi-%5E4.18.7-4a6ee0?style=flat-square)](https://koishi.chat)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
 
-[NapukettoQQ](https://github.com/Oppenheymu/NapukettoQQ) 的 Koishi 适配器：让 Koishi 直接驱动 QQ。
+[NapukettoQQ](https://github.com/NapukettoDev/NapukettoQQ) 的 Koishi 适配器：让 Koishi 直接驱动 QQ。
 
 它基于**自研的 QQ NT `wrapper.node` 协议层**工作——**无需 NapCat、无需 WebUI、无需独立协议端**。
 每个 bot 在 Koishi 里就是一个「平台」，插件自动编排一个自建宿主子进程完成加载、登录、收发消息，
@@ -111,18 +111,26 @@ ctx.on('message', (session) => {
 
 ## 开发
 
-本仓库是 [NapukettoQQ](https://github.com/Oppenheymu/NapukettoQQ) 主仓库的 git submodule
-（`apps/koishi-plugin-adapter`），日常开发在主仓库内进行（pnpm workspace 解析 `@napuketto/*`）：
+本仓库独立维护（独立 GitHub 仓 + 独立 lockfile/CI），直接依赖 npm 上**已发布**的
+`@napuketto/*`——不再作为主仓库的 git submodule，也不进主仓库 pnpm workspace：
 
 ```bash
-pnpm install                                                        # 主仓库内
-pnpm --filter koishi-plugin-adapter-napuketto check                  # biome + tsc（含 client 前端）
-pnpm --filter koishi-plugin-adapter-napuketto build                  # tsdown 构建 CJS 产物
-pnpm --filter koishi-plugin-adapter-napuketto build:client           # 构建控制台前端
+pnpm install
+pnpm check          # biome + tsc（src 与 client 两个 tsconfig）
+pnpm test           # vitest（src/**/__tests__）
+pnpm build          # tsdown 构建 CJS 产物
+pnpm build:client   # 构建控制台前端
 ```
+
+> `pnpm lint:client`（eslint 检查 `.vue`）当前跑不了：`@typescript-eslint/parser` 对
+> TS 7 有硬 guard（`typescript-eslint does not support TS 7.0`），主仓同样受影响。
+> 因此 `check` 暂不含 eslint，等上游支持 TS7 后再接回。
 
 - **发布形态**：`lib/index.cjs`（CJS bundle），运行时仅依赖 koishi（peer）
 - **开发免构建**：`exports.development` 条件（`NODE_ENV=development` 直载 `src/index.ts`）
+- **本地联调未发布的 `@napuketto/*`**：在主仓库 `pnpm pack` 出 tarball 后
+  `pnpm add file:<tarball>`（或用 changesets 的 prerelease 版本），验证完再换回 registry
+  版本。不要用 workspace link——那样测的是源码而不是发布形态。
 
 ## 许可证
 

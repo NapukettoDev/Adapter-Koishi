@@ -10,7 +10,7 @@
  * - 产物：dist/index.js（逻辑，lib es 格式 + 手动改名）+ dist/style.css（如有）。
  * - dev 模式无需此脚本（koishi dev 动态编译 client/index.ts）。
  *
- * 用法：`pnpm build:client`（apps/koishi-plugin-adapter 目录；Node 24 直接跑 TS）。
+ * 用法：`pnpm build:client`（本仓根目录；Node 24 直接跑 TS）。
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";

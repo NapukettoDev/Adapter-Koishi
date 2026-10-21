@@ -78,8 +78,12 @@ NapukettoQQ 的自建宿主（路线 A）是**标准 Node 进程**（stub QQNT.d
 
 ## 4. 目录结构（规划）
 
+> **仓库形态（2026-10-18 起）**：本仓为独立仓库（`NapukettoDev/koishi-plugin-adapter-napuketto`），
+> 不再是 NapukettoQQ 主仓的 submodule，也不进主仓 pnpm workspace——依赖只认 npm 上已发布的
+> `@napuketto/*`，自有 lockfile / CI / 版本。跨仓联调走 tarball / prerelease（见 §5.1）。
+
 ```
-apps/koishi-plugin-adapter-napuketto/
+koishi-plugin-adapter-napuketto/
 ├── src/
 │   ├── index.ts              # 插件入口：默认导出 NapukettoBot（平台注册）；usage/Config 挂类上（namespace 合并，见 §5.11）
 │   ├── constants.ts          # 协议共享常量（PRIVATE_PREFIX / CHANNEL_TYPE / BOT_STATUS，2026-08-14）
@@ -176,8 +180,10 @@ apps/koishi-plugin-adapter-napuketto/
   子进程侧 OB11 动作桥需要磁盘上的 adapter 子路径入口（§5.14），插件自身编译期
   仍零 import（类型面用本包宽松结构描述，不绑 adapter d.mts）
 - 开发态：`exports.development` 条件（NODE_ENV=development 直载 `src/index.ts`，
-  esbuild-register 转译 + Node24 `require(esm)`），改源码即时生效；配合主仓库
-  `linkWorkspacePackages: true`，`~0.0.x` 版本范围在 workspace 内解析到本地源码
+  esbuild-register 转译 + Node24 `require(esm)`），改源码即时生效；**依赖范围解析到
+  npm 已发布版本**（2026-10-18 独立仓后不再有 workspace link）。要联调主仓未发布的
+  `@napuketto/*` 改动，用 `pnpm pack` 出 tarball 后 `pnpm add file:<tarball>`，或走
+  changesets prerelease，验证完换回 registry 版本——保持「测的即发布的」
 
 ### 5.2 子进程 IPC（核心决策）
 
@@ -729,6 +735,12 @@ kctx.inject(['console'], (ctx) => {
 
 - `LoginView` 三回调（onStateChange/onQrChange/onError）统一走 `pushLoginPanel()`：
   `snapshot → toLoginPanelPayload → panelRef.update()`
+- **日志**（2026-10-17 修复）：provider 的日志一律走注入的 bot logger，**不得用
+  `this.ctx.logger`**——DataService 构造时会把 fork ctx 的 `runtime.name` 改成
+  `console.services.<serviceId>`，该名字与插件 logger（`onebot`）不同源，reggol 按名字
+  查 `Logger.levels`，插件「日志等级（logLevel）」对它无效（用户调低等级后 provider 的
+  INFO 诊断仍刷屏）。`get()`（前端每次 PULL 都触发）与 `update()` 属诊断日志，用
+  **debug** 级：默认 `logLevel=debug` 可见，调成 `info`/`error` 即静音。
 - **重新登录 / 强制扫码**（2026-09-08 T2 重做；2026-09-08 A2 扩展 ready 态软重登，
   决策与执行在 `login-actions.ts` 纯函数）：
   - **重新登录**：登录期（idle/waiting_scan/scanned）→ `control login {uin}` 原地重登

@@ -1,5 +1,10 @@
 # koishi-plugin-adapter-napuketto 交接（2026-08-08 深夜二稿：端到端联调启动）
 
+> **2026-10-18 起本仓独立**：不再是 NapukettoQQ 主仓的 git submodule，也不进主仓 pnpm
+> workspace；自有 lockfile / CI / 版本，依赖只认 npm 已发布的 `@napuketto/*`。下文提到的
+> 「主仓 workspace」「子模块指针」「主仓根跑 vitest」等流程均已作废——现行流程见
+> `readme.md`「开发」节与 `docs/design.md` §4。
+
 > **新对话开场指引（照抄主仓库惯例）**：先读本文件 → `docs/design.md`（总体设计 +
 > 已实现模块标注）→ 主仓库 `docs/STATUS.md` / `AGENTS.md` / `docs/architecture.md`。
 > 本文件记录 koishi 适配器施工进度、关键决策、坑与下一步，供新会话无缝衔接。

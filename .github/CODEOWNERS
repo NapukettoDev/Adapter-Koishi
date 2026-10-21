@@ -1,0 +1,23 @@
+# CODEOWNERS —— 高风险路径的复核名单。
+#
+# 本仓单维护者；require_code_owner_review 对 owner 自己提的 PR 不产生第二人复核
+# （GitHub 不允许自审），实际门禁是「PR + 必需状态检查 + merge queue」。本文件
+# 的作用是把发布链 / CI / 根配置这些高风险路径显式列出来，提醒改动影响面。
+#
+# 模式顺序有意义：同一文件被多条命中时最后一条生效；`*` 兜底，`/` 锚定仓库根。
+
+*                                   @Oppenheymu
+
+# 发布链与 CI（改 workflow 等于改发布权）
+/.github/workflows/**               @Oppenheymu
+/docs/release.md                    @Oppenheymu
+
+# 发布产物与依赖面
+/package.json                      @Oppenheymu
+/pnpm-lock.yaml                    @Oppenheymu
+/pnpm-workspace.yaml               @Oppenheymu
+/tsdown.config.ts                  @Oppenheymu
+/scripts/**                        @Oppenheymu
+/biome.json                        @Oppenheymu
+/eslint.config.ts                  @Oppenheymu
+/tsconfig.json                     @Oppenheymu

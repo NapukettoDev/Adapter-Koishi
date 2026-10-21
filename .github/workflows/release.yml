@@ -1,0 +1,167 @@
+# 发布流水线（npm OIDC 可信发布）
+#
+# 形态：detect → prepare → publish 三 job。
+#
+# 本仓是**单包**（koishi-plugin-adapter-napuketto）、版本号在 PR 里手工 bump，
+# 所以没有 changeset 消费与版本提交推送：要不要发只取决于 registry 上有没有
+# package.json 里的版本。没有就构建/测试并发布，有就整轮跳过（重跑天然幂等）。
+#
+#   detect   查 registry：版本未发布 → publish=true（约 10 秒）
+#   prepare  install → 构建（CJS bundle + 控制台前端）→ check → test → 打包 artifact
+#            （contents: read，**无** id-token）
+#   publish  解包 artifact → npm publish
+#            （id-token: write + environment 审批，**无** contents 写权限）
+#
+# 为什么拆两个 job：npm 的可信发布把发布权授给「谁能让本文件在 main 上跑起来」，
+# 构建期可执行的代码（package.json 脚本、tsdown 配置、scripts/build-client.ts）
+# 绝不能与 OIDC token 同处一个 job——一处被改坏就能发任意版本。故 publish 不跑
+# install、不跑任何构建脚本，只做 npm publish。
+#
+# 为什么不需要 GitHub App：本仓版本 bump 在 PR 里完成，CI 不往 main 写任何提交，
+# 因此不需要 bypass 规则集，也不存在长期凭证。
+#
+# npm 版本：OIDC 可信发布需 npm ≥ 11.5.1。runner 自带版本随镜像漂移，故在
+# publish 显式升级到 11；runner 的 npm 装在系统级 prefix（/usr/local，属 root），
+# 直接 npm install -g 会 EACCES，因此装进用户级 prefix 再前置 PATH。
+#
+# 前置（仓库设置，非代码）：
+#   1. Settings → Environments 建 `release` 并勾 Required reviewers；
+#      Deployment branches 限制为 main。名字必须与 npm 信任配置的 environment
+#      claim 严格同名，否则 OIDC 不认。
+#   2. npm 侧信任配置（逐包，本仓一个包）：
+#        npm trust github koishi-plugin-adapter-napuketto --file release.yml \
+#          --repo NapukettoDev/Adapter-Koishi --environment release \
+#          --allow-publish --yes
+#      新建后 2 天内必须完成首次发布，否则失效且不可编辑（只能 revoke 重建）。
+#   3. package.json 的 repository.url 必须指向本仓（provenance 会校验），
+#      否则 registry 回 422 "Failed to validate repository information"。
+#
+# 排障：publish 报 ENEEDAUTH 不代表没登录——OIDC 换 token 失败时 npm 只写
+# verbose 日志然后静默退回无凭证发布。发布步骤已开 NPM_CONFIG_LOGLEVEL=verbose，
+# 日志里看 `POST .../oidc/token/exchange/package/<包名>`：404 = 该包没有匹配的
+# 信任配置（没配 / claim 不符 / 已过期）。
+
+name: Release
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+# 严禁并发：两个运行同时发布同一版本会互相撞车
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    detect:
+        name: detect（registry 比对）
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            publish: ${{ steps.check.outputs.publish }}
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+
+            - id: check
+              name: 版本是否已发布
+              run: node scripts/check-publishable.mjs
+
+    prepare:
+        name: prepare（构建 / check / test）
+        needs: detect
+        if: needs.detect.outputs.publish == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            contents: read # 本 job 不写仓库，发布权只在 publish 的 id-token
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: 12.4.1
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: 安装依赖（frozen-lockfile 锁死供应链）
+              run: pnpm install --frozen-lockfile
+
+            # 与 ci.yml 同序：build 前置于 check（tsc 走 NodeNext 解析
+            # @napuketto/* 的 exports，dist 类型必须存在），build:client 产出
+            # 控制台前端 dist。
+            - name: 构建（CJS bundle + 控制台前端）
+              run: pnpm build && pnpm build:client
+
+            - name: biome + tsc + eslint
+              run: pnpm check
+
+            - name: 单测
+              run: pnpm test
+
+            # 打包给 publish job；node_modules 与 .git 都不需要
+            - name: 打包工作区
+              run: tar --exclude=./node_modules --exclude=./.git -czf "$RUNNER_TEMP/release-workspace.tgz" .
+
+            # retention 必须长于「等人工审批」这段不可控时长（30 天 = 仓库默认）
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: release-workspace
+                  path: ${{ runner.temp }}/release-workspace.tgz
+                  retention-days: 30
+
+    publish:
+        name: publish（OIDC 发包，需 environment 审批）
+        needs: [detect, prepare]
+        if: needs.detect.outputs.publish == 'true' && needs.prepare.result == 'success'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        # 与 npm 信任配置的 environment claim 同名；required reviewers 在这里生效。
+        # 这是「合并 ≠ 上线」的唯一结构性保证。用对象形式避开编辑器 schema 误报。
+        environment:
+            name: release
+        permissions:
+            contents: read
+            id-token: write # OIDC：换包级短时 token + 自动 provenance
+        steps:
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+
+            # runner 的 npm 属 root：装进用户级 prefix 再前置 PATH（安装与写
+            # PATH 必须在同一步，GITHUB_PATH 只对后续步骤生效）。
+            - name: 升级 npm（OIDC 发布需 npm ≥ 11.5.1）
+              run: |
+                  npm install -g npm@11 --prefix "$HOME/.npm-global"
+                  echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+
+            - name: 确认 npm 版本
+              run: npm --version
+
+            - uses: actions/download-artifact@v8
+              with:
+                  name: release-workspace
+                  path: ${{ runner.temp }}
+
+            - name: 解包到工作区
+              run: |
+                  mkdir -p "$GITHUB_WORKSPACE"
+                  tar -xzf "$RUNNER_TEMP/release-workspace.tgz" -C "$GITHUB_WORKSPACE"
+
+            # 不跑 pnpm install：npm publish 不需要 node_modules，且 install 是
+            # 构建期代码执行入口，不该出现在持 OIDC token 的 job 里。
+            - name: npm publish（单包）
+              working-directory: ${{ github.workspace }}
+              env:
+                  NPM_CONFIG_LOGLEVEL: verbose
+              run: npm publish --access public

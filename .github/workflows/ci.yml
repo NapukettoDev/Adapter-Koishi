@@ -1,0 +1,79 @@
+# 本仓 CI（2026-10-18 独立仓后建立）
+#
+# 验证的是**发布形态**：依赖从 npm registry 安装（不再是主仓 workspace 本地 link），
+# 所以这里的绿才真的等于「装插件的人拿到的组合能跑」。
+#
+# 顺序：install → build（tsdown + 控制台前端）→ check（biome/tsc/eslint）→ test。
+# build 前置：check 的 tsc 走 NodeNext 解析 @napuketto/* 的 exports，dist 类型必须存在。
+#
+# runs-on 固定 ubuntu-24.04（与主仓一致，避免 ubuntu-latest 迁移窗口漂移）；
+# windows 只跑测试补位（插件运行时优先 Windows + QQ 原生层）。
+#
+# merge_group（2026-10-21）：主分支 ruleset 启用 merge queue 后，必需检查只认
+# 在队列临时 ref 上跑出来的那一次；缺这个触发，PR 进队列会等不到检查而超时。
+# 两个 job 的 name 就是 ruleset 的必需检查 context，改名须同步改规则集。
+
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+    merge_group:
+    workflow_dispatch:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        name: build / check / test
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: 12.4.1
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: 安装依赖（frozen-lockfile 锁死供应链）
+              run: pnpm install --frozen-lockfile
+
+            - name: 构建（CJS bundle + 控制台前端）
+              run: pnpm build && pnpm build:client
+
+            - name: biome + tsc + eslint
+              run: pnpm check
+
+            - name: 单测
+              run: pnpm test
+
+    windows:
+        name: windows (test)
+        runs-on: windows-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: 12.4.1
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
+
+            - run: pnpm test
