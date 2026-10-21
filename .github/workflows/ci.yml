@@ -8,6 +8,10 @@
 #
 # runs-on 固定 ubuntu-24.04（与主仓一致，避免 ubuntu-latest 迁移窗口漂移）；
 # windows 只跑测试补位（插件运行时优先 Windows + QQ 原生层）。
+#
+# merge_group（2026-10-21）：主分支 ruleset 启用 merge queue 后，必需检查只认
+# 在队列临时 ref 上跑出来的那一次；缺这个触发，PR 进队列会等不到检查而超时。
+# 两个 job 的 name 就是 ruleset 的必需检查 context，改名须同步改规则集。
 
 name: CI
 
@@ -15,6 +19,7 @@ on:
     push:
         branches: [main]
     pull_request:
+    merge_group:
     workflow_dispatch:
 
 concurrency:
@@ -30,7 +35,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v7
 
             - uses: pnpm/action-setup@v6
               with:
@@ -58,7 +63,7 @@ jobs:
         runs-on: windows-latest
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v7
 
             - uses: pnpm/action-setup@v6
               with:

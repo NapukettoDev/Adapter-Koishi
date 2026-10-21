@@ -32,10 +32,10 @@
     "publishConfig": {
         "access": "public"
     },
-    "homepage": "https://github.com/NapukettoDev/koishi-plugin-adapter-napuketto",
+    "homepage": "https://github.com/NapukettoDev/Adapter-Koishi",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/NapukettoDev/koishi-plugin-adapter-napuketto.git"
+        "url": "git+https://github.com/NapukettoDev/Adapter-Koishi.git"
     },
     "keywords": [
         "chatbot",
