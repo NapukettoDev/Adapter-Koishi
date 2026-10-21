@@ -42,6 +42,16 @@
 3. **`repository.url` 必须指向本仓**：provenance 会校验 package.json 的
    repository 与 OIDC token 的仓库一致；不一致时 registry 回
    `422 Failed to validate repository information`。
+4. **分支规则集**（ruleset「保护主分支」，与主仓同构）：pull_request（1 审批 +
+   require_code_owner_review + 只允许 squash）、merge_queue、required_linear_history、
+   required_signatures、code_scanning（CodeQL，medium 及以上），以及必需状态检查：
+   - `build / check / test`
+   - `windows (test)`
+
+   `ci.yml` 的 job name 就是检查 context，改名必须同步改规则集，否则 PR 永远等
+   不到同名检查；`ci.yml` 的 `merge_group` 触发也不可省（merge queue 只认在队列
+   临时 ref 上跑出来的检查）。bypass 只放 **Repository admin**（版本提交不经过
+   CI，本仓不需要 GitHub App——没有 CI 往 main 写提交的路径）。
 
 ## 3. 排障
 
@@ -59,6 +69,9 @@
   任何命令前校验 `devEngines`，本包声明 `packageManager: pnpm`（`onFail: download`
   被 npm 当作 error），于是 `npm publish` 连 OIDC 都走不到就退出。publish job 已在
   解包副本里摘掉 `devEngines`（仓库里的 `package.json` 不动）；本地演练同理，见 §4。
+- **202 异步处理**：`npm publish` 成功可能只是 registry 的 202「processing」，
+  版本要一两分钟才可见；刚发完 `npm view` 404 属正常，不要立刻重发
+  （直接查 `https://registry.npmjs.org/<包名>/<版本>` 比 packument 更快）。
 - **artifact 过期**：审批拖过 30 天后 publish 取不到产物，直接
   `workflow_dispatch` 重跑（detect 会重新判断版本仍未发布）。
 
