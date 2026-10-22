@@ -133,6 +133,9 @@ ctx.on('message', (session) => {
 
 每个账号一个自建宿主子进程，Koishi 主进程通过 stdin / stdout 的 JSON Lines 与 kernel 通信。原生层的崩溃、卡死由心跳探针与指数退避隔离在子进程内，主进程不受影响。
 
+<details>
+<summary><b>展开查看架构图</b></summary>
+
 ```mermaid
 flowchart TB
     subgraph Main["Koishi 主进程"]
@@ -157,6 +160,8 @@ flowchart TB
     Auth --> Native
     Kernel <--> Native
 ```
+
+</details>
 
 ---
 
@@ -185,7 +190,6 @@ pnpm build:client
 
 * **文档**：[设计说明](./docs/design.md) ｜ [发布流程](./docs/release.md) ｜ [更新日志](./CHANGELOG.md)
 * **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
-* **反馈**：[GitHub Issues](https://github.com/NapukettoDev/Adapter-Koishi/issues)
 
 > [!CAUTION]
 > **免责声明**：\
