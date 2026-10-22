@@ -10,7 +10,7 @@
 
 # 发布链与 CI（改 workflow 等于改发布权）
 /.github/workflows/**               @Oppenheymu
-/docs/release.md                    @Oppenheymu
+/docs/operations/release.md          @Oppenheymu
 
 # 发布产物与依赖面
 /package.json                      @Oppenheymu
