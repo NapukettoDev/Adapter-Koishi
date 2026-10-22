@@ -1,0 +1,14 @@
+{
+    "js/ts.experimental.useTsgo": true,
+    "editor.defaultFormatter": "biomejs.biome",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.fixAll.biome": "explicit",
+        "source.organizeImports.biome": "explicit"
+    },
+    "material-icon-theme.folders.associations": {
+        // docs
+        "guides": "instructions",
+        // src
+    },
+}
