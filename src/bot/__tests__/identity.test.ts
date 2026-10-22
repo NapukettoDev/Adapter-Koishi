@@ -5,8 +5,9 @@
  * offline）②与配置 selfId 一致 → 放行 ③不一致 → 拒绝（置闸门 + 可操作
  * 提示 + 停 driver + 拒绝上线，顺序保持原实现）。
  *
- * checkIdentity 副作用挂 koishi Bot 基类，单测不可 import koishi（HANDOVER
- * §7 坑 1）——被测对象是拆出的纯逻辑（utils/identity.ts）：evaluateIdentity
+ * checkIdentity 副作用挂 koishi Bot 基类，单测不可 import koishi
+ * （docs/guides/development.md 单测边界）——被测对象是拆出的纯逻辑
+ * （utils/identity.ts）：evaluateIdentity
  * 纯判定 + rejectIdentityMismatch 注入式拒绝动作；bot.ts 的 checkIdentity
  * 只剩组装（接线注入 logger/identityMismatch/driver/offline）。
  */

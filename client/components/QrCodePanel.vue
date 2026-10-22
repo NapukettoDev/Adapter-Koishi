@@ -1,5 +1,5 @@
 <!--
-  QrCodePanel.vue：扫码登录二维码面板（settings.vue 拆出，design.md §5.12）。
+  QrCodePanel.vue：扫码登录二维码面板（settings.vue 拆出，docs/internals/console.md）。
 
   仅负责 waiting_scan 状态展示：二维码 + 过期遮罩 + 刷新/打开链接操作。
   过期计时（qrExpired）与刷新 loading（qrLoading）由父组件管理（settings.vue

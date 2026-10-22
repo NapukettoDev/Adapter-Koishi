@@ -1,5 +1,5 @@
 /**
- * login-panel.ts：控制台登录面板装配（design.md §5.12，自 bot.ts 拆出）。
+ * login-panel.ts：控制台登录面板装配（docs/internals/console.md，自 bot.ts 拆出）。
  *
  * NapukettoLoginPanel 封装「console 服务就绪后装配 provider」的完整逻辑：
  *  - reload 去重：root store 不随插件 dispose 自动清理，同 selfId 已注册则复用
@@ -116,7 +116,7 @@ export class NapukettoLoginPanel {
      *  - 登录期（idle/waiting_scan/scanned）→ control login 原地重登（不重启
      *    子进程；loader 端成功结果抢占初始登录竞速，装配链用新结果继续）
      *  - ready/failed/client 不可用 → control restart 整进程重启（可靠路径：
-     *    ready 态软重登需装配链重跑，见 design.md 遗留）
+     *    ready 态软重登需装配链重跑，见 docs/architecture/lifecycle.md）
      */
     requestRelogin(): void {
         const plan = planRelogin({

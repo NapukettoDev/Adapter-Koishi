@@ -1,5 +1,5 @@
 /**
- * bot.ts：NapukettoBot——koishi Bot 子类（design.md §5.11，端到端验证点）。
+ * bot.ts：NapukettoBot——koishi Bot 子类（docs/internals/bot.md，端到端验证点）。
  *
  * 装配方式：不写 Adapter（fork/connect 为 HTTP/WS 网络服务设计）。koishi Bot
  * 构造自动注册 `ctx.on('ready', () => this.start())`——override start() spawn
@@ -8,7 +8,7 @@
  * 链路：driver（子进程生命周期）→ IPC client → 事件桥（kernel 事件 → koishi
  * session，dispatch）+ 动作桥（NapukettoInternal，koishi 动作 → IPC action）。
  *
- * 运行时 import koishi（Bot/Universal 等）——本文件不进单测（HANDOVER §7 坑 1）。
+ * 运行时 import koishi（Bot/Universal 等）——本文件不进单测（docs/guides/development.md 单测边界）。
  *
  * ⚠️ Context 来源（2026-08-08 修复）：Bot 基类（satorijs）的泛型约束是
  * satorijs/cordis 的 Context，而 koishi 的 Context（独立 interface，含
@@ -90,7 +90,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
     private driver: NapukettoDriver | null = null;
     private readonly login: NapukettoLoginState;
     private readonly bridge: NapukettoEventBridge;
-    /** 数据库操作集中管理（design.md §5.13）：dispatch 前原子预热 channel/user。 */
+    /** 数据库操作集中管理（docs/internals/bot.md）：dispatch 前原子预热 channel/user。 */
     private readonly database: NapukettoDatabase;
     /** autoAssign 语义（构造时解析一次；koishi 默认 true）。 */
     private readonly autoAssign: boolean;
@@ -139,7 +139,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
         // satorijs Context → koishi Context cast——运行时同一实例，仅类型收窄
         this.panel.setup(this.ctx as unknown as KoishiContext);
 
-        // 数据库操作集中管理（design.md §5.13）：dispatch 前原子预热 channel/user，
+        // 数据库操作集中管理（docs/internals/bot.md）：dispatch 前原子预热 channel/user，
         // 消除 koishi get-or-create 并发撞唯一键（channel 与 binding 同源，issue
         // #1545）。autoAssign/autoAuthorize 构造时解析一次（assembly.ts 纯函数）。
         const { autoAssign, autoAuthorize } = resolveAssignPolicy(
@@ -246,7 +246,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
     }
 
     /**
-     * 订阅原始 OB11 事件（design.md §5.14）：子进程 OB11 动作桥透出的
+     * 订阅原始 OB11 事件（docs/internals/actions.md）：子进程 OB11 动作桥透出的
      * OneBot 11 格式事件（post_type = message/notice/request/meta_event），
      * 不经 koishi session 翻译。ob11Actions=false 或子进程降级时无事件到来。
      */
@@ -408,7 +408,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
         if (this.identityMismatch) {
             return;
         }
-        // 原子预热 channel/user（design.md §5.13，2026-08-09 并发竞态修复）：
+        // 原子预热 channel/user（docs/internals/bot.md，2026-08-09 并发竞态修复）：
         // 预热后 koishi SELECT 必命中，永远走不到 get-or-create 的并发 INSERT
         //（根因 koishijs/koishi#1545）。预热失败不阻断派发（框架兜底）。
         await this.preheat(fields);
@@ -482,7 +482,7 @@ export namespace NapukettoBot {
     // 控制台没面板，登录走二维码文件/日志）。cordis 对未声明 inject 的服务访问
     // emit internal/warning（实测每条消息刷 `property database is not
     // registered`），optional 声明让 internal/inject 检查放行，消除刷屏；
-    // 配合 NapukettoDatabase 内部收 root ctx 双保险（design.md §5.13）。
+    // 配合 NapukettoDatabase 内部收 root ctx 双保险（docs/internals/bot.md）。
     // ⚠️ 不写 export const name：namespace 合并编译成 `NapukettoBot.name = ...`
     // 赋值语句，而 Function.name 是 writable:false——ESM 严格模式下加载即抛
     // TypeError（2026-08-14 实证）。Bot 子类插件名由 package.json 决定，无需静态。

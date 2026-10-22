@@ -1,7 +1,7 @@
 /**
  * media.test.ts：ensureSilk / ensureVoiceSilk 单测（mock @napuketto/media）。
  *
- * 锁定语音归一化的三条路径（design.md §5.10）：
+ * 锁定语音归一化的三条路径（docs/internals/actions.md）：
  * - 已是 silk（#!SILK 头）→ 原样返回（不触发转码）
  * - 非 silk → encodePcmToSilk 转码返回新路径
  * - 转码失败 → 回落原路径（kernel 发送兜底，不阻断）

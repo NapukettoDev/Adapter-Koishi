@@ -1,5 +1,5 @@
 /**
- * provider.ts：控制台登录面板数据服务（design.md §5.12）。
+ * provider.ts：控制台登录面板数据服务（docs/internals/console.md）。
  *
  * NapukettoLoginProvider extends DataService（@koishijs/plugin-console）：
  *  - 数据下行：update() 存快照 + refresh() 推送到前端 store（`napuketto-login-<uin>`）
@@ -7,7 +7,7 @@
  *    onRelogin 回调（bot 层发 IPC control restart 重启登录流程）
  *
  * 运行时 import @koishijs/plugin-console / koishi——本文件不进单测
- * （HANDOVER §7 坑 1）；纯逻辑在 payload.ts（可单测）。
+ * （docs/guides/development.md 单测边界）；纯逻辑在 payload.ts（可单测）。
  */
 import { type Console, DataService, type Events } from "@koishijs/plugin-console";
 import type { Context, Logger } from "koishi";

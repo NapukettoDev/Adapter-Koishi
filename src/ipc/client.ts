@@ -1,7 +1,7 @@
 /**
  * client.ts：IPC 客户端（插件侧）。
  *
- * 职责（design.md §5.6）：
+ * 职责（docs/internals/runtime.md）：
  *  - 传输 + 编解码接线
  *  - 请求-响应匹配（单调递增 id + pending Map + 超时清理）
  *  - 心跳（子进程发 ping → 自动回 pong，记录 lastPingAt/lastPongAt/lastSeenAt）

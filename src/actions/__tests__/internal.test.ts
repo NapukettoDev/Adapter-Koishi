@@ -1,5 +1,5 @@
 /**
- * internal.test.ts：NapukettoInternal 单测（mock request 注入，design.md §5.10）。
+ * internal.test.ts：NapukettoInternal 单测（mock request 注入，docs/internals/actions.md）。
  *
  * 语音用例（2026-08-23）：sendMessage 里 audio → voice 后统一转 silk
  * （mock @napuketto/media，真实文件头判断在 media.test.ts 覆盖）。

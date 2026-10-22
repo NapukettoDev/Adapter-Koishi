@@ -1,5 +1,5 @@
 /**
- * bridge.ts：NapukettoEventBridge——kernel 事件 → koishi session（design.md §5.9）。
+ * bridge.ts：NapukettoEventBridge——kernel 事件 → koishi session（docs/internals/events.md）。
  *
  * 订阅 driver.onEvent（kernel 事件 { service, name, args }）→ 翻译 → dispatch。
  * 本轮实现消息事件（Msg/onRecvMsg，args 为 RawMessage[] 运行时实证）——
@@ -77,7 +77,7 @@ export class NapukettoEventBridge implements EventBridge {
         this.options.dispatch(session);
     }
 
-    /** 订阅原始 OB11 事件（design.md §5.14）；返回退订函数。 */
+    /** 订阅原始 OB11 事件（docs/internals/actions.md）；返回退订函数。 */
     onOb11(listener: (event: Ob11EventPayload) => void): () => void {
         this.ob11Listeners.add(listener);
         return () => {

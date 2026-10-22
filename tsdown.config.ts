@@ -2,14 +2,13 @@
  * tsdown.config.ts：koishi 适配器构建。
  *
  * 产物：lib/index.cjs（CJS）——koishi loader 用 require() 加载插件。
- * 发布形态（2026-08-09 产品化）：@napuketto/kernel、@napuketto/loader 为
- * dependencies（npm 真实安装），**external 不 bundle**——自建宿主子进程
- * spawn 时按绝对路径读磁盘真实文件（self-host.cjs / stub QQNT.dll /
- * kernel 入口），bundle 后这些资产丢失（见 HANDOVER §5）。koishi 保持
- * external（peer 单实例）。
+ * 发布形态：@napuketto/* 与 @koishijs/* 均为真实安装的 dependencies/peer，
+ * **external 不 bundle**——自建宿主子进程 spawn 时按绝对路径读磁盘真实文件
+ * （self-host.cjs / stub QQNT.dll / kernel 入口），bundle 后这些资产丢失（见
+ * docs/guides/development.md 产物与依赖形态）。koishi 保持 external（peer 单实例）。
  *
- * 开发形态走 package.json exports.development 条件（→ src/index.ts），
- * koishi 在 NODE_ENV=development 下直载 TS 源码（esbuild-register 转译），免构建。
+ * 开发形态可走 package.json exports.development 条件（→ src/index.ts，仅仓库内
+ * 有效）；发布包不含 src，安装后始终加载 lib。启动顺序说明见 docs/README.md。
  */
 import { defineConfig } from 'tsdown';
 

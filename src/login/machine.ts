@@ -1,5 +1,5 @@
 /**
- * machine.ts：登录状态机（design.md §5.8）。
+ * machine.ts：登录状态机（docs/architecture/lifecycle.md）。
  *
  * 观察 driver.onLogin/onQr → 迁移 + 通知 LoginView。QR 缓冲：onQr 先于
  * onLogin(waiting_scan) 到达（IPC 乱序）→ 内部暂存，迁移时随状态送出。

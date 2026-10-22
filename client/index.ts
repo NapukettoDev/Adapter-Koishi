@@ -1,5 +1,5 @@
 /**
- * index.ts：控制台前端入口（design.md §5.12）。
+ * index.ts：控制台前端入口（docs/internals/console.md）。
  *
  * 把扫码登录面板挂到 Koishi 控制台的插件详情页（plugin-details slot）——
  * 机制参照 koishi-plugin-adapter-bilibili-dm（MIT，仅借鉴挂载点模式）。

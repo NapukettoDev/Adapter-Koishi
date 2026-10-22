@@ -1,5 +1,5 @@
 /**
- * elements.ts：canonical 元素 → koishi 元素（纯函数，design.md §5.9）。
+ * elements.ts：canonical 元素 → koishi 元素（纯函数，docs/internals/events.md）。
  *
  * 元素映射（canonical → koishi）：
  *  - text → h("text", { content })
@@ -33,7 +33,7 @@ export type HFn = (
  *
  * h 可调用（Element 工厂），类型宽适配规避逆变检查（koishi h 的实际签名
  * 比 HFn 更复杂，cast 到最小面即可——运行时行为不变）。单测用 mockH()
- * （test-utils.ts），不 import koishi 主包（HANDOVER §7 坑 1）。
+ * （test-utils.ts），不 import koishi 主包（docs/guides/development.md 单测边界）。
  */
 export function bindKoishiH(koishiH: typeof h): HFn {
     const factory = koishiH as unknown as HFn;

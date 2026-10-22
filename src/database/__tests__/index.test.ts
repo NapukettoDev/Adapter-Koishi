@@ -1,5 +1,5 @@
 /**
- * index.test.ts：数据库模块单测（design.md §5.13）。
+ * index.test.ts：数据库模块单测（docs/internals/bot.md）。
  *
  * 覆盖：channel/user 命中直返 / 未命中原子创建（upsert 幂等）/ 同 key 串行 /
  * 异 key 并行 / ctx.database 不可用降级 / 失败降级（单次告警）/ autoAuthorize=0
@@ -15,7 +15,7 @@ function mockCtx(overrides: { database?: unknown; warn?: ReturnType<typeof vi.fn
     const self = {
         ...(overrides.database !== undefined ? { database: overrides.database } : {}),
         logger: () => ({ warn: overrides.warn ?? vi.fn() }),
-        // NapukettoDatabase 构造收 ctx.root（design.md §5.13）；mock root 指向自身
+        // NapukettoDatabase 构造收 ctx.root（docs/internals/bot.md）；mock root 指向自身
         root: null as unknown,
     };
     self.root = self;

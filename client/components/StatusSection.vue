@@ -1,5 +1,5 @@
 <!--
-  StatusSection.vue：登录状态信息面板（settings.vue 拆出，design.md §5.12）。
+  StatusSection.vue：登录状态信息面板（settings.vue 拆出，docs/internals/console.md）。
 
   展示非扫码状态（idle/scanned/logged_in/failed）的文案与操作：
   - idle：子进程启动中（加载态）

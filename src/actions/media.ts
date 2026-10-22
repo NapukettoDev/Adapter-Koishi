@@ -1,5 +1,5 @@
 /**
- * media.ts：发送侧媒体归一化（design.md §5.10）
+ * media.ts：发送侧媒体归一化（docs/internals/actions.md）
  *
  * 1. 语音格式归一化（ensureSilk/ensureVoiceSilk）：koishi 发语音（h.audio →
  *    canonical voice）前统一转 QQ 语音格式（silk v3）：非 silk 输入（ogg/mp3/

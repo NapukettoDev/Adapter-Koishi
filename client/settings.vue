@@ -1,5 +1,5 @@
 <!--
-  settings.vue：NapukettoQQ 扫码登录面板（design.md §5.12）。
+  settings.vue：NapukettoQQ 扫码登录面板（docs/internals/console.md）。
 
   挂在插件详情页（client/index.ts 的 plugin-details slot）。数据源：
   - store['napuketto-login-<uin>']：后端 DataService 推送（状态 + 二维码）

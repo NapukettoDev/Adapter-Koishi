@@ -1,5 +1,5 @@
 /**
- * types.ts：登录交互层类型（design.md §5.8）。
+ * types.ts：登录交互层类型（docs/architecture/lifecycle.md）。
  *
  * 登录状态在子进程内驱动（self-host bootstrap 登录），插件侧只做状态观察 +
  * QR 展示。driver 的 onLogin/onQr 已透出——LoginObserver 装配这两个回调。
