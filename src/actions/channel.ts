@@ -1,5 +1,5 @@
 /**
- * channel.ts：channelId → Peer 参数（纯函数，design.md §5.10）。
+ * channel.ts：channelId → Peer 参数（纯函数，docs/internals/actions.md）。
  *
  * 与事件桥 §5.9 会话标识映射对称：
  *  - 群号（纯数字）→ chatType=2（GROUP），peerUin=群号

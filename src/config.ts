@@ -1,5 +1,5 @@
 /**
- * config.ts：koishi bot 配置 schema（design.md §5.11）。
+ * config.ts：koishi bot 配置 schema（docs/internals/bot.md）。
  *
  * koishi 平台 bot 配置（`bots: { 'onebot:<uin>': {...} }`）：
  *  - selfId：登录账号（QQ 号，必填，数据目录账号隔离 + 快速登录账号）
@@ -9,7 +9,7 @@
  *  - logLevel：日志等级（默认 debug——多点日志便于排查，用户可调低减少输出）
  *  - restart / heartbeatTimeoutMs：driver 重启策略与心跳超时
  *
- * 运行时 import koishi（Schema）——本文件不进单测（HANDOVER §7 坑 1）。
+ * 运行时 import koishi（Schema）——本文件不进单测（docs/guides/development.md 单测边界）。
  */
 import { Schema } from "koishi";
 
@@ -40,7 +40,7 @@ export interface NapukettoBotConfig {
     kernelEntry?: string;
     /** 自建宿主入口覆盖（高级项；缺省 loader 包内 dist/host/self-host.cjs）。 */
     selfHostEntry?: string;
-    /** OB11 动作桥入口覆盖（高级项；缺省按 dependencies 自动解析，design.md §5.14）。 */
+    /** OB11 动作桥入口覆盖（高级项；缺省按 dependencies 自动解析，docs/internals/actions.md）。 */
     adapterEntry?: string;
     /** network 入口覆盖（高级项；与 adapterEntry 配对，EventBroadcaster 用）。 */
     networkEntry?: string;
@@ -48,7 +48,7 @@ export interface NapukettoBotConfig {
     heartbeatTimeoutMs?: number;
     /**
      * OB11 动作桥（默认 true）：子进程整表挂载 @napuketto/adapter 的 OneBot 11
-     * 动作容器（79 动作 + ob11 事件透出，零网络传输；design.md §5.14）。
+     * 动作容器（79 动作 + ob11 事件透出，零网络传输；docs/internals/actions.md）。
      * 关闭 = 只保留 kernel 点分动作面（子进程也不需要 adapter/network 依赖）。
      */
     ob11Actions?: boolean;

@@ -1,5 +1,5 @@
 /**
- * launch.test.ts：launch 工厂纯函数单测（design.md §5.11）。
+ * launch.test.ts：launch 工厂纯函数单测（docs/internals/bot.md）。
  *
  * 只测 resolveEntry（override 分支）与 resolveLaunchOptions（配置解析）；
  * 不真实 spawn（launchSelfHost 需 stub/wrapper 环境）。测试注入 qqPath 与

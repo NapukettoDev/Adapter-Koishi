@@ -1,5 +1,5 @@
 /**
- * adapt.ts：kernel RawMessage → koishi session 字段（纯函数，design.md §5.9）。
+ * adapt.ts：kernel RawMessage → koishi session 字段（纯函数，docs/internals/events.md）。
  *
  * 链路：IPC event.args（RawMessage）→ kernel toCanonicalElements（canonical 中间层）
  * → toKoishiElements（koishi 元素）→ session 字段。

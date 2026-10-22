@@ -10,7 +10,7 @@
  * 触发时才取值，constructor 顺序任意。
  *
  * 运行时 import koishi（类型）/NapukettoInternal 等——本文件不进单测
- * （HANDOVER §7 坑 1）。
+ * （docs/guides/development.md 单测边界）。
  */
 import { type Context as KoishiContext, h as koishiH, type Logger, type Universal } from "koishi";
 import { NapukettoInternal } from "../../actions/index.js";

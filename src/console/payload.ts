@@ -1,7 +1,7 @@
 /**
- * payload.ts：LoginSnapshot → LoginPanelPayload 纯函数映射（design.md §5.12）。
+ * payload.ts：LoginSnapshot → LoginPanelPayload 纯函数映射（docs/internals/console.md）。
  *
- * 独立成纯函数（不 import koishi 运行时）→ 可单测（HANDOVER §7 坑 1）。
+ * 独立成纯函数（不 import koishi 运行时）→ 可单测（docs/guides/development.md 单测边界）。
  */
 import type { LoginState } from "@napuketto/kernel";
 import type { LoginSnapshot } from "../login/types.js";

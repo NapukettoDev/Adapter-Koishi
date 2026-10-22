@@ -1,21 +1,15 @@
 {
-    // fallow 配置（2026-08-09）：koishi-plugin-adapter 子仓库专用。
-    // 只豁免已确认的误报源/框架契约/有意设计，不放松重复与复杂度阈值。
-    // 本文件在子仓库根（apps/koishi-plugin-adapter/），fallow 自动发现
-    // （子仓库内运行 `pnpm dlx fallow` 时优先于主仓库根配置）。
+    // fallow 配置：本仓库专用。只豁免已确认的误报源、框架契约与有意设计，
+    // 不放松重复与复杂度阈值。
     "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-    // 动态加载入口（2026-08-14 豁免）：client/ 是控制台前端，经
-    // `ctx.console.addEntry` 动态注册（src/bot/console-entry.ts），静态分析
-    // 看不到引用——fallow 误报 unused-files，标记为动态入口即正确。
+    // 动态加载入口：client/ 是控制台前端，经 src/bot/utils/console-entry.ts 的
+    // ctx.console.addEntry 动态注册，静态分析看不到引用——标记为动态入口。
     "dynamicallyLoaded": [
         "client/**"
     ],
-    // 顶层规则豁免（有意设计，勿删）：
-    //  - dev-dependencies-in-production：@napuketto/kernel、@napuketto/loader 刻意放
-    //    devDependencies——发布形态自包含（tsdown 把 @napuketto/* bundle 进
-    //    lib/index.cjs，运行时只依赖 koishi peer；见 HANDOVER.md §5 发布形态）。
-    //    若移 dependencies：npm 安装插件时会解析 workspace 版本（包未发布则装不上），
-    //    且 tsdown 默认 external dependencies 会破坏 bundle 自包含。
+    // 顶层规则豁免：当前 @napuketto/* 均为 dependencies，且 tsdown 用
+    // deps.bundle: false 保持 external（子进程要读磁盘上的 self-host.cjs /
+    // stub DLL / kernel 入口，bundle 会丢资产）。本规则保留为构建期依赖的兜底豁免。
     "rules": {
         "dev-dependencies-in-production": "off"
     },
@@ -47,7 +41,7 @@
     ],
     // 公共 API 面豁免：
     //  - src/login/index.ts：LoginObserver/LoginSnapshot/LoginView 是登录交互公共
-    //    类型（LoginView 供 bot.ts QR 展示接入，HANDOVER 待办 2 即将使用）
+    //    类型（LoginView 供控制台与测试注入；见 docs/architecture/lifecycle.md）
     "ignoreFindings": [
         "src/login/index.ts"
     ],

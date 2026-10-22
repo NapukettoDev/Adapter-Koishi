@@ -1,5 +1,5 @@
 /**
- * elements.test.ts：koishi 元素 → canonical 反向映射单测（design.md §5.10）。
+ * elements.test.ts：koishi 元素 → canonical 反向映射单测（docs/internals/actions.md）。
  */
 
 import { fileURLToPath } from "node:url";

@@ -1,5 +1,5 @@
 /**
- * index.ts：数据库操作集中管理（design.md §5.13）。
+ * index.ts：数据库操作集中管理（docs/internals/bot.md）。
  *
  * 背景：插件此前无自有数据库操作——channel/user 落库全在 koishi 框架内部
  * （Session.getChannel）。而 koishi 的 getChannel 是 check-then-act：先 SELECT，

@@ -3,7 +3,7 @@
  * 单测补齐）。checkIdentity 是 2026-08-20 生产事故根治点（QR 谁扫谁登录 →
  * 配置 selfId 与实际 uin 不一致时数据目录污染 + koishi assignee/binding 写错
  * 账号 → 群消息被受理人闸门静默丢弃，见 bot.ts 注释）。副作用挂在 koishi Bot
- * 基类（offline）与 private 字段上，单测不可 import koishi（HANDOVER §7 坑 1）
+ * 基类（offline）与 private 字段上，单测不可 import koishi（docs/guides/development.md 单测边界）
  * ——判定抽纯函数、拒绝动作抽注入式执行器（对齐 login-actions
  * planRelogin/executeRelogin 模式），bot.ts 的 checkIdentity 只剩组装。
  */

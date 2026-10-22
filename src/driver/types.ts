@@ -13,7 +13,7 @@ import type {
     IpcStatusPayload,
 } from "../ipc/index.js";
 
-/** 驱动状态机（design.md §5.7）。 */
+/** 驱动状态机（docs/internals/runtime.md）。 */
 export type DriverState =
     | "idle" // 未启动
     | "spawning" // 正在 spawn 子进程

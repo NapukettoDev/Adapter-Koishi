@@ -2,7 +2,7 @@
  * transform.ts：kernel 数据 → koishi Universal 形状翻译（自 bot.ts 拆出）。
  *
  * 纯函数（仅 import type koishi Universal，不 import 运行时）→ 可单测
- * （HANDOVER §7 坑 1：koishi 运行时 import 会崩单测）。
+ * （docs/guides/development.md 单测边界：koishi 运行时 import 会崩单测）。
  *
  * 职责：好友/群/频道/登录信息的形状映射，bot.ts 的 override 方法只做
  * 「internal 调用 + 委托本模块翻译」。

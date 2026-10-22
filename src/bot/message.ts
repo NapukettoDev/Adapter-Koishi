@@ -1,5 +1,5 @@
 /**
- * message.ts：NapukettoMessageEncoder（design.md §5.11）。
+ * message.ts：NapukettoMessageEncoder（docs/internals/bot.md）。
  *
  * koishi `Bot.createMessage` 用 `static MessageEncoder` 实例化 → `send(content)`
  * → `prepare()`（channel.type 补全）+ `render()`（逐个 `visit`）+ `flush()`。

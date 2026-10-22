@@ -1,5 +1,5 @@
 /**
- * elements.ts：koishi 元素 → canonical 元素（纯函数，design.md §5.10）。
+ * elements.ts：koishi 元素 → canonical 元素（纯函数，docs/internals/actions.md）。
  *
  * 与 events/elements.ts（canonical → koishi）对称的反向映射。koishi h() 元素
  * 宽松结构 { type, attrs, children }（不 import koishi 主包）：

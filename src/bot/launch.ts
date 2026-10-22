@@ -1,5 +1,5 @@
 /**
- * launch.ts：launch 工厂（design.md §5.11）——launchSelfHost 组装 + 包入口解析。
+ * launch.ts：launch 工厂（docs/internals/bot.md）——launchSelfHost 组装 + 包入口解析。
  *
  * 参考 cli boot.ts 的组装方式。IPC 模式注入 adapterEntry/networkEntry 时，
  * loader IPC 分支整表挂载 OB11 动作桥（§5.14；解析失败 fail-soft 降级纯
@@ -12,7 +12,7 @@
  * 为 dependencies（真实安装，不 bundle）——子进程要的是磁盘真实文件
  * （self-host.cjs / stub QQNT.dll / kernel 入口），bundle 后资产丢失。
  * `resolveEntry` 用 `createRequire`（CJS 产物下 `import.meta.resolve` 被
- * 替换成 `{}` 报错，见 HANDOVER §5）；`launchSelfHost` 内部 `__dirname`
+ * 替换成 `{}` 报错，见 docs/guides/development.md 产物与依赖形态）；`launchSelfHost` 内部 `__dirname`
  * 定位 self-host.cjs 由 loader 包内 `files: ["dist", "native/..."]` 保证。
  */
 import { createRequire } from "node:module";
@@ -63,7 +63,7 @@ export interface ResolvedLaunch {
     qq: QqInstallInfo;
     kernelEntry: string;
     selfHostEntry?: string;
-    /** OB11 动作桥入口（design.md §5.14；ob11Actions=false 或解析失败时缺省）。 */
+    /** OB11 动作桥入口（docs/internals/actions.md；ob11Actions=false 或解析失败时缺省）。 */
     adapterEntry?: string;
     networkEntry?: string;
     /** 强制扫码登录（NAPUTO_QR_ONLY；面板「扫码登录」重启路径，一次性消费）。 */

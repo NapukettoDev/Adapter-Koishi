@@ -19,7 +19,7 @@
 
 <p>
   <a href="#工作原理">工作原理</a> •
-  <a href="./docs/design.md">设计文档</a>
+  <a href="./docs/README.md">文档</a>
 </p>
 
 </div>
@@ -85,17 +85,9 @@ bots:
 | `logLevel` | `string` | `debug` | `debug` / `info` / `error` / `silent` |
 
 <details>
-<summary><b>高级与容灾配置</b>（通常保持默认）</summary>
+<summary><b>更多配置</b>（心跳、重启退避、OB11 动作面、入口覆盖）</summary>
 
-| 配置项 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `heartbeatTimeoutMs` | `number` | `45000` | 心跳超时（毫秒） |
-| `restart.maxRetries` | `number` | `3` | 崩溃最大重启次数（0 = 禁用） |
-| `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒） |
-| `restart.backoffFactor` | `number` | `2` | 退避乘数 |
-| `stubDir` | `string` | 包内默认 | stub QQNT.dll 目录覆盖 |
-| `kernelEntry` | `string` | 自动解析 | kernel 入口覆盖 |
-| `selfHostEntry` | `string` | 包内默认 | 自建宿主入口覆盖 |
+完整配置项、默认值与多账号说明见 [配置文档](./docs/guides/configuration.md)。
 
 </details>
 
@@ -133,7 +125,7 @@ ctx.on('message', (session) => {
 
 ## 参与开发
 
-本仓库独立维护（独立 lockfile / CI），直接依赖 npm 上已发布的 `@napuketto/*`，不进主仓 workspace。
+本仓库独立维护（独立 lockfile / CI），直接依赖 npm 上已发布的 `@napuketto/*`，不进上游 NapukettoQQ 仓的 workspace。
 
 ```bash
 pnpm install
@@ -143,18 +135,18 @@ pnpm build       # tsdown → lib/index.cjs
 pnpm build:client
 ```
 
-* **发布形态**：`lib/index.cjs` 单文件 bundle，运行时仅依赖 `koishi`（peer）。
-* **开发免构建**：`NODE_ENV=development` 时经 `exports.development` 直载 `src/index.ts`。
-* **本地联调**：主仓 `pnpm pack` 出 tarball 后 `pnpm add file:<tarball>`，验证完切回正式版；不要用 workspace link。
+* **发布形态**：`lib/index.cjs`（CJS 入口）；`@napuketto/*` 与 koishi 生态按 external 处理，由 npm 安装提供；控制台前端单独构建到 `dist/`。
+* **源码开发**：`exports.development` 指向 `src/index.ts`（仅仓库内有效，发布包不含 `src`）；Koishi 以 `require()` 加载时通常走 `lib/index.cjs`，联调前先 `pnpm build`。
+* **本地联调**：`pnpm pack` 出 tarball 后 `pnpm add file:<tarball>`，验证完切回 registry 版本；不要用 workspace link。
 
 > [!NOTE]
-> `pnpm lint:client`（ESLint 检查 `.vue`）暂不可用：`@typescript-eslint/parser` 尚不支持 TypeScript 7，待上游兼容后恢复。
+> `pnpm lint:client`（ESLint 检查 `.vue`）暂不可用：`@typescript-eslint/parser` 尚不支持 TypeScript 7；它不在 `pnpm check` 内。
 
 ---
 
 ## 生态与导航
 
-* **文档**：[设计说明](./docs/design.md) ｜ [发布流程](./docs/release.md) ｜ [更新日志](./CHANGELOG.md)
+* **文档**：[文档索引](./docs/README.md) ｜ [架构总览](./docs/architecture/overview.md) ｜ [配置](./docs/guides/configuration.md) ｜ [排障](./docs/guides/troubleshooting.md) ｜ [发布流程](./docs/operations/release.md) ｜ [更新日志](./CHANGELOG.md)
 * **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
 
 <!-- -->

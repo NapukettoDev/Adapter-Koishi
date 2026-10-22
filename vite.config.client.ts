@@ -1,5 +1,5 @@
 /**
- * vite.config.client.ts：控制台前端构建（design.md §5.12）。
+ * vite.config.client.ts：控制台前端构建（docs/internals/console.md）。
  *
  * 等价 @koishijs/client 的 yakumo client 构建：`client/index.ts` → `dist/index.js`
  * （ESM，运行时依赖由 koishi 控制台提供）。

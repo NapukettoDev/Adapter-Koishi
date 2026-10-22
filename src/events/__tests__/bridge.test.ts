@@ -154,7 +154,7 @@ describe("NapukettoEventBridge", () => {
     });
 });
 
-describe("NapukettoEventBridge（OB11 原始事件，design.md §5.14）", () => {
+describe("NapukettoEventBridge（OB11 原始事件，docs/internals/actions.md）", () => {
     function makeBridge() {
         const dispatch = vi.fn();
         const bridge = new NapukettoEventBridge({ dispatch, selfId: () => "1", h: mockH() });

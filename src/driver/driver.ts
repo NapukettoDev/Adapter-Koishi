@@ -1,5 +1,5 @@
 /**
- * driver.ts：NapukettoDriver——自建宿主子进程生命周期驱动（design.md §5.7）。
+ * driver.ts：NapukettoDriver——自建宿主子进程生命周期驱动（docs/internals/runtime.md）。
  *
  * 职责：spawn（launch 工厂注入）→ IPC client → 状态机 → 崩溃/失联重启（退避）。
  * 不 import loader：launch 由 apply() 用 launchSelfHost 组装注入。

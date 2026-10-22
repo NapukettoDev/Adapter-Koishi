@@ -1,5 +1,5 @@
 /**
- * types.ts：控制台登录面板类型（design.md §5.12）。
+ * types.ts：控制台登录面板类型（docs/internals/console.md）。
  *
  * LoginPanelPayload 是 DataService 下行到前端 store 的形状：
  * 前端 client/settings.vue 从 store['napuketto-login-<uin>'] 读取。

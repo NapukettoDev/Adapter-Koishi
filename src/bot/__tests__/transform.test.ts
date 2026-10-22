@@ -2,7 +2,7 @@
  * transform.test.ts：kernel → koishi Universal 形状翻译纯函数单测。
  *
  * transform.ts 仅 import type koishi + 共享常量（无 koishi 运行时）→ 可单测
- * （HANDOVER §7 坑 1 规避）。覆盖：好友/群/频道/登录信息映射 + 空值兜底。
+ * （规避方式见 docs/guides/development.md 单测边界）。覆盖：好友/群/频道/登录信息映射 + 空值兜底。
  */
 import { describe, expect, it } from "vitest";
 import {

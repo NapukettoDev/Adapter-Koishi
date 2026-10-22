@@ -1,5 +1,5 @@
 /**
- * channel.test.ts：channelId 解析单测（design.md §5.10）。
+ * channel.test.ts：channelId 解析单测（docs/internals/actions.md）。
  */
 
 import { describe, expect, it } from "vitest";

@@ -1,5 +1,5 @@
 /**
- * console-entry.ts：控制台前端入口注册（design.md §5.12）。
+ * console-entry.ts：控制台前端入口注册（docs/internals/console.md）。
  *
  * packageRoot 逐级上溯定位插件包根目录（bundle 与源码两种形态均正确）；
  * registerConsoleEntry 模块级去重——多 bot 实例只注册一次 addEntry；

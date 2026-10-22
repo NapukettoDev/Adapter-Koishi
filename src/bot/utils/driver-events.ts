@@ -6,7 +6,7 @@
  * bot 的 setupDriver 只剩一行组装——接线逻辑独立可读。
  *
  * 运行时仅依赖类型（DriverEvents 来自 driver/types，logger 是 koishi Logger
- * 接口）——不进单测（HANDOVER §7 坑 1 同源）。
+ * 接口），零 koishi 运行时依赖——可直接单测。
  */
 import type { Logger } from "koishi";
 import type { DriverEvents } from "../../driver/types.js";
