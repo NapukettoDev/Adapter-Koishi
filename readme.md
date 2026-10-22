@@ -11,8 +11,6 @@
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-adapter-napuketto?style=flat-square&label=npm&color=cb3837)](https://www.npmjs.com/package/koishi-plugin-adapter-napuketto)
 &emsp;
-[![Downloads](https://img.shields.io/npm/dm/koishi-plugin-adapter-napuketto?style=flat-square&label=downloads&color=cb3837)](https://www.npmjs.com/package/koishi-plugin-adapter-napuketto)
-&emsp;
 [![CI](https://img.shields.io/github/actions/workflow/status/NapukettoDev/Adapter-Koishi/ci.yml?style=flat-square&label=CI)](https://github.com/NapukettoDev/Adapter-Koishi/actions/workflows/ci.yml)
 &emsp;
 ![Koishi](https://img.shields.io/badge/Koishi-%5E4.18.7-5546a3?style=flat-square)
@@ -23,8 +21,7 @@
   <a href="#核心特性">核心特性</a> •
   <a href="#快速开始">快速开始</a> •
   <a href="#工作原理">工作原理</a> •
-  <a href="./docs/design.md">设计文档</a> •
-  <a href="#english">English</a>
+  <a href="./docs/design.md">设计文档</a>
 </p>
 
 </div>
@@ -81,12 +78,12 @@ plugins:
 
 bots:
   # 推荐：key 带 QQ 号，天然支持多账号
-  onebot:3567141148:
-    selfId: "3567141148"
+  onebot:123456789:
+    selfId: "123456789"
 
   # 单账号也可省略 key 后缀：
   # onebot:
-  #   selfId: "3567141148"
+  #   selfId: "123456789"
 ```
 
 `selfId` 是唯一必填项，用于登录、数据目录隔离与票据缓存。
@@ -170,6 +167,8 @@ pnpm build:client
 
 * **文档**：[设计说明](./docs/design.md) ｜ [发布流程](./docs/release.md) ｜ [更新日志](./CHANGELOG.md)
 * **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
+
+<!-- -->
 
 > [!CAUTION]
 > **免责声明**：\
