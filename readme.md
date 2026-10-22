@@ -3,7 +3,7 @@
 <h1 id="koishi-plugin-adapter-napuketto">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
-    <img src=".github/assets/wordmark-light.svg" alt="NapukettoQQ Koishi Adapter" width="600">
+    <img src=".github/assets/wordmark-light.svg" alt="NapukettoQQ Koishi Adapter" width="800">
   </picture>
 </h1>
 
