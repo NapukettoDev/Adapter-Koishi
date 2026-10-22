@@ -13,7 +13,7 @@
 #            （id-token: write + environment 审批，**无** contents 写权限）
 #
 # 为什么拆两个 job：npm 的可信发布把发布权授给「谁能让本文件在 main 上跑起来」，
-# 构建期可执行的代码（package.json 脚本、tsdown 配置、scripts/build-client.ts）
+# 构建期可执行的代码（package.json 脚本、tsdown 配置、vite.config.client.ts）
 # 绝不能与 OIDC token 同处一个 job——一处被改坏就能发任意版本。故 publish 不跑
 # install、不跑任何构建脚本，只做 npm publish。
 #
@@ -75,9 +75,27 @@ jobs:
               with:
                   node-version: 24
 
+            # 不依赖仓库内脚本：历史上 detect 调过 scripts/check-publishable.mjs，
+            # 该文件被删后整条发布链静默失效（detect job ENOENT，publish 永不入队）。
+            # 这里直接问 registry：npm view <包>@<版本> 命中 = 已发布；E404 = 未发布；
+            # 其它错误（网络/鉴权）必须显式失败，不能当成「未发布」去重发。
             - id: check
               name: 版本是否已发布
-              run: node scripts/check-publishable.mjs
+              run: |
+                  set -euo pipefail
+                  pkg=$(node -p "require('./package.json').name")
+                  version=$(node -p "require('./package.json').version")
+                  if npm view "$pkg@$version" version >/dev/null 2>"$RUNNER_TEMP/npm-view.log"; then
+                      echo "publish=false" >> "$GITHUB_OUTPUT"
+                      echo "[release] $pkg@$version 已在 registry，跳过发布"
+                  elif grep -q "E404" "$RUNNER_TEMP/npm-view.log"; then
+                      echo "publish=true" >> "$GITHUB_OUTPUT"
+                      echo "[release] $pkg@$version 未发布，进入构建与发布"
+                  else
+                      echo "[release] registry 查询失败（非 404，疑似网络/鉴权），中止：" >&2
+                      cat "$RUNNER_TEMP/npm-view.log" >&2
+                      exit 1
+                  fi
 
     prepare:
         name: prepare（构建 / check / test）

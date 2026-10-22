@@ -157,8 +157,7 @@ koishi-plugin-adapter-napuketto/
 │   │   └── StatusSection.vue #     idle/scanned/logged_in/failed：文案 + 重新登录
 │   ├── types/                #   前端类型声明（koishijs-client.d.ts / shims.d.ts）
 │   └── tsconfig.json         #   前端独立 tsconfig（@koishijs/client/global 类型）
-├── scripts/
-│   └── build-client.mjs      # client → dist 构建（vite，等价 @koishijs/client yakumo）
+├── vite.config.client.ts     # client → dist 构建（vite lib，等价 @koishijs/client yakumo）
 ├── docs/
 │   └── design.md             # 本文件
 ├── package.json
@@ -805,10 +804,12 @@ tree-shaking 把未被引用的 QrCodePanel 组件定义从产物删掉（产物
 判别信号：dist 产物里引用是 `p("qrcode-panel")`（resolveComponent）而非 `g(变量)`；
 CSS 缺失对应组件 scoped 样式（`.qrcode-container` 等）。
 
-**client 构建**（`scripts/build-client.mjs`）：等价 `@koishijs/client` 的 yakumo client
-构建（vite）：`client/index.ts` → `dist/index.js`（IIFE，`external: ['vue', 'vue-router',
-'@vueuse/core', '@koishijs/client']`——运行时由 koishi console 提供全局变量）。dev 模式
-（koishi dev）直接编译 `client/index.ts`，无需预构建。
+**client 构建**（`vite.config.client.ts`，`pnpm build:client`）：等价 `@koishijs/client`
+的 yakumo client 构建（vite lib）：`client/index.ts` → `dist/index.js`（ESM，
+`external: ['vue', 'vue-router', '@vueuse/core', '@koishijs/client']`——运行时由 koishi
+console 的模块系统解析同名模块）。产物名固定 `index.js` / `index.css`（运行时
+`console-entry.ts` 按 `CLIENT_FILES` 清单复制，改名即 404）。dev 模式（koishi dev）
+直接编译 `client/index.ts`，无需预构建。
 
 **依赖**（发布形态，B站模板同款务实选择）：
 - `@koishijs/plugin-console` → **dependencies**（provider 运行时 `import { DataService }`；
@@ -819,8 +820,9 @@ CSS 缺失对应组件 scoped 样式（`.qrcode-container` 等）。
 - `vite` + `@vitejs/plugin-vue` → devDependencies（仅构建脚本用）
 - tsdown 产物保持 external（`neverBundle` 已覆盖 `/^@koishijs\//`）
 
-**biome 边界**：根 biome `files.includes` 只扫 `**/src/**`——`client/`（.vue/.ts）与
-`scripts/*.mjs` 不在 biome 检查范围（独立构建链）；但 **`client/` 已纳入包级类型门禁**：
+**biome 边界**：根 biome `files.includes` 只扫 `**/src/**`——`client/`（.vue/.ts）与根
+目录构建配置（`vite.config.client.ts` / `tsdown.config.ts`）不在 biome 检查范围（独立
+构建链）；但 **`client/` 已纳入包级类型门禁**：
 `pnpm check` = `biome check . && tsc --noEmit && tsc --noEmit -p client/tsconfig.json`；
 `src/console/` 在 biome 范围内照常检查。
 
