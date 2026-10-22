@@ -136,30 +136,10 @@ ctx.on('message', (session) => {
 <details>
 <summary><b>展开查看架构图</b></summary>
 
-```mermaid
-flowchart TB
-    subgraph Main["Koishi 主进程"]
-        Bot["NapukettoBot<br/>平台 onebot"]
-        Driver["NapukettoDriver<br/>生命周期 / 心跳 / 重启"]
-        Bridge["事件桥 / 动作桥"]
-    end
-
-    subgraph Host["自建宿主子进程（每账号一个）"]
-        Loader["@napuketto/loader<br/>self-host.cjs"]
-        Auth["登录：快速 / 二维码"]
-        Kernel["Kernel API / 事件"]
-        Native["QQ NT wrapper.node"]
-    end
-
-    Bot --> Driver
-    Bot --> Bridge
-    Driver -.->|"spawn / 心跳"| Loader
-    Bridge <-->|"stdin / stdout JSON Lines"| Loader
-    Loader --> Auth
-    Loader --> Kernel
-    Auth --> Native
-    Kernel <--> Native
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/architecture-dark.svg">
+  <img src=".github/assets/architecture-light.svg" alt="NapukettoQQ Koishi 适配器架构图" width="760">
+</picture>
 
 </details>
 
