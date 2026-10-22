@@ -42,7 +42,7 @@
     "scripts": {
         "dev": "tsdown --watch",
         "build": "tsdown",
-        "build:client": "node scripts/build-client.ts",
+        "build:client": "vite build --config vite.config.client.ts",
         "lint:client": "eslint \"client/**/*.vue\"",
         "check": "biome check . && tsc --noEmit && tsc --noEmit -p client/tsconfig.json",
         "test": "vitest run",

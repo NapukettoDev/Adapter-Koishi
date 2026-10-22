@@ -17,7 +17,7 @@
 /pnpm-lock.yaml                    @Oppenheymu
 /pnpm-workspace.yaml               @Oppenheymu
 /tsdown.config.ts                  @Oppenheymu
-/scripts/**                        @Oppenheymu
+/vite.config.client.ts             @Oppenheymu
 /biome.json                        @Oppenheymu
 /eslint.config.ts                  @Oppenheymu
 /tsconfig.json                     @Oppenheymu
