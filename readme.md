@@ -1,83 +1,123 @@
-# koishi-plugin-adapter-napuketto
+<div align="center">
 
-[![npm](https://img.shields.io/npm/v/koishi-plugin-adapter-napuketto?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-adapter-napuketto)
-[![koishi](https://img.shields.io/badge/koishi-%5E4.18.7-4a6ee0?style=flat-square)](https://koishi.chat)
-[![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
+<h1 id="koishi-plugin-adapter-napuketto">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
+    <img src=".github/assets/wordmark-light.svg" alt="NapukettoQQ Koishi Adapter" width="600">
+  </picture>
+</h1>
 
-[NapukettoQQ](https://github.com/NapukettoDev/NapukettoQQ) 的 Koishi 适配器：让 Koishi 直接驱动 QQ。
+**NapukettoQQ 的 Koishi 适配器 —— 零外部协议端，让 Koishi 直接驱动 QQ NT**
 
-它基于**自研的 QQ NT `wrapper.node` 协议层**工作——**无需 NapCat、无需 WebUI、无需独立协议端**。
-每个 bot 在 Koishi 里就是一个「平台」，插件自动编排一个自建宿主子进程完成加载、登录、收发消息，
-你只需要在配置里填一个 QQ 号。
+[![npm](https://img.shields.io/npm/v/koishi-plugin-adapter-napuketto?style=flat-square&label=npm&color=cb3837)](https://www.npmjs.com/package/koishi-plugin-adapter-napuketto)
+&emsp;
+[![Downloads](https://img.shields.io/npm/dm/koishi-plugin-adapter-napuketto?style=flat-square&label=downloads&color=cb3837)](https://www.npmjs.com/package/koishi-plugin-adapter-napuketto)
+&emsp;
+[![CI](https://img.shields.io/github/actions/workflow/status/NapukettoDev/Adapter-Koishi/ci.yml?style=flat-square&label=CI)](https://github.com/NapukettoDev/Adapter-Koishi/actions/workflows/ci.yml)
+&emsp;
+![Koishi](https://img.shields.io/badge/Koishi-%5E4.18.7-5546a3?style=flat-square)
+&emsp;
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
-## 特性
+<p>
+  <a href="#核心特性">核心特性</a> •
+  <a href="#快速开始">快速开始</a> •
+  <a href="#工作原理">工作原理</a> •
+  <a href="./docs/design.md">设计文档</a> •
+  <a href="#english">English</a>
+</p>
 
-- 🚫 **零 NapCat 依赖**：自研 `wrapper.node` 协议层（MIT 许可证，无 GPL 污染），功能对齐 NapCat 的协议 + API 能力
-- 🧩 **子进程隔离**：每个账号一个自建宿主子进程，原生层崩溃自动重启，不拖垮 Koishi 主进程
-- 💬 **完整事件桥**：群聊 / 私聊 / 临时会话消息 → Koishi session，结构化元素映射（文本 / @ / 图片 / 表情 / 语音 / 引用）
-- 🔧 **完整动作桥**：发送消息、撤回、消息历史、好友列表、群列表、登录信息等 Koishi 标准动作
-- 📱 **控制台扫码登录面板**：二维码实时展示、刷新、重新登录，登录状态实时推送（需安装 `@koishijs/plugin-console`）
-- ⚡ **快速登录优先**：历史票据快速登录，失败自动回落二维码登录
-- 👥 **多账号天然支持**：每个 bot 一个子进程，账号状态互不污染
-- 💓 **心跳健康检查 + 指数退避**：子进程失联自动重启，可按需配置
+</div>
 
-## 环境要求
+---
 
-- [Koishi](https://koishi.chat) `^4.18.7`
-- 已安装 **QQ NT 客户端**（Windows；Linux 走 WSL / Wine 亦已适配）
-- 无需 NapCat，无需手动启动 NapukettoQQ 进程（子进程由插件自动编排）
+## 核心特性
 
-## 安装
+* **自研协议层**\
+　复用 NapukettoQQ 的 QQ NT `wrapper.node` 协议层，直接调用官方 NAPI，无中间代理。
+* **零外部协议端**\
+　MIT 许可；无需额外部署 WebUI 或独立协议端，安装即用。
+* **子进程隔离**\
+　每个账号独享自建宿主子进程，原生层崩溃自动拉起，不拖垮 Koishi。
+* **快速登录 + 心跳自愈**\
+　历史票据优先，失败回退二维码；心跳超时按指数退避重启。
 
-在 Koishi 控制台的「插件市场」搜索 **`adapter-napuketto`** 安装，或手动安装：
+<!-- -->
+
+* **事件桥**\
+　群聊 / 私聊 / 临时会话 → Koishi `Session`，映射文本、@、图片、表情、语音、引用。
+* **动作桥**\
+　消息收发、撤回、历史记录、好友 / 群列表、登录信息等标准动作。
+* **控制台扫码**\
+　集成 `@koishijs/plugin-console`，二维码实时渲染、状态推送、刷新与重新登录。
+
+---
+
+## 快速开始
+
+### 环境准备
+
+* **Koishi** `^4.18.7`
+* **QQ NT 客户端**：Windows 原生；Linux 可通过 WSL / Wine 运行。
+* 无需安装或手动启动任何外部协议端——宿主子进程由插件自动编排。
+
+### 安装
 
 ```bash
 npm install koishi-plugin-adapter-napuketto
+# 或使用 pnpm add / yarn add koishi-plugin-adapter-napuketto
 ```
 
-> 依赖 `@napuketto/kernel` 与 `@napuketto/loader` 会随包自动安装，子进程所需的磁盘资产
-> （自建宿主入口、stub QQNT.dll 等）一并提供，无需额外配置。
+> [!TIP]
+> `@napuketto/*` 依赖、自建宿主入口与 `stub QQNT.dll` 随包分发，安装后无需额外配置。
 
-## 配置
+### 配置
 
-本插件无需插件级配置（配置留空即可），实际配置挂在 **bots** 上——平台名为 `onebot`：
+插件本身留空即可，账号配置挂在 `bots` 下（平台名 `onebot`）：
 
 ```yaml
 plugins:
   adapter-napuketto: {}
 
 bots:
-  # 方式一：显式指定 QQ 号（推荐）
+  # 推荐：key 带 QQ 号，天然支持多账号
   onebot:3567141148:
     selfId: "3567141148"
-  # 方式二：省略 selfId 的 key（仅单账号时可用）
-  onebot:
-    selfId: "3567141148"
+
+  # 单账号也可省略 key 后缀：
+  # onebot:
+  #   selfId: "3567141148"
 ```
 
-`selfId` 为**必填项**（登录 QQ 号，同时用于数据目录账号隔离与快速登录）。其余配置项：
+`selfId` 是唯一必填项，用于登录、数据目录隔离与票据缓存。
 
 | 配置项 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `selfId` | string | **必填** | 登录 QQ 号 |
-| `qqPath` | string | 自动探测 | QQ 安装路径 |
-| `stubDir` | string | 包内默认 | stub QQNT.dll 目录 |
-| `dataDir` | string | 自动解析 | 数据根目录 |
-| `kernelEntry` | string | 自动解析 | kernel 入口覆盖（高级） |
-| `selfHostEntry` | string | 包内默认 | 自建宿主入口覆盖（高级） |
-| `heartbeatTimeoutMs` | number | `45000` | 子进程心跳超时（毫秒） |
-| `logLevel` | string | `debug` | 日志等级：`debug` / `info` / `error` / `silent` |
-| `restart.maxRetries` | number | `3` | 崩溃重启最大次数（0 = 不重启） |
-| `restart.backoffMs` | number | `1000` | 首次退避基数（毫秒） |
-| `restart.backoffFactor` | number | `2` | 退避因子 |
+| :--- | :--- | :--- | :--- |
+| `selfId` | `string` | **必填** | 登录 QQ 号，用于数据隔离与票据缓存 |
+| `qqPath` | `string` | 自动探测 | QQ NT 安装路径 |
+| `dataDir` | `string` | 自动解析 | 数据与缓存根目录 |
+| `logLevel` | `string` | `debug` | `debug` / `info` / `error` / `silent` |
 
-## 使用
+<details>
+<summary><b>高级与容灾配置</b>（通常保持默认）</summary>
 
-启动 Koishi 后，插件会为每个 bot 拉起一个自建宿主子进程并尝试**快速登录**；快速登录失败时
-自动进入**二维码登录**——安装 `@koishijs/plugin-console` 后，二维码会实时显示在「插件详情页」
-的登录面板上，扫码成功后状态即时更新。登录面板同时提供「刷新二维码」与「重新登录」操作。
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `heartbeatTimeoutMs` | `number` | `45000` | 心跳超时（毫秒） |
+| `restart.maxRetries` | `number` | `3` | 崩溃最大重启次数（0 = 禁用） |
+| `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒） |
+| `restart.backoffFactor` | `number` | `2` | 退避乘数 |
+| `stubDir` | `string` | 包内默认 | stub QQNT.dll 目录覆盖 |
+| `kernelEntry` | `string` | 自动解析 | kernel 入口覆盖 |
+| `selfHostEntry` | `string` | 包内默认 | 自建宿主入口覆盖 |
 
-登录成功后即可像使用其他 Koishi 适配器一样收发消息：
+</details>
+
+### 登录与收发
+
+启动 Koishi 后，插件会为每个 bot 拉起独立子进程并尝试快速登录；失败时自动进入二维码登录。安装 `@koishijs/plugin-console` 后，可在「插件详情页」扫码，状态实时同步，也支持刷新二维码与重新登录。
+
+登录就绪后即可用标准 Koishi API 收发消息：
 
 ```ts
 ctx.on('message', (session) => {
@@ -87,52 +127,64 @@ ctx.on('message', (session) => {
 })
 ```
 
+---
+
 ## 工作原理
 
-```
-┌────────────── Koishi 主进程 ──────────────┐
-│  NapukettoBot（平台 napuketto）            │
-│  ├─ NapukettoDriver（子进程生命周期/重启）  │
-│  ├─ 事件桥：kernel 事件 → Koishi session   │
-│  └─ 动作桥：Koishi 动作 → IPC 请求         │
-└───────────────┬──────────────────────────┘
-                │ IPC（stdin/stdout JSON 行协议）
-┌───────────────▼──────────────────────────┐
-│  自建宿主子进程（每账号一个）              │
-│  @napuketto/loader self-host.cjs          │
-│  ├─ dlopen wrapper.node（stub QQNT.dll）  │
-│  ├─ 登录（快速 / 二维码）→ session READY   │
-│  └─ kernel API 调用                       │
-└───────────────────────────────────────────┘
-```
+每个账号一个自建宿主子进程，Koishi 主进程通过 stdin / stdout 的 JSON Lines 与 kernel 通信。原生层的崩溃、卡死由心跳探针与指数退避隔离在子进程内，主进程不受影响。
 
-关键设计：**子进程 + IPC**——QQ 原生层的不稳定因素（崩溃 / 卡死）被隔离在子进程内，
-由 driver 的心跳检测与指数退避策略自动拉起，Koishi 主进程始终无恙。
+<details>
+<summary><b>展开查看架构图</b></summary>
 
-## 开发
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/architecture-dark.svg">
+  <img src=".github/assets/architecture-light.svg" alt="NapukettoQQ Koishi 适配器架构图" width="760">
+</picture>
 
-本仓库独立维护（独立 GitHub 仓 + 独立 lockfile/CI），直接依赖 npm 上**已发布**的
-`@napuketto/*`——不再作为主仓库的 git submodule，也不进主仓库 pnpm workspace：
+</details>
+
+---
+
+## 参与开发
+
+本仓库独立维护（独立 lockfile / CI），直接依赖 npm 上已发布的 `@napuketto/*`，不进主仓 workspace。
 
 ```bash
 pnpm install
-pnpm check          # biome + tsc（src 与 client 两个 tsconfig）
-pnpm test           # vitest（src/**/__tests__）
-pnpm build          # tsdown 构建 CJS 产物
-pnpm build:client   # 构建控制台前端
+pnpm check       # Biome + tsc
+pnpm test        # Vitest
+pnpm build       # tsdown → lib/index.cjs
+pnpm build:client
 ```
 
-> `pnpm lint:client`（eslint 检查 `.vue`）当前跑不了：`@typescript-eslint/parser` 对
-> TS 7 有硬 guard（`typescript-eslint does not support TS 7.0`），主仓同样受影响。
-> 因此 `check` 暂不含 eslint，等上游支持 TS7 后再接回。
+* **发布形态**：`lib/index.cjs` 单文件 bundle，运行时仅依赖 `koishi`（peer）。
+* **开发免构建**：`NODE_ENV=development` 时经 `exports.development` 直载 `src/index.ts`。
+* **本地联调**：主仓 `pnpm pack` 出 tarball 后 `pnpm add file:<tarball>`，验证完切回正式版；不要用 workspace link。
 
-- **发布形态**：`lib/index.cjs`（CJS bundle），运行时仅依赖 koishi（peer）
-- **开发免构建**：`exports.development` 条件（`NODE_ENV=development` 直载 `src/index.ts`）
-- **本地联调未发布的 `@napuketto/*`**：在主仓库 `pnpm pack` 出 tarball 后
-  `pnpm add file:<tarball>`（或用 changesets 的 prerelease 版本），验证完再换回 registry
-  版本。不要用 workspace link——那样测的是源码而不是发布形态。
+> [!NOTE]
+> `pnpm lint:client`（ESLint 检查 `.vue`）暂不可用：`@typescript-eslint/parser` 尚不支持 TypeScript 7，待上游兼容后恢复。
 
-## 许可证
+---
 
-[MIT](./LICENSE)
+## 生态与导航
 
+* **文档**：[设计说明](./docs/design.md) ｜ [发布流程](./docs/release.md) ｜ [更新日志](./CHANGELOG.md)
+* **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
+
+> [!CAUTION]
+> **免责声明**：\
+> 　本项目是 [NapukettoQQ](https://github.com/NapukettoDev/NapukettoQQ) 生态的 Koishi 适配器，代码均为独立自研实现\
+> 　与腾讯、QQ 及 Koishi 官方组织无隶属、合作或授权关系\
+> 　仅供学习与技术研究，请遵守《QQ 用户协议》及适用法律；基于 [MIT](./LICENSE) 分发
+
+---
+
+## English
+
+`koishi-plugin-adapter-napuketto` is the [Koishi](https://koishi.chat) adapter for [NapukettoQQ](https://github.com/NapukettoDev/NapukettoQQ). Each QQ account runs in a dedicated self-hosted Node.js child process; kernel events are bridged to Koishi sessions and Koishi actions to kernel API calls — no external WebUI or separate protocol server required.
+
+```bash
+npm install koishi-plugin-adapter-napuketto
+```
+
+*Not affiliated with Tencent, QQ, or the Koishi organization. Entirely original implementation, released under the [MIT License](./LICENSE).*
