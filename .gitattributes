@@ -1,3 +1,6 @@
+
+*.test.ts linguist-detectable=false
+
 * text eol=lf
 
 *.png -text
