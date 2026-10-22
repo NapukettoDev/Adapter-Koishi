@@ -503,7 +503,7 @@ export namespace NapukettoBot {
     export const usage = `
 <div style="border-radius: 10px; border: 1px solid #ddd; padding: 16px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
   <h2 style="margin-top: 0; color: #4a6ee0;">🖥️ NapukettoQQ 适配器</h2>
-  <p>自研 QQ NT <strong>wrapper.node</strong> 协议层，无需 NapCat。</p>
+  <p>自研 QQ NT <strong>wrapper.node</strong> 协议层，无需外部协议端。</p>
   <p>每个 <code>bots</code> 配置项启动一个自建宿主子进程（dlopen wrapper.node + stub
   QQNT.dll），经 IPC 与 koishi 通信。配置 <code>selfId</code> 为登录 QQ 号即可；
   登录二维码在插件详情页实时展示（控制台安装后可见）。</p>

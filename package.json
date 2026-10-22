@@ -81,7 +81,7 @@
         "category": "adapter",
         "description": {
             "en": "NapukettoQQ adapter for Koishi: drive QQ via the self-developed wrapper.node protocol layer",
-            "zh": "NapukettoQQ 适配器：自研 QQ NT wrapper.node 协议层，无需 NapCat"
+            "zh": "NapukettoQQ 适配器：自研 QQ NT wrapper.node 协议层，无需外部协议端"
         }
     }
 }
