@@ -18,8 +18,6 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
 <p>
-  <a href="#核心特性">核心特性</a> •
-  <a href="#快速开始">快速开始</a> •
   <a href="#工作原理">工作原理</a> •
   <a href="./docs/design.md">设计文档</a>
 </p>
@@ -30,23 +28,14 @@
 
 ## 核心特性
 
-* **自研协议层**\
-　复用 NapukettoQQ 的 QQ NT `wrapper.node` 协议层，直接调用官方 NAPI，无中间代理。
-* **零外部协议端**\
-　MIT 许可；无需额外部署 WebUI 或独立协议端，安装即用。
-* **子进程隔离**\
-　每个账号独享自建宿主子进程，原生层崩溃自动拉起，不拖垮 Koishi。
-* **快速登录 + 心跳自愈**\
-　历史票据优先，失败回退二维码；心跳超时按指数退避重启。
-
-<!-- -->
-
-* **事件桥**\
-　群聊 / 私聊 / 临时会话 → Koishi `Session`，映射文本、@、图片、表情、语音、引用。
-* **动作桥**\
-　消息收发、撤回、历史记录、好友 / 群列表、登录信息等标准动作。
-* **控制台扫码**\
-　集成 `@koishijs/plugin-console`，二维码实时渲染、状态推送、刷新与重新登录。
+- **原生直连**：\
+　复用 NapukettoQQ `wrapper.node` 直调 NAPI，MIT 许可，无需独立协议端或 WebUI。
+- **隔离自愈**：\
+　单账号独立宿主子进程，支持心跳监测与崩溃指数退避重启，不拖垮主进程。
+- **双向桥接**：\
+　完整映射群 / 私聊 `Session` 元素（文本/@/图/表/音/引）与 Koishi 标准动作 API。
+- **便捷登录**：\
+　历史票据快速登录，配合 `@koishijs/plugin-console` 支持控制台实时扫码与重登。
 
 ---
 
@@ -114,7 +103,7 @@ bots:
 
 启动 Koishi 后，插件会为每个 bot 拉起独立子进程并尝试快速登录；失败时自动进入二维码登录。安装 `@koishijs/plugin-console` 后，可在「插件详情页」扫码，状态实时同步，也支持刷新二维码与重新登录。
 
-登录就绪后即可用标准 Koishi API 收发消息：
+登录就绪后即可用标准 Koishi API 收发消息，像这样：
 
 ```ts
 ctx.on('message', (session) => {
