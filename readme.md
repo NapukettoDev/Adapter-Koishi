@@ -159,6 +159,10 @@ pnpm build:client
 
 ---
 
+<p align="center">
+  <img src="https://repobeats.axiom.co/api/embed/9b46708d053b4cb9a00499859f73bad400d7b956.svg" alt="Repobeats analytics image">
+</p>
+
 ## English
 
 `koishi-plugin-adapter-napuketto` is the [Koishi](https://koishi.chat) adapter for [NapukettoQQ](https://github.com/NapukettoDev/NapukettoQQ). Each QQ account runs in a dedicated self-hosted Node.js child process; kernel events are bridged to Koishi sessions and Koishi actions to kernel API calls — no external WebUI or separate protocol server required.
