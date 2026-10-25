@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026-present Napuketto contributors.
+
+# PR 自动打标配置（actions/labeler，由 triage workflow 消费）。
+#
+# 本仓源码集中在 src/（插件本体），无包级分域可映射；路径能区分的只有
+# 控制台前端、文档与 CI/仓库配置三个维度。protocol / upstream / koishi
+# 等维度由维护者分诊时手动给出。glob 未命中时不出 label；sync-labels
+# 关闭，只增不减，手动摘除不会被后续 push 加回。
+#
+# 前导 / 锚定仓库根级文件（否则会匹配到 src 内的同名文件）。
+
+"console":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "client/**"
+          - "/vite.config.client.ts"
+
+"docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"
+
+"ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "/package.json"
+          - "/pnpm-lock.yaml"
+          - "/pnpm-workspace.yaml"
+          - "/tsconfig.json"
+          - "/biome.json"
+          - "/eslint.config.ts"
+          - "/tsdown.config.ts"
+          - "/.fallowrc.jsonc"
+          - "/.editorconfig"
