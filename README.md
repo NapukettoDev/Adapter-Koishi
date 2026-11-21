@@ -66,20 +66,6 @@ bots:
 
 ---
 
-## 开发
-
-本仓库独立维护，依赖NPM上已发布的 `@napuketto/*` 包
-
-```bash
-pnpm install
-pnpm check
-pnpm test
-pnpm build
-pnpm build:client
-```
-
----
-
 ## 文档
 
 * **文档**：[文档索引](./docs/README.md) ｜ [架构总览](./docs/architecture/overview.md) ｜ [配置](./docs/guides/configuration.md) ｜ [排障](./docs/guides/troubleshooting.md) ｜ [发布流程](./docs/operations/release.md) ｜ [更新日志](./CHANGELOG.md)
