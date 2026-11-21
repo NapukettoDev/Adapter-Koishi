@@ -29,20 +29,21 @@ export interface ConsoleClientAuth {
 
 /** 控制台客户端的最小结构（auth 可选，便于单测注入无鉴权插件场景）。 */
 export interface ConsoleAuthClient {
-    readonly auth?: ConsoleClientAuth | undefined;
+    // @koishijs/plugin-auth 在登出后会把 client.auth 置为 null，类型上显式容纳。
+    readonly auth?: ConsoleClientAuth | null | undefined;
 }
 
 /**
  * 已登录客户端的本地权限复核（纵深防御）。
  *
  * 与 @koishijs/plugin-auth 的 `console/intercept` 判定一致：
- *  - 没有 auth（未启用鉴权插件）→ 放行：门槛交给控制台拦截器，本地不额外封锁；
+ *  - 没有 auth（未启用鉴权插件或已登出）→ 放行：门槛交给控制台拦截器，本地不额外封锁；
  *  - 令牌过期或 authority 低于门槛 → 拒绝。
  * 正常路径由 intercept 先拒绝，本判定只覆盖拦截器缺失或被绕过的场景。
  */
 export function passesLoginPanelAuthority(client: ConsoleAuthClient, now = Date.now()): boolean {
     const auth = client.auth;
-    if (auth === undefined) {
+    if (auth === undefined || auth === null) {
         return true;
     }
     if (auth.expiredAt <= now) {

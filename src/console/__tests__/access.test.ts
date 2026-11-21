@@ -51,8 +51,9 @@ describe("passesLoginPanelAuthority", () => {
         );
     });
 
-    it("没有 auth 时放行：未启用鉴权插件时门槛由控制台拦截器决定", () => {
+    it("没有 auth 或已登出（auth=null）时放行：门槛由控制台拦截器决定", () => {
         expect(passesLoginPanelAuthority({}, PAST)).toBe(true);
+        expect(passesLoginPanelAuthority({ auth: null }, PAST)).toBe(true);
     });
 });
 
