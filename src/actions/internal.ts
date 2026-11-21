@@ -15,6 +15,13 @@ import { parseChannelId } from "./channel.js";
 import { toCanonicalElements } from "./elements.js";
 import { isHistoryMessage, toHistoryMessage } from "./history.js";
 import { prepareOutboundMedia } from "./media.js";
+import {
+    readOb11Member,
+    readOb11MemberList,
+    readOb11User,
+    requireFirstPage,
+    toOb11QqNumber,
+} from "./ob11-resources.js";
 import type { MessageListResponse, NapukettoInternalOptions } from "./types.js";
 
 const DEFAULT_HISTORY_LIMIT = 20;
@@ -84,7 +91,8 @@ export class NapukettoInternal {
         approve: boolean,
         comment?: string,
     ): Promise<void> {
-        await this.approveOb11Request("set_friend_add_request", {
+        this.validateRequestFlag(messageId);
+        await this.requestOb11("set_friend_add_request", {
             flag: messageId,
             approve,
             ...(approve && comment !== undefined ? { remark: comment } : {}),
@@ -96,26 +104,80 @@ export class NapukettoInternal {
         approve: boolean,
         comment?: string,
     ): Promise<void> {
-        await this.approveOb11Request("set_group_add_request", {
+        this.validateRequestFlag(messageId);
+        await this.requestOb11("set_group_add_request", {
             flag: messageId,
             approve,
             ...(comment === undefined ? {} : { reason: comment }),
         });
     }
 
-    private async approveOb11Request(
-        action: string,
-        params: { flag: string; approve: boolean; remark?: string; reason?: string },
-    ): Promise<void> {
-        if (params.flag.trim() === "") {
+    private validateRequestFlag(flag: string): void {
+        if (flag.trim() === "") {
             throw new IpcError("审批需要请求事件的 messageId", "INVALID_PARAM");
         }
+    }
+
+    private async requestOb11(action: string, params: Record<string, unknown>): Promise<unknown> {
         const response = await this._request(action, params);
-        const retcode = isRecord(response) ? response["retcode"] : undefined;
-        if (retcode !== 0) {
-            const code = typeof retcode === "number" ? String(retcode) : "INVALID_RESPONSE";
-            throw new IpcError(`OB11 审批失败（${action}, ${code}）`, code);
+        if (!isRecord(response)) {
+            throw new IpcError(`OB11 动作响应格式无效（${action}）`, "INVALID_RESPONSE");
         }
+        const retcode = response["retcode"];
+        if (retcode !== 0) {
+            const code = Number.isInteger(retcode) ? String(retcode) : "INVALID_RESPONSE";
+            throw new IpcError(`OB11 动作失败（${action}, ${code}）`, code);
+        }
+        return response["data"];
+    }
+
+    async getUser(userId: string, guildId?: string): Promise<Universal.User> {
+        if (guildId !== undefined) {
+            return (await this.getGuildMember(guildId, userId)).user;
+        }
+        const user = toOb11QqNumber(userId);
+        const data = await this.requestOb11("get_stranger_info", { user_id: user });
+        return readOb11User(data, user);
+    }
+
+    async getGuildMember(guildId: string, userId: string) {
+        const group = toOb11QqNumber(guildId);
+        const user = toOb11QqNumber(userId);
+        const data = await this.requestOb11("get_group_member_info", {
+            group_id: group,
+            user_id: user,
+        });
+        return readOb11Member(data, group, user);
+    }
+
+    async getGuildMemberList(
+        guildId: string,
+        next?: string,
+    ): Promise<Universal.List<Universal.GuildMember>> {
+        requireFirstPage(next);
+        const group = toOb11QqNumber(guildId);
+        const data = await this.requestOb11("get_group_member_list", { group_id: group });
+        return readOb11MemberList(data, group);
+    }
+
+    async kickGuildMember(guildId: string, userId: string, permanent = false): Promise<void> {
+        await this.requestOb11("set_group_kick", {
+            group_id: toOb11QqNumber(guildId),
+            user_id: toOb11QqNumber(userId),
+            reject_add_request: permanent,
+        });
+    }
+
+    async muteGuildMember(guildId: string, userId: string, duration: number): Promise<void> {
+        if (!Number.isSafeInteger(duration) || duration < 0) {
+            throw new IpcError("禁言时长必须是非负整数毫秒", "INVALID_PARAM");
+        }
+        // 不足一秒的正时长不能沿用 0（解除禁言）。
+        await this.requestOb11("set_group_ban", {
+            group_id: toOb11QqNumber(guildId),
+            user_id: toOb11QqNumber(userId),
+            duration: Math.ceil(duration / 1000),
+        });
     }
 
     /** 拉取比锚点更早的消息；排序只影响单页显示。 */
