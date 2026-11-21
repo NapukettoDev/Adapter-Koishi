@@ -173,8 +173,8 @@ importers:
         specifier: ~0.2.0
         version: 0.2.0
       '@napuketto/loader':
-        specifier: ~0.0.35
-        version: 0.0.35
+        specifier: ~0.10.1
+        version: 0.10.1
       '@napuketto/media':
         specifier: ~0.0.5
         version: 0.0.5(supports-color@8.1.1)
@@ -1007,8 +1007,9 @@ packages:
   '@napuketto/kernel@0.2.0':
     resolution: {integrity: sha512-v/dvE4qwaM7T+gHcBMuSvRsVvnnKre2UeApFY47PzHYHrnj0+bGBkmzJfq9vZjOaPuIlCbiR3ckIhPjLVjTARw==}
 
-  '@napuketto/loader@0.0.35':
-    resolution: {integrity: sha512-n0y2xwtV7RkHDep7deK75G1dxZvgFimxalmagpWipDUnRMd+G8kgcJ9ePmKX3zWOg+t1I2MSsFzNyQ3ss7lyKw==}
+  '@napuketto/loader@0.10.1':
+    resolution: {integrity: sha512-4JT0rQkVmC2ikSXIcOBBwjc5P0CssVtdCXthvbHK4IHVhEAIpserssskhFFiGc5URqkhFFvZsLpoqv8VnpRI8A==}
+    engines: {node: '>=22.12.0'}
 
   '@napuketto/media@0.0.5':
     resolution: {integrity: sha512-DUnC583XOpT12TiMjmyO62pa5eRmXn8jYln76GLeP2W38W+EpqdBF/bJ+b6+9I0BtS3ySFzavp0kTKe/tocKpA==}
@@ -4309,7 +4310,7 @@ snapshots:
       pino-pretty: 13.2.0
       smol-toml: 1.9.1
 
-  '@napuketto/loader@0.0.35':
+  '@napuketto/loader@0.10.1':
     dependencies:
       zod: 4.6.7
 
