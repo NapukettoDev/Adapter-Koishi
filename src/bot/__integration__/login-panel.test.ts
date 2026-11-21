@@ -7,6 +7,7 @@ import { PassThrough, Writable } from "node:stream";
 import { ElementType } from "@napuketto/kernel";
 import { launchSelfHost } from "@napuketto/loader";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LoginPanelPayload } from "../../console/types.js";
 import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import {
     decodeIpcMessage,
@@ -46,6 +47,16 @@ vi.mock("koishi", () => {
 });
 vi.mock("@koishijs/plugin-console", () => {
     class DataService {
+        options: { authority?: number; immediate?: boolean } | undefined;
+
+        constructor(
+            _ctx: unknown,
+            _key: string,
+            options?: { authority?: number; immediate?: boolean },
+        ) {
+            this.options = options;
+        }
+
         async refresh(): Promise<void> {}
     }
     return {
@@ -117,6 +128,10 @@ class IpcChild extends EventEmitter {
         this.send({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } });
     }
 
+    qr(qrcodeUrl = "https://example.com/qr", pngBase64 = "aGVsbG8="): void {
+        this.send({ v: IPC_VERSION, type: "qr", payload: { pngBase64, qrcodeUrl } });
+    }
+
     receiveMessage(msgId = "m1", timestamp = Date.now()): void {
         this.send({
             v: IPC_VERSION,
@@ -147,6 +162,7 @@ class IpcChild extends EventEmitter {
 
 function createConsole() {
     const entries = new Set<object>();
+    const services = new Map<string, unknown>();
     const addEntry = (effects: Set<() => void>) => {
         const entry = {
             dispose() {
@@ -171,15 +187,34 @@ function createConsole() {
                 },
             };
         },
-        get: vi.fn(),
-        set: () => vi.fn(),
+        get: (name: string) => services.get(name),
+        set: (name: string, value: unknown) => {
+            services.set(name, value);
+            return () => services.delete(name);
+        },
     };
-    return { root, entries, addEntry, addSharedEntry };
+    return { root, entries, services, addEntry, addSharedEntry };
+}
+
+/** 集成测试侧的最小 client 形状：auth 由 @koishijs/plugin-auth 注入。 */
+interface TestConsoleClient {
+    auth?: { authority: number; expiredAt: number };
+}
+
+/** 断言用 provider 形状（真实实例由 bot 构造，运行时经 mock DataService）。 */
+interface TestLoginProvider {
+    readonly options: { authority?: number; immediate?: boolean } | undefined;
+    get(forced?: boolean, client?: TestConsoleClient): Promise<LoginPanelPayload>;
+}
+
+interface TestConsoleListener {
+    readonly handler: (this: TestConsoleClient, data: { selfId: string }) => void;
+    readonly options: { authority?: number } | undefined;
 }
 
 function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), level: 0 };
-    const listeners = new Map<string, (data: { selfId: string }) => void>();
+    const listeners = new Map<string, TestConsoleListener>();
     const effects = new Set<() => void>();
     const ctx = {
         baseDir,
@@ -191,8 +226,11 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
         console: {
             entries: consoleHost.entries,
             addEntry: () => consoleHost.addEntry(effects),
-            addListener: (name: string, listener: (data: { selfId: string }) => void) =>
-                listeners.set(name, listener),
+            addListener: (
+                name: string,
+                handler: (this: TestConsoleClient, data: { selfId: string }) => void,
+                options?: { authority?: number },
+            ) => listeners.set(name, { handler, options }),
             ctx: { on: () => vi.fn() },
         },
         on: (event: string, dispose: () => void) => {
@@ -207,9 +245,15 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
         qqPath: "test-qq/QQ.exe",
         restart: { backoffMs: RESTART_DELAY_MS },
     });
+    const serviceName = `console.services.napuketto-login-${selfId}`;
     return {
         bot,
         logger,
+        serviceName,
+        provider: consoleHost.services.get(serviceName) as TestLoginProvider | undefined,
+        listener(action: "refresh-qr" | "relogin" | "qr-login"): TestConsoleListener | undefined {
+            return listeners.get(`napuketto-login-${selfId}/${action}`);
+        },
         dispose() {
             for (const dispose of effects) {
                 dispose();
@@ -217,12 +261,12 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
             effects.clear();
             return bot.stop();
         },
-        click(action: "refresh-qr" | "relogin" | "qr-login") {
-            const handler = listeners.get(`napuketto-login-${selfId}/${action}`);
-            if (handler === undefined) {
+        click(action: "refresh-qr" | "relogin" | "qr-login", client: TestConsoleClient = {}) {
+            const entry = listeners.get(`napuketto-login-${selfId}/${action}`);
+            if (entry === undefined) {
                 throw new Error(`面板事件未注册: ${action}`);
             }
-            handler({ selfId });
+            entry.handler.call(client, { selfId });
         },
     };
 }
@@ -509,6 +553,92 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         ]);
         expect(page.next).toBe("older");
         expect(bot.dispatch).not.toHaveBeenCalled();
+    });
+});
+
+describe("控制台登录面板鉴权", () => {
+    const future = 9_999_999_999_999;
+    const admin: TestConsoleClient = { auth: { authority: 5, expiredAt: future } };
+    const viewer: TestConsoleClient = { auth: { authority: 2, expiredAt: future } };
+
+    it("数据推送、连接拉取和三个控制事件共用管理员门槛", () => {
+        const { provider, listener } = setupPanel();
+        expect(provider?.options).toMatchObject({ immediate: true, authority: 3 });
+        for (const action of ["relogin", "qr-login", "refresh-qr"] as const) {
+            expect(listener(action)?.options).toEqual({ authority: 3 });
+        }
+    });
+
+    it("低权限客户端拿不到二维码和账号信息，管理员可读取状态", async () => {
+        const { bot, provider } = setupPanel();
+        const child = await startBot(bot);
+        child.login({ state: "waiting_scan" });
+        child.qr("https://example.com/qr", "aGVsbG8=");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const payload = await provider?.get(false, admin);
+        expect(payload).toMatchObject({
+            state: "waiting_scan",
+            qr: { pngBase64: "aGVsbG8=", qrcodeUrl: "https://example.com/qr" },
+            image: "data:image/png;base64,aGVsbG8=",
+        });
+
+        const denied = await provider?.get(false, viewer);
+        expect(denied).toEqual({
+            state: "idle",
+            selfId: SELF_ID,
+            message: "无权限查看登录状态（需要管理员权限）",
+        });
+        expect(denied?.qr).toBeUndefined();
+        expect(denied?.image).toBeUndefined();
+        expect(denied?.self).toBeUndefined();
+    });
+
+    it("低权限客户端不能触发登录控制，管理员仍可执行登录操作", async () => {
+        const { bot, click } = setupPanel();
+        const child = await startBot(bot);
+        child.login({ state: "waiting_scan" });
+        const sent = child.received.length;
+
+        click("refresh-qr", viewer);
+        click("relogin", viewer);
+        click("qr-login", viewer);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(child.received).toHaveLength(sent);
+
+        click("refresh-qr", admin);
+        click("relogin", admin);
+        click("qr-login", admin);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(
+            child.received
+                .slice(sent)
+                .map((message) => [
+                    message.type,
+                    "payload" in message ? message.payload : undefined,
+                ]),
+        ).toEqual([
+            ["action", { action: "login.refreshQr" }],
+            ["control", { command: "login", uin: SELF_ID, qr: false }],
+            ["control", { command: "login", uin: SELF_ID, qr: true }],
+        ]);
+    });
+
+    it("未启用鉴权插件（无 auth）时保持读取和登录操作可用", async () => {
+        const { bot, click, provider } = setupPanel();
+        const child = await startBot(bot);
+        child.login({ state: "waiting_scan" });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const payload = await provider?.get(false, {});
+        expect(payload?.state).toBe("waiting_scan");
+
+        click("refresh-qr", {});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(child.received.at(-1)).toMatchObject({
+            type: "action",
+            payload: { action: "login.refreshQr" },
+        });
     });
 });
 

@@ -1,5 +1,12 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.45
+
+### Patch Changes
+
+- 控制台登录面板的登录数据推送、连接拉取和重新登录、扫码登录、刷新二维码事件统一要求管理员权限等级。启用 `@koishijs/plugin-auth` 后低权限客户端无法读取二维码或触发登录操作；未启用鉴权插件时门槛不生效，文档已说明。
+- 二维码登录外链只保留 `http` / `https` 协议，前端打开链接前再次校验。
+
 ## 0.0.44
 
 ### Patch Changes

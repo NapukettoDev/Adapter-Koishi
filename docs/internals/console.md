@@ -27,11 +27,11 @@
 `NapukettoLoginProvider extends DataService<LoginPanelPayload>`：
 
 - serviceId / store key：`napuketto-login-<selfId>`（按 QQ 号隔离，支持多账号）。
-- `super(ctx, serviceId, { immediate: true })`：`immediate` 让服务值由调用方注册（见“面板装配”），
-  避免 DataService 自动 `set` 与调用方重复。
+- `super(ctx, serviceId, { immediate: true, authority: 3 })`：`immediate` 让服务值由调用方注册
+  （见“面板装配”），避免 DataService 自动 `set` 与调用方重复；`authority` 是鉴权门槛，见下节。
 - `update(payload)`：保存快照并 `void refresh()`（推送不阻塞状态回调）。
 - `get()`：前端 PULL 时返回当前快照（控制台连接/刷新时调用）。
-- 构造函数注册三个上行事件：
+- 构造函数注册三个上行事件（均带同一 `authority` 选项）：
 
 | 事件名 | 前端动作 | bot 层行为 |
 | :--- | :--- | :--- |
@@ -58,6 +58,31 @@ interface LoginPanelPayload {
 ```
 
 `toLoginPanelPayload()` 是纯函数：状态文案映射 + 条件展开字段 + 从 `pngBase64` 拼 `image`。
+
+二维码外链只保留 `http` / `https`：`sanitizeQrCodeUrl()` 解析 `qrcodeUrl`，其他协议（`javascript:` /
+`data:` / `file:` 等）或无法解析的值会被丢弃；此时 `qr` 字段不出现，二维码图片仍照常展示。前端
+`openQrUrl()` 在 `window.open` 前再校验一次协议。
+
+## 鉴权
+
+登录数据包含二维码（等价于登录凭证），三个控制事件会驱动 QQ 重新登录，因此面板统一要求
+**管理员**权限等级：
+
+- `LOGIN_PANEL_AUTHORITY = 3`（Koishi 权限系统 3 级 = 管理员），由 `src/console/access.ts`
+  的 `loginPanelAccessOptions()` 生成唯一的鉴权选项；
+- `DataService` 构造选项带 `authority`：数据推送（`refresh()` → `broadcast`）和连接时拉取
+  （`Client.refresh()` 读取服务的 `options`）都走同一门槛；
+- 三个 `ctx.console.addListener(..., loginPanelAccessOptions())` 使用同一选项。
+
+门槛由 `@koishijs/plugin-auth` 的 `console/intercept` 判定：客户端未登录、令牌过期或
+`client.auth.authority` 低于 `authority` 时，控制台拒绝推送和事件调用。provider 的 `get()` 与
+三个控制回调额外按同一门槛复核已登录客户端（`passesLoginPanelAuthority()`，纵深防御）：
+复核失败时 `get()` 返回不含二维码 / 登录账号 / 错误详情的脱敏快照，控制回调直接返回，不发送 IPC。
+
+**未启用 `@koishijs/plugin-auth` 时**：控制台没有 `console/intercept` 拦截器，`authority` 门槛
+不生效，任何能打开控制台的客户端都能读取登录数据并触发控制事件。面板只在客户端带 `auth` 时执行
+本地复核，不会因为“未登录”而额外封锁，以免无鉴权插件的部署直接失去面板。公网或多用户共用的
+控制台必须启用鉴权插件。
 
 ## 面板装配
 
@@ -121,6 +146,8 @@ interface LoginPanelPayload {
 - 数据：`store["napuketto-login-<selfId>"]`；没有数据时显示加载态。
 - 过期：本地 2 分钟计时（纯 UI 辅助）；kernel 过期会自动推新码，`pngBase64` 变化即复位计时。
 - 刷新：`send(.../refresh-qr)`，loading 最多 3s 兜底复位。
+- 打开登录链接：`openQrUrl()` 只接受 `http` / `https` 协议后才调用 `window.open`；与后端
+  `sanitizeQrCodeUrl()` 同一原则。
 - 组件标签必须与 import 名大小写完全一致（如 `<QrCodePanel>`）。全小写 `<qrcode-panel>` 会被
   编译器反推为 `QrcodePanel`，与 `QrCodePanel` 不匹配，降级为运行时解析并渲染空元素。
 

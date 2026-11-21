@@ -2,7 +2,7 @@
  * payload.test.ts：LoginSnapshot → LoginPanelPayload 纯函数映射单测。
  */
 import { describe, expect, it } from "vitest";
-import { loginStateMessage, toLoginPanelPayload } from "../payload.js";
+import { loginStateMessage, sanitizeQrCodeUrl, toLoginPanelPayload } from "../payload.js";
 
 describe("loginStateMessage", () => {
     it("各状态映射人类可读文案", () => {
@@ -60,5 +60,57 @@ describe("toLoginPanelPayload", () => {
     it("lastError 条件展开（failed）", () => {
         const payload = toLoginPanelPayload({ state: "failed", lastError: "登录失败" }, "10001");
         expect(payload.lastError).toBe("登录失败");
+    });
+});
+
+describe("sanitizeQrCodeUrl", () => {
+    it.each([
+        "https://ssl.ptlogin2.qq.com/qr?u=abc",
+        "http://example.com/login",
+        "HTTPS://Example.com/QR",
+    ])("保留 http/https 外链: %s", (url) => {
+        expect(sanitizeQrCodeUrl(url)).toBe(new URL(url).href);
+    });
+
+    it.each([
+        "javascript:alert(document.cookie)",
+        "JavaScript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "vbscript:msgbox(1)",
+        "file:///C:/Windows/System32",
+        "not a url",
+        "",
+        "  ",
+    ])("丢弃非 http/https 或无法解析的值: %s", (url) => {
+        expect(sanitizeQrCodeUrl(url)).toBeUndefined();
+    });
+});
+
+describe("toLoginPanelPayload 二维码外链校验", () => {
+    it("非法协议只移除外链，二维码图片仍保留", () => {
+        const payload = toLoginPanelPayload(
+            {
+                state: "waiting_scan",
+                qr: { pngBase64: "aGVsbG8=", qrcodeUrl: "javascript:alert(1)" },
+            },
+            "10001",
+        );
+        expect(payload.qr).toBeUndefined();
+        expect(payload.image).toBe("data:image/png;base64,aGVsbG8=");
+    });
+
+    it("合法 https 外链保留并规范化", () => {
+        const payload = toLoginPanelPayload(
+            {
+                state: "waiting_scan",
+                qr: { pngBase64: "aGVsbG8=", qrcodeUrl: "HTTPS://Example.com/qr" },
+            },
+            "10001",
+        );
+        expect(payload.qr).toEqual({
+            pngBase64: "aGVsbG8=",
+            qrcodeUrl: "https://example.com/qr",
+        });
+        expect(payload.image).toBe("data:image/png;base64,aGVsbG8=");
     });
 });

@@ -9,8 +9,14 @@
  * 运行时 import @koishijs/plugin-console / koishi——本文件不进单测
  * （docs/guides/development.md 单测边界）；纯逻辑在 payload.ts（可单测）。
  */
-import { type Console, DataService, type Events } from "@koishijs/plugin-console";
+import { type Client, type Console, DataService, type Events } from "@koishijs/plugin-console";
 import type { Context, Logger } from "koishi";
+import {
+    type ConsoleAuthClient,
+    loginPanelAccessOptions,
+    passesLoginPanelAuthority,
+    redactLoginPanelPayload,
+} from "./access.js";
 import type { LoginPanelPayload } from "./types.js";
 
 // 类型声明扩展（B站模板同款模式）：把本 provider 的 serviceId / relogin 事件
@@ -88,6 +94,7 @@ interface LoginPanelOptions {
 
 /** 控制台登录面板数据服务（DataService 下行 + relogin 指令上行）。 */
 export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
+    private readonly selfId: string;
     private payload: LoginPanelPayload;
     // 字段名不用 logger：DataService 基类 Service 自带 deprecated 的 `logger`
     // 实例（名字同为 console.services.*，等级同样不受 logLevel 控制）。
@@ -108,7 +115,10 @@ export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
         // true（直接 new 走 expose 路径，不自动 set，避免与调用方重复注册）。
         super(ctx, loginServiceId(options.selfId) as keyof Console.Services, {
             immediate: true,
+            // 登录数据（含二维码）等价于登录凭证：推送 / 连接拉取 / 控制事件统一管理员门槛。
+            ...loginPanelAccessOptions(),
         });
+        this.selfId = options.selfId;
         this.onRelogin = options.onRelogin;
         this.onQrLogin = options.onQrLogin;
         this.onRefreshQr = options.onRefreshQr;
@@ -119,17 +129,43 @@ export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
             loginServiceId(options.selfId),
         );
         // 指令上行：前端「重新登录」→ bot 层按状态发 control login / restart
-        ctx.console.addListener(reloginEventName(options.selfId) as keyof Events, () => {
-            this.onRelogin?.();
-        });
+        ctx.console.addListener(
+            reloginEventName(options.selfId) as keyof Events,
+            this.guardControl(() => this.onRelogin?.()),
+            loginPanelAccessOptions(),
+        );
         // 指令上行：前端「扫码登录」→ bot 层强制扫码（control login qr / qrOnly+restart）
-        ctx.console.addListener(qrLoginEventName(options.selfId) as keyof Events, () => {
-            this.onQrLogin?.();
-        });
+        ctx.console.addListener(
+            qrLoginEventName(options.selfId) as keyof Events,
+            this.guardControl(() => this.onQrLogin?.()),
+            loginPanelAccessOptions(),
+        );
         // 指令上行：前端「刷新二维码」→ bot 层 IPC 直达 refreshQr（不重启子进程）
-        ctx.console.addListener(refreshQrEventName(options.selfId) as keyof Events, () => {
-            this.onRefreshQr?.();
-        });
+        ctx.console.addListener(
+            refreshQrEventName(options.selfId) as keyof Events,
+            this.guardControl(() => this.onRefreshQr?.()),
+            loginPanelAccessOptions(),
+        );
+    }
+
+    /**
+     * 控制事件的本地权限复核（纵深防御）。
+     *
+     * 正常路径由 @koishijs/plugin-auth 的 `console/intercept` 先拒绝低权限客户端；
+     * 这里再按同一门槛复核已登录客户端，拦截器缺失或被绕过时不执行 bot 层动作。
+     * 无 auth（未启用鉴权插件）时放行，保持原有可用性。
+     */
+    private guardControl(action: () => void): (this: Client) => void {
+        const logger = this.botLogger;
+        return function (this: Client): void {
+            // Client.auth 由 @koishijs/plugin-auth 做模块扩展；本包不依赖该插件，
+            // 类型上按最小结构收窄（运行时读取同一字段）。
+            if (!passesLoginPanelAuthority(this as ConsoleAuthClient)) {
+                logger.debug("[napuketto] 控制台客户端权限不足，忽略登录控制事件");
+                return;
+            }
+            action();
+        };
     }
 
     /** 更新登录状态并推送（每次全量推送——状态变化不频繁，无需 diff）。 */
@@ -145,7 +181,14 @@ export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
     }
 
     /** DataService 抽象方法：前端 store 请求时返回当前快照。 */
-    override async get(): Promise<LoginPanelPayload> {
+    override async get(_forced?: boolean, client?: Client): Promise<LoginPanelPayload> {
+        // 纵深防御：推送（broadcast 的 body(client)）与连接拉取都会带 client 调 get()。
+        // 正常路径由 console/intercept 先拒绝；这里复核已登录客户端，避免拦截器缺失时
+        // 把二维码 / 登录账号推给低权限客户端。
+        if (client !== undefined && !passesLoginPanelAuthority(client as ConsoleAuthClient)) {
+            this.botLogger.debug("[napuketto] 控制台客户端权限不足，返回脱敏登录快照");
+            return redactLoginPanelPayload(this.selfId);
+        }
         // 诊断：控制台客户端连接时 Client.refresh() 会调 get()（PULL 路径）。
         // 若这行不出现 = 服务值未注册到 root store / 客户端没拉取到本服务。
         // debug 级（每次客户端刷新都刷一行，INFO 下应静音）。
