@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.48
+
+### Patch Changes
+
+- 同一账号重新装配登录面板后，控制指令与新连接回放均使用当前 Bot。旧实例晚到的状态更新或清理不会影响接管后的面板。
+
 ## 0.0.47
 
 ### Patch Changes

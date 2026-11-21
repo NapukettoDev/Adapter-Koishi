@@ -1,14 +1,3 @@
-/**
- * provider.ts：控制台登录面板数据服务（docs/internals/console.md）。
- *
- * NapukettoLoginProvider extends DataService（@koishijs/plugin-console）：
- *  - 数据下行：update() 存快照 + refresh() 推送到前端 store（`napuketto-login-<uin>`）
- *  - 指令上行：注册 `napuketto-login-<uin>/relogin` console 事件 →
- *    onRelogin 回调（bot 层发 IPC control restart 重启登录流程）
- *
- * 运行时 import @koishijs/plugin-console / koishi——本文件不进单测
- * （docs/guides/development.md 单测边界）；纯逻辑在 payload.ts（可单测）。
- */
 import { type Client, type Console, DataService, type Events } from "@koishijs/plugin-console";
 import type { Context, Logger } from "koishi";
 import {
@@ -19,11 +8,6 @@ import {
 } from "./access.js";
 import type { LoginPanelPayload } from "./types.js";
 
-// 类型声明扩展（B站模板同款模式）：把本 provider 的 serviceId / relogin 事件
-// 挂进 @koishijs/plugin-console 的类型空间（store 键 + addListener 事件名校验）。
-// ⚠️ TS7 native（tsgo）对 declare module + export *（@koishijs/console）的
-// namespace 合并不生效（调用点 cast 兜底，见 super/addListener）；旧 TS 下
-// 声明有效，未来 TS 修复后可直接去掉 cast。
 declare module "@koishijs/plugin-console" {
     namespace Console {
         interface Services {
@@ -37,166 +21,118 @@ declare module "@koishijs/plugin-console" {
     }
 }
 
-/** serviceId 前缀（多账号隔离：napuketto-login-<uin>）。 */
-const LOGIN_SERVICE_PREFIX = "napuketto-login";
-
-/** 重新登录 console 事件名后缀。 */
-const RELOGIN_EVENT_SUFFIX = "relogin";
-
-/** 强制扫码登录 console 事件名后缀（2026-09-08）。 */
-const QR_LOGIN_EVENT_SUFFIX = "qr-login";
-
-/** 刷新二维码 console 事件名后缀。 */
-const REFRESH_QR_EVENT_SUFFIX = "refresh-qr";
-
-/** store 键 / serviceId。 */
-export function loginServiceId(selfId: string): string {
-    return `${LOGIN_SERVICE_PREFIX}-${selfId}`;
-}
-
-/** 重新登录事件名（前端 send / 后端 addListener 用）。 */
-function reloginEventName(selfId: string): string {
-    return `${loginServiceId(selfId)}/${RELOGIN_EVENT_SUFFIX}`;
-}
-
-/** 刷新二维码事件名（前端 send / 后端 addListener 用）。 */
-function refreshQrEventName(selfId: string): string {
-    return `${loginServiceId(selfId)}/${REFRESH_QR_EVENT_SUFFIX}`;
-}
-
-/** 强制扫码登录事件名（前端 send / 后端 addListener 用）。 */
-function qrLoginEventName(selfId: string): string {
-    return `${loginServiceId(selfId)}/${QR_LOGIN_EVENT_SUFFIX}`;
-}
-
-/** provider 选项。 */
-interface LoginPanelOptions {
-    /** 登录账号（QQ 号）。 */
-    selfId: string;
-    /**
-     * 日志对象（bot 的 logger）。
-     *
-     * ⚠️ 必须注入，不能用 `this.ctx.logger`（2026-10-17 修复）：DataService 的构造
-     * 参数会把 fork ctx 的 runtime.name 改成 `console.services.<serviceId>`，
-     * 该名字与插件的 logger（`onebot`/`NapukettoBot`）不同源，reggol 只按名字
-     * 查 Logger.levels——插件「日志等级」配置对它无效，provider 的 INFO 诊断
-     * 因此无论日志等级调到多低都持续刷屏。注入 bot logger 后等级与插件其余
-     * 日志一致（`logLevel` 生效）。
-     */
+interface LoginPanelBinding {
+    getPayload: () => LoginPanelPayload;
     logger: Logger;
-    /** 前端点「重新登录」回调（bot 层按状态发 control login / restart）。 */
-    onRelogin?: () => void;
-    /** 前端点「扫码登录」回调（bot 层发 control login qr / qrOnly+restart，2026-09-08）。 */
-    onQrLogin?: () => void;
-    /** 前端点「刷新二维码」回调（bot 层发 IPC login.refreshQr 动作，不重启子进程）。 */
-    onRefreshQr?: () => void;
+    onRelogin: () => void;
+    onQrLogin: () => void;
+    onRefreshQr: () => void;
 }
 
-/** 控制台登录面板数据服务（DataService 下行 + relogin 指令上行）。 */
-export class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
-    private readonly selfId: string;
-    private payload: LoginPanelPayload;
-    // 字段名不用 logger：DataService 基类 Service 自带 deprecated 的 `logger`
-    // 实例（名字同为 console.services.*，等级同样不受 logLevel 控制）。
-    private readonly botLogger: Logger;
-    private readonly onRelogin: (() => void) | undefined;
-    private readonly onQrLogin: (() => void) | undefined;
-    private readonly onRefreshQr: (() => void) | undefined;
+class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
+    private binding: LoginPanelBinding | undefined;
 
-    constructor(ctx: Context, options: LoginPanelOptions) {
-        // ⚠️ 服务值注册交给调用方（bot.ts）——2026-08-14 根因修复 v3：登录是
-        // 自动启动的，二维码/状态在控制台客户端连接前就推完，被
-        // DataService.refresh() → Console.broadcast() 的 `if (!handles.length)
-        // return` 丢弃；用户打开控制台后只能靠 Client.refresh() 的 PULL 拉取。
-        // PULL 用 `root.get('console.services.<id>')` 读 root store——所以服务
-        // 值必须注册到 root store，且要在 bot dispose 时清理（否则 reload 报
-        // `service has been registered`）。这两件事由 bot.ts 统一处理（拿 set
-        // 返回的 dispose 函数在 dispose 时调用）；provider 自身用 immediate:
-        // true（直接 new 走 expose 路径，不自动 set，避免与调用方重复注册）。
-        super(ctx, loginServiceId(options.selfId) as keyof Console.Services, {
+    constructor(
+        ctx: Context,
+        serviceId: string,
+        private readonly selfId: string,
+        private readonly disposeScope: () => void,
+    ) {
+        // 直接构造时 immediate 只标记 expose，服务值由独立注入作用域显式注册。
+        super(ctx, serviceId as keyof Console.Services, {
             immediate: true,
-            // 登录数据（含二维码）等价于登录凭证：推送 / 连接拉取 / 控制事件统一管理员门槛。
             ...loginPanelAccessOptions(),
         });
-        this.selfId = options.selfId;
-        this.onRelogin = options.onRelogin;
-        this.onQrLogin = options.onQrLogin;
-        this.onRefreshQr = options.onRefreshQr;
-        this.botLogger = options.logger;
-        this.payload = { state: "idle", selfId: options.selfId };
-        this.botLogger.debug(
-            "[napuketto] 控制台登录面板 provider 已创建: serviceId=%s",
-            loginServiceId(options.selfId),
-        );
-        // 指令上行：前端「重新登录」→ bot 层按状态发 control login / restart
-        ctx.console.addListener(
-            reloginEventName(options.selfId) as keyof Events,
-            this.guardControl(() => this.onRelogin?.()),
-            loginPanelAccessOptions(),
-        );
-        // 指令上行：前端「扫码登录」→ bot 层强制扫码（control login qr / qrOnly+restart）
-        ctx.console.addListener(
-            qrLoginEventName(options.selfId) as keyof Events,
-            this.guardControl(() => this.onQrLogin?.()),
-            loginPanelAccessOptions(),
-        );
-        // 指令上行：前端「刷新二维码」→ bot 层 IPC 直达 refreshQr（不重启子进程）
-        ctx.console.addListener(
-            refreshQrEventName(options.selfId) as keyof Events,
-            this.guardControl(() => this.onRefreshQr?.()),
-            loginPanelAccessOptions(),
-        );
+        ctx.on("dispose", () => {
+            this.binding = undefined;
+        });
+        ctx.on("console/connection", () => {
+            if (this.binding !== undefined) {
+                void this.refresh();
+            }
+        });
+        this.addControlListener(ctx, `${serviceId}/relogin`, (binding) => binding.onRelogin());
+        this.addControlListener(ctx, `${serviceId}/qr-login`, (binding) => binding.onQrLogin());
+        this.addControlListener(ctx, `${serviceId}/refresh-qr`, (binding) => binding.onRefreshQr());
     }
 
-    /**
-     * 控制事件的本地权限复核（纵深防御）。
-     *
-     * 正常路径由 @koishijs/plugin-auth 的 `console/intercept` 先拒绝低权限客户端；
-     * 这里再按同一门槛复核已登录客户端，拦截器缺失或被绕过时不执行 bot 层动作。
-     * 无 auth（未启用鉴权插件）时放行，保持原有可用性。
-     */
-    private guardControl(action: () => void): (this: Client) => void {
-        const logger = this.botLogger;
-        return function (this: Client): void {
-            // Client.auth 由 @koishijs/plugin-auth 做模块扩展；本包不依赖该插件，
-            // 类型上按最小结构收窄（运行时读取同一字段）。
-            if (!passesLoginPanelAuthority(this as ConsoleAuthClient)) {
-                logger.debug("[napuketto] 控制台客户端权限不足，忽略登录控制事件");
-                return;
+    bind(ctx: Context, binding: LoginPanelBinding): () => void {
+        this.binding = binding;
+        ctx.on("dispose", () => {
+            if (this.binding === binding) {
+                this.disposeScope();
             }
-            action();
+        });
+        return () => {
+            if (this.binding === binding) {
+                void this.refresh();
+            }
         };
     }
 
-    /** 更新登录状态并推送（每次全量推送——状态变化不频繁，无需 diff）。 */
-    update(next: LoginPanelPayload): void {
-        this.botLogger.debug(
-            "[napuketto] 控制台登录面板 update: state=%s selfId=%s",
-            next.state,
-            next.selfId,
+    private addControlListener(
+        ctx: Context,
+        name: string,
+        action: (binding: LoginPanelBinding) => void,
+    ): void {
+        const provider = this;
+        const { listeners } = ctx.console;
+        ctx.console.addListener(
+            name as keyof Events,
+            function (this: Client): void {
+                const binding = provider.binding;
+                if (binding === undefined) {
+                    return;
+                }
+                // Client.auth 由可选的 plugin-auth 扩展，转给现有的本地权限复核。
+                if (!passesLoginPanelAuthority(this as ConsoleAuthClient)) {
+                    binding.logger.debug("[napuketto] 控制台客户端权限不足，忽略登录控制事件");
+                    return;
+                }
+                action(binding);
+            },
+            loginPanelAccessOptions(),
         );
-        this.payload = next;
-        // 推送不阻塞调用方（update 是同步状态回调）；DataService 内部处理推送失败。
-        void this.refresh();
+        const listener = listeners[name];
+        // Console.addListener 仅写共享表，销毁作用域时需要按监听器对象清理。
+        ctx.on("dispose", () => {
+            if (listeners[name] === listener) {
+                delete listeners[name];
+            }
+        });
     }
 
-    /** DataService 抽象方法：前端 store 请求时返回当前快照。 */
     override async get(_forced?: boolean, client?: Client): Promise<LoginPanelPayload> {
-        // 纵深防御：推送（broadcast 的 body(client)）与连接拉取都会带 client 调 get()。
-        // 正常路径由 console/intercept 先拒绝；这里复核已登录客户端，避免拦截器缺失时
-        // 把二维码 / 登录账号推给低权限客户端。
+        const binding = this.binding;
         if (client !== undefined && !passesLoginPanelAuthority(client as ConsoleAuthClient)) {
-            this.botLogger.debug("[napuketto] 控制台客户端权限不足，返回脱敏登录快照");
+            binding?.logger.debug("[napuketto] 控制台客户端权限不足，返回脱敏登录快照");
             return redactLoginPanelPayload(this.selfId);
         }
-        // 诊断：控制台客户端连接时 Client.refresh() 会调 get()（PULL 路径）。
-        // 若这行不出现 = 服务值未注册到 root store / 客户端没拉取到本服务。
-        // debug 级（每次客户端刷新都刷一行，INFO 下应静音）。
-        this.botLogger.debug(
-            "[napuketto] get() 被调用（前端 PULL 拉取）: state=%s qr=%s",
-            this.payload.state,
-            this.payload.qr !== undefined,
-        );
-        return this.payload;
+        return binding?.getPayload() ?? { state: "idle", selfId: this.selfId };
     }
+}
+
+export function bindLoginProvider(
+    ctx: Context,
+    selfId: string,
+    binding: LoginPanelBinding,
+): () => void {
+    const serviceId = `napuketto-login-${selfId}`;
+    const serviceName = `console.services.${serviceId}`;
+    let provider = ctx.root.get(serviceName) as NapukettoLoginProvider | undefined;
+    if (provider === undefined) {
+        // Provider 的生命周期独立于任一 Bot，接管时保留同一数据服务与监听器。
+        const scope = ctx.root.inject(["console"], (owner) => {
+            const service = new NapukettoLoginProvider(owner, serviceId, selfId, () => {
+                scope.dispose();
+            });
+            owner.set(serviceName, service);
+        });
+        provider = ctx.root.get(serviceName) as NapukettoLoginProvider | undefined;
+        if (provider === undefined) {
+            scope.dispose();
+            throw new Error(`[napuketto] 登录面板服务注册失败: ${serviceId}`);
+        }
+    }
+    return provider.bind(ctx, binding);
 }
