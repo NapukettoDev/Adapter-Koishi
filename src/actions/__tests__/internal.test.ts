@@ -5,9 +5,10 @@
  * （mock @napuketto/media，真实文件头判断在 media.test.ts 覆盖）。
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ElementType } from "@napuketto/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeRawMessage, mockH } from "../../events/test-utils.js";
@@ -61,20 +62,59 @@ describe("NapukettoInternal", () => {
         });
     });
 
-    it("sendMessage：语音（audio）→ 转 silk 后发（非 silk 原路径不直发）", async () => {
-        const { internal, request } = createInternal(async () => ({ msgId: "m3" }));
-        const ogg = join(dir, "voice.ogg");
-        writeFileSync(ogg, Buffer.from("OggS........"));
-        const silk = join(dir, "voice.silk");
-        encodePcmToSilkMock.mockResolvedValue(silk);
+    it("sendMessage：IPC 消费时 SILK 存在，发送失败后清理并保留输入", async () => {
+        const source = join(dir, "voice.ogg");
+        writeFileSync(source, "OggS");
+        let silk = "";
+        encodePcmToSilkMock.mockImplementation(async (input: string) => {
+            silk = input.replace(/\.ogg$/, ".silk");
+            writeFileSync(silk, "silk");
+            return silk;
+        });
+        const { internal, request } = createInternal(async (_action, params) => {
+            expect(params?.["elements"]).toEqual([{ type: "voice", path: silk }]);
+            expect(existsSync(silk)).toBe(true);
+            throw new Error("IPC failed");
+        });
+        await expect(internal.sendMessage("123456789", [audioElement(source)])).rejects.toThrow(
+            "IPC failed",
+        );
+        expect(request).toHaveBeenCalledOnce();
+        expect(existsSync(silk)).toBe(false);
+        expect(existsSync(source)).toBe(true);
+    });
 
-        const ids = await internal.sendMessage("123456789", [audioElement(ogg)]);
-
-        expect(ids).toEqual(["m3"]);
-        expect(request).toHaveBeenCalledWith("msg.sendMessage", {
-            chatType: 2,
-            peerUin: "123456789",
-            elements: [{ type: "voice", path: silk }],
+    it("白名单允许 file URL，拒绝外部文件，对受信任的原始调用保留透传", async () => {
+        const file = join(dir, "海报.png");
+        writeFileSync(file, "test");
+        const request = vi.fn<RequestFn>(async () => ({ msgId: "1" }));
+        const internal = new NapukettoInternal({
+            request,
+            localFilePolicy: "allowlist",
+            localMediaRoots: [dir],
+        });
+        const img = (src: string) => ({ type: "img", attrs: { src } });
+        await expect(
+            internal.sendMessage("123456", img(pathToFileURL(file).href)),
+        ).resolves.toEqual(["1"]);
+        expect(request).toHaveBeenLastCalledWith(
+            "msg.sendMessage",
+            expect.objectContaining({
+                elements: [
+                    { type: "image", path: realpathSync.native(file).replaceAll("\\", "/") },
+                ],
+            }),
+        );
+        await expect(
+            internal.sendMessage(
+                "123456",
+                img(pathToFileURL(join(dir, "..", "external.png")).href),
+            ),
+        ).rejects.toMatchObject({ code: "INVALID_PARAM" });
+        expect(request).toHaveBeenCalledOnce();
+        await internal._request("download_file", { url: "http://localhost/image" });
+        expect(request).toHaveBeenLastCalledWith("download_file", {
+            url: "http://localhost/image",
         });
     });
 

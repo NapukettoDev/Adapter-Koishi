@@ -4,7 +4,6 @@
 export { parseChannelId } from "./channel.js";
 export { toCanonicalElements } from "./elements.js";
 export { NapukettoInternal } from "./internal.js";
-export { ensureSilk, ensureVoiceSilk } from "./media.js";
 export type {
     MessageListResponse,
     NapukettoInternalOptions,

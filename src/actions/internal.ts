@@ -13,13 +13,7 @@ import { IpcError } from "../ipc/errors.js";
 import { parseChannelId } from "./channel.js";
 import { toCanonicalElements } from "./elements.js";
 import { isHistoryMessage, toHistoryMessage } from "./history.js";
-import {
-    downloadRemoteMedia,
-    enrichVideoElements,
-    ensureVoiceSilk,
-    materializeDataUrlImages,
-    materializeDataUrlVideos,
-} from "./media.js";
+import { prepareOutboundMedia } from "./media.js";
 import type { MessageListResponse, NapukettoInternalOptions } from "./types.js";
 
 const DEFAULT_HISTORY_LIMIT = 20;
@@ -55,41 +49,23 @@ export class NapukettoInternal {
         return this.options.request(action, params);
     }
 
-    /** 发消息：koishi 元素 → canonical →（远程媒体下载 → silk 归一化 → data URL 落盘 → 视频补全）→ msg.sendMessage。返回消息 id 数组。 */
+    /** 发消息：koishi 元素 → canonical →（媒体策略及格式归一化）→ msg.sendMessage。返回消息 id 数组。 */
     async sendMessage(channelId: string, content: unknown, guildId?: string): Promise<string[]> {
         const peer = this.resolveMessagePeer(channelId, guildId);
         const elements = toCanonicalElements(content);
         if (elements.length === 0) {
             return []; // 空内容：不发请求
         }
-        const loggerOptions =
-            this.options.logger !== undefined ? { logger: this.options.logger } : {};
-        // 远程媒体（http/https）先下载到本地临时文件（2026-09-08 T3）：失败
-        // 回退占位文本（media.ts downloadRemoteMedia 内打 warn），不阻塞发送
-        const downloaded = await downloadRemoteMedia(elements, loggerOptions);
-        // 逐级派生临时文件（下载解压 / data URL 落盘 / 视频抽帧），统一逆序清理
-        const cleanups: Array<() => Promise<void>> = [downloaded.cleanup];
+        const prepared = await prepareOutboundMedia(elements, this.options);
         try {
-            // 语音段统一转 silk（QQ 语音协议；2026-08-23 修复：非 silk 音频原样
-            // 上传 QQ 播放器无法解码——线上实证语音发送成功但收件人无法播放）
-            const silk = await ensureVoiceSilk(downloaded.elements);
-            const images = await materializeDataUrlImages(silk);
-            cleanups.push(images.cleanup);
-            const videos = await materializeDataUrlVideos(images.elements);
-            cleanups.push(videos.cleanup);
-            // 视频缩略图/宽高/时长（ffmpeg/ffprobe，失败降级无缩略图并 warn）
-            const enriched = await enrichVideoElements(videos.elements, loggerOptions);
-            cleanups.push(enriched.cleanup);
             const result = await this.options.request("msg.sendMessage", {
                 ...peer,
-                elements: enriched.elements,
+                elements: prepared.elements,
             });
             const msgId = (result as { msgId?: string } | null | undefined)?.msgId;
             return msgId === undefined || msgId === "" ? [] : [msgId];
         } finally {
-            for (const cleanup of cleanups.reverse()) {
-                await cleanup();
-            }
+            await prepared.cleanup();
         }
     }
 

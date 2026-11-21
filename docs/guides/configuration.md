@@ -21,6 +21,22 @@ bots:
 每个 `bots` 配置项对应一个 `NapukettoBot` 实例、一个自建宿主子进程、一个登录会话。
 `onebot:<uin>` 只是配置键命名习惯；真正决定账号的是 `selfId`。
 
+## 出站媒体策略
+
+- `remoteMediaPolicy: compatible`（默认）允许本机和 LAN 媒体服务，逐跳拒绝链路本地等特殊字面地址。
+  保持这项配置的部署通常使用受信任的媒体 URL，并可用网络出口规则约束域名、代理及内网访问。
+- `remoteMediaPolicy: public-only` 逐跳只允许公网目标，验证实际连接使用的地址，
+  并保留 HTTPS 证书验证。使用支持该策略的 `@napuketto/media`，缺少能力时 URL 下载直接降级为占位文本。
+- `localFilePolicy: legacy`（默认）保留部署现有的本地媒体路径和 `file://` 用法。
+  向低信任调用者提供发送功能时，设为 `allowlist`。空 `localMediaRoots` 拒绝所有调用方本地路径，
+  仍可使用有效的 HTTP(S) 和 data URL。
+- 受信任本地媒体用 `localMediaRoots` 显式列出专用导出目录，例如 Windows 的
+  `D:/koishi/media` 或 Linux 的 `/srv/koishi/media`。相对根和相对媒体路径以 Koishi 工作目录解析。
+  白名单检查会解析符号链接和 junction，目录本身也须是本地绝对路径解析出的实际目录。
+  将这些目录及上级目录的写权限留给受信任进程，避免文件交给 QQ 后由低信任调用者替换。
+  迁移时先核对插件实际使用的目录（例如海报导出目录），再打开白名单。
+
+
 ## 配置项
 
 | 配置项 | 类型 | 默认值 | 说明 |

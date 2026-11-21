@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import type { CanonicalElement } from "@napuketto/kernel";
 import { encodePcmToSilk } from "@napuketto/media";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { enrichReceiveVoice, resolveNtFile } from "../voice-decode.js";
+import { createVoiceEnricher, enrichReceiveVoice, resolveNtFile } from "../voice-decode.js";
 
 const dirs: string[] = [];
 
@@ -138,5 +138,36 @@ describe("enrichReceiveVoice", () => {
         ];
         const out = await enrichReceiveVoice(input);
         expect(out).toEqual(input);
+    });
+
+    it("同名语音并发解码各自独占文件，容量和 TTL 给已派发语音留出消费窗口", async () => {
+        const wavs = ["one", "two", "three"].map((name) => join(tempDir(name), "same.wav"));
+        const sources = await Promise.all(
+            wavs.map(async (wav) => {
+                makeWav(wav);
+                return encodePcmToSilk(wav);
+            }),
+        );
+        const enrich = createVoiceEnricher(250, 2);
+        const elements = sources.map((path) => ({ type: "voice" as const, path }));
+        const results = await Promise.all(elements.map(async (el) => (await enrich([el]))[0]));
+        const output = results.map((el) => (el?.type === "voice" ? el.path : ""));
+        const [a = "", b = "", fallback] = output;
+        expect(a).not.toBe(b);
+        expect(a).toMatch(/\.wav$/);
+        expect(b).toMatch(/\.wav$/);
+        expect(fallback).toBe(sources[2]);
+        for (const path of [a, b]) {
+            expect(readFileSync(path).subarray(0, 4).toString("ascii")).toBe("RIFF");
+        }
+        await vi.waitFor(() => {
+            expect(existsSync(dirname(a))).toBe(false);
+            expect(existsSync(dirname(b))).toBe(false);
+        });
+        expect(sources.every(existsSync)).toBe(true);
+        const third = elements[2];
+        if (third === undefined) throw new Error("语音夹具丢失");
+        const [next] = await enrich([third]);
+        expect(next).toMatchObject({ type: "voice", path: expect.stringMatching(/\.wav$/) });
     });
 });
