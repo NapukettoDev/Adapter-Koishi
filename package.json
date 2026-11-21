@@ -68,7 +68,7 @@
         "@napuketto/kernel": "~0.2.0",
         "@napuketto/loader": "~0.0.35",
         "@napuketto/media": "~0.0.5",
-        "@napuketto/network": "~0.0.2"
+        "@napuketto/network": "~0.4.1"
     },
     "peerDependencies": {
         "koishi": "^4.18.11",

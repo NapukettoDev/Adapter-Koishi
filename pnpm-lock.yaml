@@ -179,8 +179,8 @@ importers:
         specifier: ~0.0.5
         version: 0.0.5(supports-color@8.1.1)
       '@napuketto/network':
-        specifier: ~0.0.2
-        version: 0.0.2
+        specifier: ~0.4.1
+        version: 0.4.1
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.6
@@ -872,6 +872,12 @@ packages:
     peerDependencies:
       hono: ^4 || ^5.0.0-0
 
+  '@hono/node-server@2.1.9':
+    resolution: {integrity: sha512-Sk4NQd3GFY0WZWCzndwFMPwJhtD0y9qjsQ+pjID0/03nK9pxyBCUoUHCho8QYBLBVhi0ssL8UkNPHqbgSOFPIQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
+
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
     engines: {node: '>=18.18.0'}
@@ -1015,6 +1021,10 @@ packages:
 
   '@napuketto/network@0.0.2':
     resolution: {integrity: sha512-C0J5zwlZi0A4Ne9x6J8k8PMAgelJxthvKAwOSEu1NArey/JM80o32YyadkTmx9AjTV0DEXcQEb8oxqe8+DVg9w==}
+
+  '@napuketto/network@0.4.1':
+    resolution: {integrity: sha512-aHkePYKScV5xSzZAp9gY91weqMgOVUmgLSFuvGk/dTcD7hCWfPXDno9GxFJkuKprwaM3FJxZKwBHjALVGm3nNQ==}
+    engines: {node: '>=22.12.0'}
 
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
@@ -3625,6 +3635,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.23.0:
+    resolution: {integrity: sha512-wCkmX8QMOrKjgO8HW2WyDbTSGeqkocxgDzS9iR79rEAexty6/2qzilx3Ag8Tqf9ykop3irLKle0MtVn5qjVnoQ==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xml-name-validator@5.0.0:
     resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
     engines: {node: '>=18'}
@@ -4086,6 +4108,10 @@ snapshots:
     dependencies:
       hono: 4.13.19
 
+  '@hono/node-server@2.1.9(hono@4.13.19)':
+    dependencies:
+      hono: 4.13.19
+
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -4327,6 +4353,15 @@ snapshots:
       '@hono/node-server': 2.1.5(hono@4.13.19)
       hono: 4.13.19
       ws: 8.22.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@napuketto/network@0.4.1':
+    dependencies:
+      '@hono/node-server': 2.1.9(hono@4.13.19)
+      hono: 4.13.19
+      ws: 8.23.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -6832,6 +6867,8 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.22.0: {}
+
+  ws@8.23.0: {}
 
   xml-name-validator@5.0.0: {}
 
