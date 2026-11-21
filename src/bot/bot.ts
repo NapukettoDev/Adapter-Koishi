@@ -119,8 +119,8 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         const selfId = requireSelfId(config.selfId);
         super(ctx, config, "onebot");
         this.dataRoot = resolveDataRoot(config.dataDir);
-        // 日志等级（用户可配，默认 debug——多点日志便于排查；reggol setter 按名字
-        // 写全局 Logger.levels，只影响 napuketto 及其子 namespace）
+        // reggol 按名称共享等级。独立名称也避免把 onebot 的等级改成子命名空间树。
+        this.logger = ctx.logger(`${this.logger.name}-${selfId}`);
         this.logger.level = LOG_LEVEL_MAP[config.logLevel ?? "debug"];
         // selfId setter 写 user.id（satorijs defineAccessor），sid 立即可用
         this.selfId = selfId;

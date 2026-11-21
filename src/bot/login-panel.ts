@@ -17,7 +17,7 @@ export interface LoginPanelDeps {
     request: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
     /** 置一次性扫码标记，有连接时发 control restart；无连接时返回 false。 */
     forceQrRestart: () => boolean;
-    /** 日志对象（bot 的 logger，namespace 已含 napuketto）。 */
+    /** 对应账号的 Bot logger。 */
     logger: Logger;
 }
 

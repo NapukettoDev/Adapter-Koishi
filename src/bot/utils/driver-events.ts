@@ -16,7 +16,7 @@ import type { NapukettoLoginState } from "../../login/index.js";
 
 /** driver events 主机（bot 层提供依赖，避免工厂直接依赖 NapukettoBot 全量）。 */
 export interface DriverEventsHost {
-    /** 日志对象（bot 的 logger，namespace 已含 napuketto）。 */
+    /** 对应账号的 Bot logger。 */
     logger: Logger;
     /** 登录状态机（onLogin/onQr/onExit 转发）。 */
     login: Pick<NapukettoLoginState, "onLogin" | "onQr" | "onExit">;

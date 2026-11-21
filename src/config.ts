@@ -123,7 +123,7 @@ export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.object({
         Schema.const("silent" as const),
     ])
         .description(
-            "日志等级（默认 debug：子进程/事件/消息详细日志；info 只留消息与警告，" +
+            "当前账号的日志等级（默认 debug：子进程/事件/消息详细日志；info 只留消息与警告，" +
                 "error 只报错，silent 关闭）",
         )
         .default("debug"),
