@@ -1,5 +1,12 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.42
+
+### Patch Changes
+
+- 心跳失联或主动停止时逐级终止宿主，确认退出后才允许同一账号启动替代进程。配置校验失败时停止重试并提示检查配置。
+- 同一控制台的登录面板保留到最后一个 Bot 停用，重新启用时恢复。关闭 IPC 时清理 stdout 和 stderr 的监听。
+
 ## 0.0.41
 
 ### Patch Changes

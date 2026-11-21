@@ -58,7 +58,7 @@ describe("NapukettoDriver 状态重同步", () => {
         expect(onEvent).not.toHaveBeenCalled();
         harness.emit("ready");
         expect(onEvent).toHaveBeenCalledOnce();
-        harness.driver.stop();
+        void harness.driver.stop();
     });
 
     it("事件风暴节流：连续 event 只查一次（5s 下限）", async () => {
@@ -70,7 +70,7 @@ describe("NapukettoDriver 状态重同步", () => {
         emitEvent(harness);
         emitEvent(harness);
         expect(controls).toHaveLength(1);
-        harness.driver.stop();
+        void harness.driver.stop();
     });
 
     it("ready 后收到 event 不再查询", async () => {
@@ -82,7 +82,7 @@ describe("NapukettoDriver 状态重同步", () => {
         const controls = captureControls(harness);
         emitEvent(harness);
         expect(controls).toHaveLength(0);
-        harness.driver.stop();
+        void harness.driver.stop();
     });
 
     it("booting 定期查询（20s）且 ready 后停表", async () => {
@@ -100,7 +100,7 @@ describe("NapukettoDriver 状态重同步", () => {
             await flush();
             await vi.advanceTimersByTimeAsync(60_000);
             expect(controls).toHaveLength(2); // 离开 booting 不再定期查询
-            harness.driver.stop();
+            void harness.driver.stop();
         } finally {
             vi.useRealTimers();
         }
@@ -121,7 +121,7 @@ describe("NapukettoDriver 状态重同步", () => {
         expect(onReady).toHaveBeenCalledOnce();
         expect(onEvent).toHaveBeenCalledOnce();
         expect(onReady).toHaveBeenCalledBefore(onEvent);
-        harness.driver.stop();
+        void harness.driver.stop();
     });
 
     it("软重登重播 ready：不重复 onReady，仍转发 logged_in 供上层校验账号", async () => {
@@ -140,7 +140,7 @@ describe("NapukettoDriver 状态重同步", () => {
         expect(driver.currentClient).toBe(client);
         expect(onReady).toHaveBeenCalledOnce();
         expect(onLogin).toHaveBeenCalledExactlyOnceWith(login);
-        driver.stop();
+        void driver.stop();
         spawns[0]?.emitExit(0, null);
     });
 
@@ -152,7 +152,7 @@ describe("NapukettoDriver 状态重同步", () => {
         const line = "[00:13:40.523] INFO (kernel/4242): 撕裂的日志行\n";
         harness.peers[0]?.peer.write(line);
         expect(junk).toEqual([line]);
-        harness.driver.stop();
+        void harness.driver.stop();
     });
 
     it("停止后 booting 查询定时器不再触发", async () => {
@@ -162,7 +162,7 @@ describe("NapukettoDriver 状态重同步", () => {
             harness.driver.start();
             await flush();
             const controls = captureControls(harness);
-            harness.driver.stop();
+            void harness.driver.stop();
             await vi.advanceTimersByTimeAsync(60_000);
             expect(controls).toHaveLength(0);
         } finally {

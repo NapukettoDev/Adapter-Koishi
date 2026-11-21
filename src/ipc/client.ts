@@ -119,8 +119,7 @@ export class NapukettoIpcClient {
         if (this.closed) {
             return;
         }
-        this.closed = true;
-        this.pending.rejectAll();
+        this.handleClose();
         this.transport.close();
     }
 
@@ -132,6 +131,9 @@ export class NapukettoIpcClient {
     }
 
     private handleLine(line: string): void {
+        if (this.closed) {
+            return;
+        }
         const message = decodeIpcMessage(line);
         if (message === null) {
             // 非法行：不静默丢弃（撕裂/污染留痕，调用方可接日志）
@@ -173,6 +175,7 @@ export class NapukettoIpcClient {
         }
         this.closed = true;
         this.pending.rejectAll();
+        this.handlers.clear();
     }
 
     private dispatch(message: IpcMessage): void {

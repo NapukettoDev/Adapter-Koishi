@@ -25,7 +25,7 @@ describe("NapukettoDriver 重启", () => {
             await flush();
             expect(driver.currentState).toBe("ready");
             expect(driver.restartAttempts).toBe(0);
-            driver.stop();
+            void driver.stop();
         } finally {
             vi.useRealTimers();
         }
@@ -58,28 +58,56 @@ describe("NapukettoDriver 重启", () => {
         }
     });
 
-    it("心跳失联（spawn 后 45s 无消息）→ kill + 重启", async () => {
+    it("主动停止取消已安排的退避重启", async () => {
+        vi.useFakeTimers();
+        try {
+            const { driver, spawns } = createHarness();
+            driver.start();
+            await flush();
+            spawns[0]?.emitExit(1, null);
+            expect(driver.currentState).toBe("restarting");
+            await driver.stop();
+            await vi.advanceTimersByTimeAsync(500);
+            expect(driver.currentState).toBe("stopped");
+            expect(spawns).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("心跳失联后升级终止并等待真实退出，只重启一次", async () => {
         vi.useFakeTimers();
         try {
             const onExit = vi.fn();
-            const { driver, spawns } = createHarness({ onExit });
+            const onReady = vi.fn();
+            const { driver, spawns, emit } = createHarness({ onExit, onReady });
             driver.start();
             await flush();
             expect(spawns.length).toBe(1);
 
             // spawn 后 45s 内无任何消息 → 失联（兜 dlopen/登录卡死）
             await vi.advanceTimersByTimeAsync(46_000);
-            expect(spawns[0]?.killed).toBe(true);
-            // 失联 → handleChildExit(stale) → 重启调度
+            expect(spawns[0]?.signals).toEqual(["SIGTERM"]);
+            expect(driver.currentState).toBe("terminating");
+            expect(driver.currentClient).toBeNull();
+            emit("ready");
+            expect(onReady).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(5_100);
+            expect(spawns[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+            expect(spawns).toHaveLength(1);
+            expect(onExit).not.toHaveBeenCalled();
+            spawns[0]?.emitExit(null, "SIGKILL");
             await vi.advanceTimersByTimeAsync(150);
             expect(spawns.length).toBe(2);
-            // SIGTERM 后旧进程的 exit 可能晚于下一轮 spawn。
-            spawns[0]?.emitExit(null, "SIGTERM");
-            expect(onExit).toHaveBeenCalledExactlyOnceWith(
-                expect.objectContaining({ reason: "stale" }),
-            );
+            spawns[0]?.emitExit(1, null);
+            expect(spawns[0]?.listenerCount("error")).toBe(0);
+            expect(onExit).toHaveBeenCalledExactlyOnceWith({
+                code: null,
+                signal: "SIGKILL",
+                reason: "stale",
+            });
             expect(driver.currentState).toBe("booting");
-            driver.stop();
+            void driver.stop();
             spawns[1]?.emitExit(0, null);
         } finally {
             vi.useRealTimers();
@@ -97,10 +125,143 @@ describe("NapukettoDriver 重启", () => {
             emit("sessioning");
             // 再过 20s（<45s 阈值）不误判
             await vi.advanceTimersByTimeAsync(20_000);
-            expect(spawns[0]?.killed).toBe(false);
-            driver.stop();
+            expect(spawns[0]?.signals).toEqual([]);
+            void driver.stop();
         } finally {
             vi.useRealTimers();
         }
     });
+
+    it("发送信号失败后继续等待，逾期不重启，迟到退出释放账号", async () => {
+        vi.useFakeTimers();
+        try {
+            const options = { accountDir: "unconfirmed-exit" };
+            const onError = vi.fn();
+            const onExit = vi.fn();
+            const { driver, spawns } = createHarness({ onError, onExit }, options);
+            driver.start();
+            await flush();
+            const child = spawns[0];
+            if (child === undefined) {
+                throw new Error("子进程未启动");
+            }
+            child.killResult = false;
+            await vi.advanceTimersByTimeAsync(46_000);
+            child.emit("error", new Error("发送信号异常"));
+            expect(driver.currentState).toBe("terminating");
+            await vi.advanceTimersByTimeAsync(25_000);
+            expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
+            expect(driver.currentState).toBe("failed");
+            expect(onError).toHaveBeenCalledWith(
+                expect.objectContaining({ code: "SIGNAL_FAILED" }),
+            );
+            expect(onError).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    code: "EXIT_TIMEOUT",
+                    message: expect.stringContaining("9999"),
+                }),
+            );
+            expect(onExit).not.toHaveBeenCalled();
+            expect(spawns).toHaveLength(1);
+            const blocked = createHarness({}, options);
+            blocked.driver.start();
+            await flush();
+            expect(blocked.spawns).toHaveLength(0);
+            expect(blocked.driver.currentState).toBe("failed");
+
+            child.emitExit(null, "SIGKILL");
+            expect(child.listenerCount("exit")).toBe(0);
+            expect(child.listenerCount("error")).toBe(0);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(onExit).not.toHaveBeenCalled();
+            expect(spawns).toHaveLength(1);
+            const next = createHarness({}, options);
+            next.driver.start();
+            await flush();
+            expect(next.spawns).toHaveLength(1);
+            const stopping = next.driver.stop();
+            next.spawns[0]?.emitExit(0, null);
+            await stopping;
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("主动停止接管正在等待的失联进程，退出与升级定时器竞争时只完成一次", async () => {
+        vi.useFakeTimers();
+        try {
+            const onExit = vi.fn();
+            const { driver, spawns } = createHarness({ onExit });
+            driver.start();
+            await flush();
+            setTimeout(() => spawns[0]?.emitExit(0, null), 51_000);
+            await vi.advanceTimersByTimeAsync(46_000);
+            const stopping = driver.stop();
+            await vi.advanceTimersByTimeAsync(25_000);
+            await stopping;
+            expect(spawns[0]?.signals).toEqual(["SIGTERM"]);
+            expect(driver.currentState).toBe("stopped");
+            expect(onExit).toHaveBeenCalledExactlyOnceWith({
+                code: 0,
+                signal: null,
+                reason: "stop",
+            });
+            expect(spawns).toHaveLength(1);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it.each([
+        [78, undefined],
+        [1, "INVALID_PARAM"],
+    ] as const)("退出码 %s / 状态错误 %s：配置错误停止重试", async (exitCode, statusCode) => {
+        vi.useFakeTimers();
+        try {
+            const onError = vi.fn();
+            const { driver, spawns, emit } = createHarness({ onError });
+            driver.start();
+            await flush();
+            if (statusCode !== undefined) {
+                emit("failed", "bootstrap 失败", statusCode);
+                expect(driver.currentState).toBe("booting");
+            }
+            spawns[0]?.emitExit(exitCode, null);
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(driver.currentState).toBe("failed");
+            expect(spawns).toHaveLength(1);
+            expect(onError).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    code: "INVALID_PARAM",
+                    message: expect.stringContaining("napuketto-boot.log"),
+                }),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it.each([undefined, "UNKNOWN", "NOT_LOGIN", "INVALID_STATE"])(
+        "引导失败类别 %s 保留退避，不按文案判定",
+        async (statusCode) => {
+            vi.useFakeTimers();
+            try {
+                const { driver, spawns, emit } = createHarness();
+                driver.start();
+                await flush();
+                emit("failed", "配置校验失败", statusCode);
+                spawns[0]?.emitExit(1, null);
+                await vi.advanceTimersByTimeAsync(99);
+                expect(spawns).toHaveLength(1);
+                await vi.advanceTimersByTimeAsync(1);
+                expect(spawns).toHaveLength(2);
+                const stopping = driver.stop();
+                spawns[1]?.emitExit(0, null);
+                await stopping;
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
 });

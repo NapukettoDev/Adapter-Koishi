@@ -98,10 +98,9 @@ interface LoginPanelPayload {
    - portal/本地路径/桌面端等非标准安装 → 把 `index.js` / `index.css` 复制到
      `<baseDir>/data/napuketto-console/node_modules/koishi-plugin-adapter-napuketto/dist`，
      addEntry 指向复制产物。按 size/mtime 比较，未变化不重复写盘。
-3. `ctx.console.addEntry({ dev: <root>/client/index.ts, prod })`。
-4. **模块级去重 flag 在作用域 dispose 时重置**：`addEntry` 创建的 entry 绑定当前作用域，插件
-   stop 会移除 entry；若 flag 不重置，插件重启后不会重新注册，面板永久消失。多 bot 场景只有第一个
-   实例真正注册，第一个实例 dispose 时重置 flag，整体正确。
+3. 在 Koishi 根作用域调用 `addEntry({ dev: <root>/client/index.ts, prod })`，让入口独立于任一 Bot。
+4. 每个 console 的入口由其活跃 Bot 共享。Bot 的注入作用域销毁时释放一次引用，最后一个 Bot 释放时
+   销毁入口。重新启用后重新注册，不同 console 服务各自管理自己的入口。
 
 ## 前端
 

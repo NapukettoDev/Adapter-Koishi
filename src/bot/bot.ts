@@ -19,6 +19,7 @@
  * 只按 Bot 基类能力使用，无需 koishi 特有 API。
  */
 
+import { join } from "node:path";
 import { resolveDataRoot } from "@napuketto/kernel";
 import { Bot, type Context as KoishiContext, type MessageEncoder, type Universal } from "koishi";
 import { type LogLevel, type NapukettoBotConfig, napukettoConfigSchema } from "../config.js";
@@ -187,8 +188,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     /** 停止：停 driver（子进程优雅退出）→ 基类 offline。 */
     override async stop(): Promise<void> {
         this.clientRef.current = null;
-        this.driver?.stop();
-        await super.stop();
+        await Promise.all([super.stop(), this.driver?.stop()]);
     }
 
     // ── koishi 动作方法（走 internal → IPC action → kernel API） ──
@@ -291,6 +291,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
             return;
         }
         const driver = new NapukettoDriver({
+            accountDir: join(this.dataRoot, this.config.selfId),
             // launch 工厂：logger 接线 onStage（下载/解包/win-node/启动阶段日志，
             // 2026-08-23 起——此前首次下载 313MB 全程静默，用户以为流程没生效）
             launch: buildLaunch(
@@ -388,7 +389,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
                 this.clientRef.current = null;
             },
             stopDriver: () => {
-                this.driver?.stop();
+                void this.driver?.stop();
             },
             offline: (error) => {
                 this.offline(error);

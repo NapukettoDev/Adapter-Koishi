@@ -2,7 +2,7 @@
  * test-utils.ts：driver 层测试共享设施。
  * FakeChild（可触发 exit）+ createHarness（driver + spawns/peers 记录）。
  */
-import { Writable } from "node:stream";
+import { EventEmitter } from "node:events";
 import {
     encodeIpcMessage,
     IPC_VERSION,
@@ -14,58 +14,29 @@ import { NapukettoDriver } from "./driver.js";
 import type { ChildProcessLike, DriverEvents } from "./types.js";
 
 /** 假子进程：可手动触发 exit（仅 createHarness 内部使用）。 */
-class FakeChild implements ChildProcessLike {
-    readonly stdout: NodeJS.ReadableStream = new Writable({
-        write(_c, _e, cb) {
-            cb();
-        },
-    }) as unknown as NodeJS.ReadableStream;
-    readonly stdin: NodeJS.WritableStream = new Writable({
-        write(_c, _e, cb) {
-            cb();
-        },
-    });
-    private readonly exitListeners: Array<(code: number | null, signal: string | null) => void> =
-        [];
-    private readonly errorListeners: Array<(err: Error) => void> = [];
-    killed = false;
-    pid = 9999;
+class FakeChild
+    extends EventEmitter<{
+        exit: [code: number | null, signal: string | null];
+        error: [error: Error];
+    }>
+    implements ChildProcessLike
+{
+    readonly signals: Array<NodeJS.Signals | number> = [];
+    pid: number | undefined = 9999;
+    exitCode: number | null = null;
+    signalCode: string | null = null;
+    killResult = true;
 
-    /**
-     * ⚠️ 必须单方法实现（联合签名）：TS 类里两个同名方法 = 重载语义，转译后
-     * 只有最后一个实现保留（exit 监听丢失，driver 测试曾静默失效）。
-     */
-    once(
-        event: "exit" | "error",
-        listener: ((code: number | null, signal: string | null) => void) | ((err: Error) => void),
-    ): unknown {
-        if (event === "exit") {
-            this.exitListeners.push(
-                listener as (code: number | null, signal: string | null) => void,
-            );
-        } else if (event === "error") {
-            this.errorListeners.push(listener as (err: Error) => void);
-        }
-        return this;
-    }
-
-    kill(_signal?: NodeJS.Signals | number): boolean {
-        this.killed = true;
-        return true;
+    kill(signal: NodeJS.Signals | number = "SIGTERM"): boolean {
+        this.signals.push(signal);
+        return this.killResult;
     }
 
     /** 触发子进程退出（模拟崩溃/正常退出）。 */
     emitExit(code: number | null, signal: string | null): void {
-        for (const listener of [...this.exitListeners]) {
-            listener(code, signal);
-        }
-    }
-
-    /** 触发子进程启动失败（模拟 spawn ENOENT）。 */
-    emitError(err: Error): void {
-        for (const listener of [...this.errorListeners]) {
-            listener(err);
-        }
+        this.exitCode = code;
+        this.signalCode = signal;
+        this.emit("exit", code, signal);
     }
 }
 
@@ -75,7 +46,7 @@ export interface DriverHarness {
     spawns: FakeChild[];
     peers: MemoryLinePair[];
     /** 模拟子进程发 status 消息（发给最近一次 spawn 的 client）。 */
-    emit: (phase: IpcStatusPayload["phase"], message?: string) => void;
+    emit: (phase: IpcStatusPayload["phase"], message?: string, errorCode?: string) => void;
 }
 
 /** 创建夹具（restart 默认 maxRetries=3 / backoffMs=100 / factor=2）。 */
@@ -84,6 +55,7 @@ export function createHarness(
     options: {
         restart?: { maxRetries?: number; backoffMs?: number; backoffFactor?: number };
         onJunkLine?: (line: string) => void;
+        accountDir?: string;
     } = {},
 ): DriverHarness {
     const spawns: FakeChild[] = [];
@@ -100,6 +72,7 @@ export function createHarness(
             return pair;
         },
         events,
+        ...(options.accountDir !== undefined ? { accountDir: options.accountDir } : {}),
         restart: { maxRetries: 3, backoffMs: 100, backoffFactor: 2, ...options.restart },
         heartbeatTimeoutMs: 45_000,
         ...(options.onJunkLine !== undefined ? { onJunkLine: options.onJunkLine } : {}),
@@ -108,7 +81,7 @@ export function createHarness(
         driver,
         spawns,
         peers,
-        emit: (phase, message) => {
+        emit: (phase, message, errorCode) => {
             const pair = peers.at(-1);
             if (pair === undefined) {
                 throw new Error("尚无 spawn");
@@ -116,7 +89,13 @@ export function createHarness(
             const msg: IpcMessage = {
                 v: IPC_VERSION,
                 type: "status",
-                payload: message !== undefined ? { phase, message } : { phase },
+                payload: {
+                    phase,
+                    ...(message !== undefined ? { message } : {}),
+                    ...(errorCode !== undefined
+                        ? { error: { code: errorCode, message: "失败" } }
+                        : {}),
+                },
             };
             pair.peer.write(encodeIpcMessage(msg));
         },

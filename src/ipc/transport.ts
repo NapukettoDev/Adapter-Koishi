@@ -66,39 +66,39 @@ export abstract class BaseLineTransport implements IpcLineTransport {
 
 /** 基于 ChildProcess stdio 的传输：stdout 收行（readline），stdin 发行。 */
 export class ChildProcessIpcTransport extends BaseLineTransport {
-    private readonly readline: Interface;
+    private readonly stdoutLines: Interface;
+    private readonly stderrLines: Interface | undefined;
+
+    private readonly onStdoutLine = (line: string): void => {
+        // 整行原生噪音静默丢弃，协议行撕裂留给客户端诊断。
+        if (!isNativeNoiseLine(line)) {
+            this.dispatchLine(line);
+        }
+    };
+
+    private readonly onStderrLine = (line: string): void => {
+        if (!isNativeNoiseLine(line)) {
+            process.stderr.write(`[napuketto 子进程] ${line}\n`);
+        }
+    };
+
+    private readonly onChildClose = (): void => {
+        this.close();
+    };
 
     constructor(private readonly child: ChildProcess) {
         super();
         if (child.stdout === null || child.stdin === null) {
             throw new KernelError("子进程 stdio 未启用（需要 stdout/stdin pipe）", "INVALID_STATE");
         }
-        this.readline = createInterface({ input: child.stdout, crlfDelay: Infinity });
-        this.readline.on("line", (line) => {
-            // wrapper 原生噪音整行静默丢弃：噪音 ≠ 撕裂，不进 onJunkLine
-            // （那是留给协议行被撕裂/污染的诊断通道，判定见 loader native-noise）
-            if (isNativeNoiseLine(line)) {
-                return;
-            }
-            this.dispatchLine(line);
-        });
-        // 子进程 stderr 透传（2026-08-14 WSL 生产排查）：wine/node 启动失败的原始错误
-        // 信息走 stderr，此前被 stdio pipe 吞掉，子进程 code=1 退出时无从诊断。
-        // 逐行透传到父进程 stderr（原始输出，不加协议语义，保留 wine 报错原文）；
-        // 原生噪音行同样过滤（与 cli forwardFiltered 双流过滤一致）。
+        this.stdoutLines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+        this.stdoutLines.on("line", this.onStdoutLine);
+        // stderr 保留宿主的原始诊断，同时过滤原生噪音。
         if (child.stderr !== null) {
-            const stderrLines = createInterface({ input: child.stderr, crlfDelay: Infinity });
-            stderrLines.on("line", (line) => {
-                if (isNativeNoiseLine(line)) {
-                    return;
-                }
-                process.stderr.write(`[napuketto 子进程] ${line}\n`);
-            });
+            this.stderrLines = createInterface({ input: child.stderr, crlfDelay: Infinity });
+            this.stderrLines.on("line", this.onStderrLine);
         }
-        // 子进程退出（正常/崩溃）→ 通知 onClose 订阅者
-        child.once("close", () => {
-            this.close();
-        });
+        child.once("close", this.onChildClose);
     }
 
     write(line: string): void {
@@ -112,6 +112,8 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
     }
 
     protected override onClosed(): void {
-        this.readline.close();
+        this.child.off("close", this.onChildClose);
+        this.stdoutLines.off("line", this.onStdoutLine).close();
+        this.stderrLines?.off("line", this.onStderrLine).close();
     }
 }
