@@ -9,14 +9,19 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ElementType } from "@napuketto/kernel";
-import { h } from "@satorijs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeRawMessage } from "../../events/test-utils.js";
+import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import { NapukettoInternal } from "../internal.js";
 import type { RequestFn } from "../types.js";
 
 const { encodePcmToSilkMock } = vi.hoisted(() => ({ encodePcmToSilkMock: vi.fn() }));
 vi.mock("@napuketto/media", () => ({ encodePcmToSilk: encodePcmToSilkMock }));
+
+/** koishi h 的类型（仅类型引用，测试不加载 koishi 运行时）。 */
+type KoishiH = typeof import("koishi").h;
+
+/** 内存 h（mockH 对齐 satorijs 渲染语义；按生产注入的真实类型标注）。 */
+const h = mockH() as unknown as KoishiH;
 
 /** 构造 internal + mock request（记录调用，可自定义返回）。 */
 function createInternal(

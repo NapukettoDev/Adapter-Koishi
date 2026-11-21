@@ -76,9 +76,9 @@ const emit = defineEmits<{
 }>();
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .qrcode-panel {
-  // 面板内边距：顶部二维码/底部操作按钮离 k-comment 边缘留出呼吸空间
+  /* 面板内边距：顶部二维码/底部操作按钮离 k-comment 边缘留出呼吸空间 */
   padding: 0.75rem 0;
 }
 
@@ -96,7 +96,7 @@ const emit = defineEmits<{
 .qrcode {
   display: block;
   max-width: 200px;
-  // 二维码圆角（容器 8px，图片裁角 4px 内缩，视觉更柔和）
+  /* 二维码圆角（容器 8px，图片裁角 4px 内缩，视觉更柔和） */
   border-radius: 4px;
   image-rendering: pixelated;
 }
@@ -125,7 +125,7 @@ const emit = defineEmits<{
     margin: 0;
   }
 
-  // 遮罩上的按钮改白字，避免深色底上不可读
+  /* 遮罩上的按钮改白字，避免深色底上不可读 */
   :deep(.k-button) {
     color: #fff;
     border-color: rgb(255 255 255 / 60%);

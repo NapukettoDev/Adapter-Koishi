@@ -13,13 +13,13 @@
  * ⚠️ Context 来源（2026-08-08 修复）：Bot 基类（satorijs）的泛型约束是
  * satorijs/cordis 的 Context，而 koishi 的 Context（独立 interface，含
  * [minato.Types] 泛型）在 exactOptionalPropertyTypes 下不满足该约束（逆变
- * 不兼容，部分 TS 版本报 TS2344）。修复：用 `@satorijs/core` 的 Context
- * （约束正主）——运行时传入的仍是 koishi.Context（其子类），类型层面
+ * 不兼容，部分 TS 版本报 TS2344）。修复：从 koishi 重新导出的 Bot 上取
+ * `ctx` 属性类型（Bot["ctx"]，即约束正主 satorijs Context），不直接依赖
+ * `@satorijs/core`——运行时传入的仍是 koishi.Context（其子类），类型层面
  * 只按 Bot 基类能力使用，无需 koishi 特有 API。
  */
 
 import { resolveDataRoot } from "@napuketto/kernel";
-import type { Context } from "@satorijs/core";
 import { Bot, type Context as KoishiContext, type MessageEncoder, type Universal } from "koishi";
 import { type LogLevel, type NapukettoBotConfig, napukettoConfigSchema } from "../config.js";
 import { BOT_STATUS, PRIVATE_PREFIX } from "../constants.js";
@@ -55,6 +55,9 @@ import {
     toUserFields,
 } from "./utils/transform.js";
 
+/** Bot 基类约束的上下文类型（satorijs Context；见文件头「Context 来源」）。 */
+type SatoriContext = Bot["ctx"];
+
 /** logLevel 配置 → reggol 数字（reggol：DEBUG=3 / INFO=2 / ERROR=1 / SILENT=0）。 */
 const LOG_LEVEL_MAP: Record<LogLevel, number> = {
     debug: 3,
@@ -68,9 +71,9 @@ const LOG_LEVEL_MAP: Record<LogLevel, number> = {
  * ⚠️ 不带泛型 C（2026-08-08 修复）：`C extends Context` 泛型在
  * exactOptionalPropertyTypes 下触发 koishi Context 与 satorijs/cordis Context 的
  * 逆变不兼容（Database/C[unique symbol] 泛型），VS Code TS server 报 TS2344。
- * 显式用 satorijs Context（Bot 约束正主）即可（运行时仍是 koishi.Context）。
+ * 显式用 satorijs Context（Bot["ctx"]，约束正主）即可（运行时仍是 koishi.Context）。
  */
-export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
+export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     // koishi 基类 static 类型用 satorijs Bot<cordis.Context>，与 koishi Bot<koishi.Context>
     // 逆变不兼容（napcat 用 eslint 宽松，我们 cast 豁免——运行时是真实 encoder 类）。
     // bot 参数 unknown + 返回 never 泛型：构造签名与基类 static 兼容且不损失运行时行为。
@@ -101,7 +104,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
     /** 账号不一致（配置 selfId ≠ 实际登录 uin）：拒绝上线并拒绝派发，见 checkIdentity。 */
     private identityMismatch = false;
 
-    constructor(ctx: Context, config: NapukettoBotConfig) {
+    constructor(ctx: SatoriContext, config: NapukettoBotConfig) {
         super(ctx, config, "onebot");
         this.dataRoot = resolveDataRoot(config.dataDir);
         // 日志等级（用户可配，默认 debug——多点日志便于排查；reggol setter 按名字

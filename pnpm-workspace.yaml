@@ -4,20 +4,17 @@
 # pnpm-workspace.yaml 读取（本文件由 `pnpm install` 首次生成，这里补全）。
 # 本仓没有子包；不加 `packages` 即把根包当唯一工程。
 
-# 构建脚本审批：vite/esbuild 依赖 esbuild postinstall，@parcel/watcher 用于
-# 控制台前端构建，vue-demi 是 vue 生态的 postinstall 切换脚本。
+# 构建脚本审批：vite 依赖 esbuild postinstall（控制台前端构建）。
 allowBuilds:
-    "@parcel/watcher": true
     esbuild: true
-    vue-demi: true
 
-# 同步升级的 Napuketto 发布组。仅豁免此次审核过的具体版本，以便在 24 小时发布龄窗口内验证。
+# 同步升级的 Napuketto 发布组
 minimumReleaseAgeExclude:
-    - "@napuketto/adapter@0.18.20"
-    - "@napuketto/kernel@0.16.3"
-    - "@napuketto/loader@0.10.8"
-    - "@napuketto/media@0.2.2"
-    - "@napuketto/network@0.4.5"
+    - "@napuketto/adapter"
+    - "@napuketto/kernel"
+    - "@napuketto/loader"
+    - "@napuketto/media"
+    - "@napuketto/network"
 
 # 本仓 lockfile 自产自销，视为可信基础（同主仓理由）。
 trustLockfile: true

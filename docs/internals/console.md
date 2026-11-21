@@ -111,7 +111,7 @@ interface LoginPanelPayload {
 | `client/settings.vue` | 共享状态：读取 store/配置、过期计时、刷新 loading、状态分发 |
 | `client/components/QrCodePanel.vue` | `waiting_scan`：二维码、2 分钟过期遮罩、刷新/打开链接 |
 | `client/components/StatusSection.vue` | `idle` / `scanned` 加载文案；`logged_in` / `failed` 的状态、账号信息与重登/扫码按钮 |
-| `client/types/` | `@koishijs/client` 类型 shim（上游以 TS 源码发布，strict 下会暴露其错误） |
+| `client/types/` | 控制台 `@koishijs/client` 模块的本地类型 shim（上游以 TS 源码发布，strict 下会暴露其错误） |
 
 `settings.vue` 的关键逻辑：
 
@@ -132,4 +132,7 @@ interface LoginPanelPayload {
 - 开发态（Koishi dev）直接编译 `client/index.ts`，无需预构建；生产态必须存在 `dist` 产物。
 - `@koishijs/plugin-console` 是 **peerDependency**：宿主 Koishi 提供运行时；未启用控制台时面板不
   出现，但登录流程与消息收发照常工作。
-- `@koishijs/client` 是 devDependency，仅用于前端构建与本地类型 shim。
+- `@koishijs/client` 不是依赖：构建时保持 external（运行时由控制台提供），类型检查走
+  `client/types/` 本地 shim。
+- 样式为标准 CSS（`<style scoped>`，无 SCSS 预处理器）：嵌套与 `:deep()` 由 Vue 编译器与构建链
+  处理，不再需要 `sass` / `@parcel/watcher`。

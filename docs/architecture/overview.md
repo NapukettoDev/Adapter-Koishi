@@ -112,11 +112,11 @@ src/
     ├── index.ts             NapukettoDatabase
     └── serial-queue.ts      per-key 串行队列
 
-client/                      控制台前端（由 @koishijs/client 编译）
+client/                      控制台前端（由本仓 vite.config.client.ts 构建）
 ├── index.ts                 plugin-details slot 注册
 ├── settings.vue             面板状态分发与共享状态
 ├── components/              QrCodePanel / StatusSection
-└── types/                   @koishijs/client 类型 shim
+└── types/                   @koishijs/client 类型 shim（本地自持）
 ```
 
 ## 发布形态

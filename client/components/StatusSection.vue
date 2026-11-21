@@ -81,7 +81,7 @@ const emit = defineEmits<{
 }>();
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .status-row {
   display: flex;
   align-items: center;

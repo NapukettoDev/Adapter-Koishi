@@ -9,12 +9,13 @@
 ## 平台注册与类静态成员
 
 ```ts
-export class NapukettoBot extends Bot<Context, NapukettoBotConfig> { … }
+export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> { … }
 export default NapukettoBot
 ```
 
-- `Context` 取 `@satorijs/core` 的 Context（Bot 泛型约束的正主）；运行时传入的仍是 koishi.Context。
-  用 koishi 的 Context 会在 `exactOptionalPropertyTypes` 下触发泛型逆变不兼容。
+- 上下文类型 `type SatoriContext = Bot["ctx"]`：即 Bot 基类约束的正主 satorijs Context，从 koishi
+  重新导出的 `Bot` 上直接取，不再直接依赖 `@satorijs/core`；运行时传入的仍是 koishi.Context。
+  用 koishi 自己的 Context 会在 `exactOptionalPropertyTypes` 下触发泛型逆变不兼容。
 - **不写 `Adapter`**：koishi 的 `Bot` 构造会自动注册 `ctx.on("ready", () => this.start())`，
   直接 override `start()` / `stop()` 即可；`Adapter` 的 `fork/connect` 抽象是为 HTTP/WS 网络服务
   设计的，这里用不上。

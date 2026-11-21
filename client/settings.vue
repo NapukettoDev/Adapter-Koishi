@@ -211,9 +211,9 @@ function openQrUrl(): void {
 }
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .napuketto-settings {
-  // k-comment 默认上下 margin 2rem，在插件详情页里过宽，收紧为面板呼吸空间
+  /* k-comment 默认上下 margin 2rem，在插件详情页里过宽，收紧为面板呼吸空间 */
   :deep(.k-comment) {
     margin: 0.75rem 0;
   }

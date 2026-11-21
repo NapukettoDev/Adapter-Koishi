@@ -8,6 +8,8 @@
  *   主入口已加载同名模块（entry 加载时经控制台模块系统解析）。
  * - 产物：dist/index.js（逻辑）+ dist/index.css（样式）；文件名固定，运行时
  *   console-entry.ts 按 CLIENT_FILES 清单复制（改名会导致面板加载 404）。
+ * - 样式为纯 CSS（Vue SFC `<style scoped>`，无预处理器）：不引入 sass，
+ *   嵌套 / :deep() 由 Vue 编译器与构建链处理。
  * - dev 模式无需构建（koishi dev 动态编译 client/index.ts）。
  *
  * 文件名带 `.client` 后缀：避免 vitest 默认加载本配置（lib 构建 + NODE_ENV 被
@@ -47,13 +49,6 @@ export default defineConfig({
         },
     },
     plugins: [vue()],
-    css: {
-        preprocessorOptions: {
-            scss: {
-                api: "modern-compiler",
-            },
-        },
-    },
     resolve: {
         // koishi 生态别名：控制台构建链用（与 yakumo build 对齐）
         alias: {
