@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.37
+
+### Patch Changes
+
+- 修复启动阶段收到 QQ 消息时，Koishi 插件回复报「Napuketto 子进程未就绪」的问题。驱动在客户端就绪后按收到的顺序回放暂存消息，并在子进程退出或停止时清空暂存。（#11）
+
 ## 0.0.36
 
 ### Patch Changes
