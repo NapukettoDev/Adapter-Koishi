@@ -31,18 +31,18 @@ updates:
           - ci
           - dependencies
       groups:
-          # 顺序有意义：先匹配 @napuketto/*，避免被下面的 production 分组吸走
+          # 不设 production-dependencies 分组：本包的 `dependencies` 只有 @napuketto/*，
+          # 而按 dependency-type 的分组会先于 patterns 分组命中（实测 Dependabot 把 5 个
+          # @napuketto/* 归进了 production 分组），分组归属因此不确定。
+          # 只留唯一匹配的分组，避免同一批依赖被两个分组抢。
+          #
+          # 只收 patch：本仓用 `~` 范围钉住上游，0.x 语义下 minor 可能是破坏性变更，
+          # 必须人工评估后改范围（上游发版节奏是里程碑式，0.3 → 0.18 不是常规升级）。
           napuketto-upstream:
               patterns:
                   - "@napuketto/*"
               update-types:
                   - patch
-                  - minor
-          production-dependencies:
-              dependency-type: production
-              update-types:
-                  - patch
-                  - minor
           development-dependencies:
               dependency-type: development
               update-types:
