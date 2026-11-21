@@ -69,7 +69,7 @@ describe("NapukettoDriver 事件转发", () => {
         );
         expect(onEvent).toHaveBeenCalledWith({ service: "Msg", name: "onRecvMsg", args: [] });
         expect(onLog).toHaveBeenCalledWith({ level: "info", message: "hi" });
-        driver.stop();
+        void driver.stop();
         spawns[0]?.emitExit(0, null);
     });
 
@@ -96,7 +96,7 @@ describe("NapukettoDriver 事件转发", () => {
         emitMessage(peers[0], 4);
         expect(onReady).toHaveBeenCalledOnce();
         expect(onEvent.mock.calls.map(([payload]) => payload.args[0])).toEqual([1, 2, 3, 4]);
-        driver.stop();
+        void driver.stop();
         spawns[0]?.emitExit(0, null);
     });
 
@@ -191,7 +191,7 @@ describe("NapukettoDriver 事件转发", () => {
                 "restart-new",
             ]);
         } finally {
-            driver.stop();
+            void driver.stop();
             spawns.at(-1)?.emitExit(0, null);
             vi.useRealTimers();
         }
@@ -209,7 +209,7 @@ describe("NapukettoDriver 事件转发", () => {
         expect(onEvent.mock.calls.map(([payload]) => payload.args[0])).toEqual(
             Array.from({ length: 256 }, (_, index) => index + 2),
         );
-        driver.stop();
+        void driver.stop();
         spawns[0]?.emitExit(0, null);
     });
 
@@ -245,7 +245,7 @@ describe("NapukettoDriver 事件转发", () => {
                 name: "onRecvMsg",
                 args: [3],
             });
-            driver.stop();
+            void driver.stop();
             spawns[1]?.emitExit(0, null);
         } finally {
             vi.useRealTimers();
@@ -260,7 +260,7 @@ describe("NapukettoDriver 事件转发", () => {
         await flush();
         emitMessage(peers[0], 1);
         if (when === "before-ready") {
-            driver.stop();
+            void driver.stop();
         }
         // on-ready 场景模拟 Bot 在账号校验失败后同步停止驱动。
         emit("ready");

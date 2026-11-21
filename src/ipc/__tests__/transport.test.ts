@@ -10,6 +10,7 @@
  * client 层 onJunkLine 诊断通道；stderr 透传同样过滤）、close 接线、stdio 守卫。
  */
 import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { BaseLineTransport, ChildProcessIpcTransport } from "../transport.js";
@@ -107,7 +108,7 @@ describe("BaseLineTransport", () => {
 });
 
 /** 最小 fake ChildProcess：PassThrough stdout / 消音 stdin / 可选 stderr / close 注册表。 */
-class FakeChildProcess {
+class FakeChildProcess extends EventEmitter {
     readonly stdout = new PassThrough();
     readonly stdin = new Writable({
         write(_chunk, _encoding, callback) {
@@ -115,24 +116,9 @@ class FakeChildProcess {
         },
     });
     readonly stderr: PassThrough | null;
-    private readonly closeHandlers: Array<() => void> = [];
-
     constructor(options: { stderr?: boolean } = {}) {
+        super();
         this.stderr = options.stderr === true ? new PassThrough() : null;
-    }
-
-    once(event: "close", listener: () => void): this {
-        if (event === "close") {
-            this.closeHandlers.push(listener);
-        }
-        return this;
-    }
-
-    /** 测试辅助：模拟子进程退出（触发 close 订阅）。 */
-    emitClose(): void {
-        for (const handler of this.closeHandlers) {
-            handler();
-        }
     }
 }
 
@@ -186,7 +172,37 @@ describe("ChildProcessIpcTransport", () => {
         transport.onClose(() => {
             closed += 1;
         });
-        child.emitClose();
+        child.emit("close");
         expect(closed).toBe(1);
+    });
+
+    it.each(["主动关闭", "子进程关闭"])("%s 后移除 stdout、stderr 和 child 监听", (mode) => {
+        const child = new FakeChildProcess({ stderr: true });
+        const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+        try {
+            const transport = new ChildProcessIpcTransport(child as unknown as ChildProcess);
+            const onLine = vi.fn();
+            const onClose = vi.fn();
+            transport.onLine(onLine);
+            transport.onClose(onClose);
+            if (mode === "主动关闭") {
+                transport.close();
+            } else {
+                child.emit("close");
+            }
+            child.stdout.write("late stdout\n");
+            child.stderr?.write("late stderr\n");
+            child.emit("close");
+            expect(onLine).not.toHaveBeenCalled();
+            expect(stderrSpy).not.toHaveBeenCalled();
+            expect(onClose).toHaveBeenCalledOnce();
+            expect(child.listenerCount("close")).toBe(0);
+            for (const event of ["data", "end", "error"]) {
+                expect(child.stdout.listenerCount(event)).toBe(0);
+                expect(child.stderr?.listenerCount(event)).toBe(0);
+            }
+        } finally {
+            stderrSpy.mockRestore();
+        }
     });
 });

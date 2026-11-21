@@ -56,6 +56,7 @@
 ```ts
 interface DriverOptions {
   launch: () => Promise<{ child: ChildProcessLike; cleanup?: () => void }>;
+  accountDir?: string;
   createTransport?: (child) => IpcLineTransport;
   events: DriverEvents;
   restart?: { maxRetries?; backoffMs?; backoffFactor? };
@@ -74,14 +75,14 @@ interface DriverOptions {
 | `onEvent` | 收到 kernel / OB11 `event` |
 | `onLog` | 收到子进程结构化 `log` |
 | `onReady` | 每轮就绪（重播的 ready 被幂等守卫忽略）；上层在此更新 client 引用并 `online()` |
-| `onExit` | 子进程退出（crash / stale / spawn-error） |
-| `onError` | spawn 失败、boot failed、重试达上限 |
+| `onExit` | 子进程确认退出或启动失败（crash / stale / stop / spawn-error） |
+| `onError` | 启动失败、引导失败、发送信号失败、无法确认退出或重试达上限 |
 
 spawn 流程：
 
 1. `setState(spawning | restarting)`，调用 `launch()`；抛错走 `handleSpawnError`。
-2. 挂 `child.once("error")`（防止 ENOENT 无监听导致宿主 `uncaughtException`）与
-   `child.once("exit")`。
+2. 挂 `child.on("error")` 与 `child.once("exit")`。无 PID 的启动失败和有 PID 的进程错误分别处理，
+   后者仍须确认退出。
 3. 新建 transport + `NapukettoIpcClient`，订阅 status/login/qr/event/log。
 4. 记录 `spawnAt`，进入 `booting`，启动心跳监控。
 
@@ -93,8 +94,8 @@ spawn 流程：
 
 - 每 1s 读一次 `client.seenAt`（最近收到任何子进程消息的时间）。
 - 基准时间 = `seenAt > 0 ? seenAt : spawnAt`；超过 `heartbeatTimeoutMs`（默认 45s）判定失联。
-- `stopping` / `failed` / `restarting` 状态下不判定。
-- 失联处理：`kill()` + 以 `reason: "stale"` 走退出流程（按策略重启）。
+- 只在 `booting` / `ready` 状态判定。失联后断开业务 IPC 并发送 `SIGTERM`，确认退出后以
+  `reason: "stale"` 进入重启退避。
 - 子进程侧每 15s 发 `ping`，client 自动回 `pong`；因此正常空闲时 `seenAt` 持续前进。
 
 **状态重同步**（防“能收不能发”）：
@@ -112,8 +113,16 @@ spawn 流程：
 - 子进程退出且非主动停止：`restartCount >= maxRetries` → `failed` + `onError`；否则
   `restarting`，等待 `backoffDelay(attempt)` 后再次 spawn。
 - `restartCount` 在每次进入 ready 时清零。
-- `stop()`：置 `stopping`、清重试计时器、停心跳 → 存活 client 发 `control stop` → 最多等 5s →
-  `kill()` → `finishStop()`（清计时器、`client.close()`、状态 `stopped`）。
+- 主动停止清除重启计时器并停止心跳，先给可用 IPC 发送 `control stop`，等待 5s 后发送 `SIGTERM`。
+  `SIGTERM` 发出后再等 5s，仍未退出则发 `SIGKILL`。异步启动期间收到停止请求时，拿到子进程后从
+  `SIGTERM` 开始处理。已在终止的进程继续使用原有期限，停止请求取消后续重启。
+- 每次发出信号后仍保留旧进程的所有权。强制终止后 5s 仍无法确认退出时报告 PID 和处理建议，进入
+  `failed`，禁用自动重启。迟到的退出事件只回收旧实例。启动失败但尚未创建进程时可直接释放所有权。
+- 同一 Koishi 进程内，插件重载时，新 driver 等待正在停止的同账号宿主退出。停止期限内未确认退出时，
+  该账号保持占用，直到旧进程发出退出事件。
+- 上游退出码 `78` 停止重试，检查当前账号的加载配置和 `napuketto-boot.log` 后重新启用。loader 的
+  `status.phase = failed` 中，`error.code = INVALID_PARAM` 表示配置校验失败。其余状态错误仍按实际
+  退出和重试策略处理，包括 `NOT_LOGIN`、`UNKNOWN` 及数据目录暂时被占用时的 `INVALID_STATE`。
 - `start()` 只在 `idle` 生效；重复调用被忽略。
 
 ## IPC 协议

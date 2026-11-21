@@ -2,8 +2,7 @@
  * console-entry.ts：控制台前端入口注册（docs/internals/console.md）。
  *
  * packageRoot 逐级上溯定位插件包根目录（bundle 与源码两种形态均正确）；
- * registerConsoleEntry 模块级去重——多 bot 实例只注册一次 addEntry；
- * ⚠️ 去重 flag 随作用域 dispose 重置（否则插件 stop/start 后 entry 不恢复）。
+ * 同一控制台的 Bot 共用一个前端入口，最后一个 Bot 销毁时释放。
  */
 import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -13,8 +12,13 @@ import type { Context } from "koishi";
 /** 前端产物文件清单（复制用）。 */
 const CLIENT_FILES = ["index.js", "index.css"] as const;
 
-/** 控制台前端入口已注册标记（模块级去重：多 bot 实例只注册一次；作用域 dispose 时重置）。 */
-let consoleEntryRegistered = false;
+interface SharedEntry {
+    users: number;
+    dispose(): unknown;
+}
+
+// Cordis 会按调用作用域代理服务，entries 是该 console 实例共享的底层对象。
+const consoleEntries = new WeakMap<Context["console"]["entries"], SharedEntry>();
 
 /**
  * 包根目录（定位 client/ 与 dist/）。
@@ -103,11 +107,7 @@ function ensureServeableProd(ctx: Context, root: string): string {
 }
 
 /** 注册控制台登录面板前端入口（dev 由 koishi dev 动态编译；prod 走 vite 产物 dist）。 */
-export function registerConsoleEntry(ctx: Context): void {
-    if (consoleEntryRegistered) {
-        return;
-    }
-    consoleEntryRegistered = true;
+function addConsoleEntry(ctx: Context): SharedEntry {
     const root = packageRoot();
     const prod = ensureServeableProd(ctx, root);
     ctx.logger.info(
@@ -115,20 +115,31 @@ export function registerConsoleEntry(ctx: Context): void {
         resolve(root, "client/index.ts"),
         prod,
     );
-    ctx.console.addEntry({
-        dev: resolve(root, "client/index.ts"),
-        prod,
+    // 入口独立于 Bot。注入作用域先于 console 服务卸载，确保 dispose 仍可访问服务。
+    const scope = ctx.root.inject(["console"], (owner) => {
+        owner.console.addEntry({
+            dev: resolve(root, "client/index.ts"),
+            prod,
+        });
     });
-    // ⚠️ 2026-08-14 修复（插件 stop/start 后前端组件消失根因）：addEntry 创建
-    // 的 Entry 是**作用域绑定**的（@koishijs/console src/entry.ts：
-    // `ctx.collect('entry', () => delete entries[id])`）——插件 stop → 本作用域
-    // dispose → console 自动移除 entry。若模块级 flag 不重置，插件重启后
-    // registerConsoleEntry 直接 return → 不重新 addEntry → entry 永久丢失 →
-    // 前端 slot 组件（扫码面板）消失。此处挂作用域 dispose 重置 flag，下次
-    // 插件启动可重新注册。多 bot 场景：第一个 bot 注册（挂 dispose 重置），
-    // 其余 return 不挂——但第一个的 dispose 会重置 flag，整体正确（无活跃
-    // entry 时 flag 必为 false）。
+    return { users: 0, dispose: () => scope.dispose() };
+}
+
+export function registerConsoleEntry(ctx: Context): void {
+    const entries = ctx.console.entries;
+    const shared = consoleEntries.get(entries) ?? addConsoleEntry(ctx);
+    consoleEntries.set(entries, shared);
+    shared.users += 1;
+    let released = false;
     ctx.on("dispose", () => {
-        consoleEntryRegistered = false;
+        if (released) {
+            return;
+        }
+        released = true;
+        shared.users -= 1;
+        if (shared.users === 0) {
+            consoleEntries.delete(entries);
+            shared.dispose();
+        }
     });
 }

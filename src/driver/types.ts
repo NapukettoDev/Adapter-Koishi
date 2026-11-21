@@ -20,23 +20,22 @@ export type DriverState =
     | "booting" // 子进程引导中（收到 status）
     | "ready" // session READY（收到 status.ready）
     | "restarting" // 崩溃/失联，退避等待重启
+    | "terminating" // 异常进程终止中，仍持有旧实例
     | "stopping" // 主动停止中
     | "stopped" // 已停止
-    | "failed"; // 重启次数达上限
+    | "failed"; // 停止自动重启
 
 /** 宽松子进程面（driver 只用到这些成员；测试可伪造）。 */
 export interface ChildProcessLike {
-    stdout: NodeJS.ReadableStream | null;
-    stdin: NodeJS.WritableStream | null;
     /** 监听退出（退出码 + 信号）。 */
     once(event: "exit", listener: (code: number | null, signal: string | null) => void): unknown;
-    /**
-     * 监听启动失败（spawn ENOENT 等，Node 异步 emit——无监听者会抛
-     * uncaughtException 崩掉宿主进程，2026-08-23 WSL 实测 koishi 崩溃）。
-     */
-    once(event: "error", listener: (err: Error) => void): unknown;
+    on(event: "error", listener: (err: Error) => void): unknown;
+    off(event: "exit", listener: (code: number | null, signal: string | null) => void): unknown;
+    off(event: "error", listener: (err: Error) => void): unknown;
     kill(signal?: NodeJS.Signals | number): boolean;
-    pid?: number;
+    readonly pid?: number | undefined;
+    readonly exitCode?: number | null;
+    readonly signalCode?: string | null;
 }
 
 /** 启动结果（launch 工厂返回）。 */
@@ -53,6 +52,8 @@ export type DriverLauncher = () => Promise<DriverLaunchResult>;
 export interface DriverOptions {
     /** 启动子进程（默认 launchSelfHost 组装，测试注入假 child）。 */
     launch: DriverLauncher;
+    /** 使用同一账号数据目录的 driver 共享子进程所有权（含插件重载）。 */
+    accountDir?: string;
     /** 传输工厂（默认 ChildProcessIpcTransport，测试注入内存双端）。 */
     createTransport?: TransportFactory;
     /** 事件回调（apply() 注入）。 */

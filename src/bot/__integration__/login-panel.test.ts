@@ -1,5 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { ElementType } from "@napuketto/kernel";
 import { launchSelfHost } from "@napuketto/loader";
@@ -21,6 +24,7 @@ vi.mock("koishi", () => {
         user = {};
         online = vi.fn();
         offline = vi.fn();
+        async stop(): Promise<void> {}
         toJSON = vi.fn();
         dispatch = vi.fn();
         session = (event: object) => ({ ...event });
@@ -50,7 +54,6 @@ vi.mock("@koishijs/plugin-console", () => {
     };
 });
 vi.mock("../../config.js", () => ({ napukettoConfigSchema: {} }));
-vi.mock("../utils/console-entry.js", () => ({ registerConsoleEntry: vi.fn() }));
 vi.mock("@napuketto/loader", async (importOriginal) => ({
     ...(await importOriginal<typeof import("@napuketto/loader")>()),
     resolveQqInstall: vi.fn((qqPath: string) => ({
@@ -68,6 +71,7 @@ const RESTART_DELAY_MS = 100;
 const selfInfo = { uin: SELF_ID, uid: "u1", nick: "测试账号" };
 
 class IpcChild extends EventEmitter {
+    readonly pid = 1000;
     readonly stdout = new PassThrough();
     readonly stderr = null;
     readonly received: IpcMessage[] = [];
@@ -104,8 +108,8 @@ class IpcChild extends EventEmitter {
         this.send({ v: IPC_VERSION, type: "login", payload });
     }
 
-    ready(): void {
-        this.login({ state: "logged_in", selfInfo });
+    ready(uin = SELF_ID): void {
+        this.login({ state: "logged_in", selfInfo: { ...selfInfo, uin } });
         this.send({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } });
     }
 
@@ -137,47 +141,96 @@ class IpcChild extends EventEmitter {
     }
 }
 
-function setupPanel() {
+function createConsole() {
+    const entries = new Set<object>();
+    const addEntry = (effects: Set<() => void>) => {
+        const entry = {
+            dispose() {
+                entries.delete(entry);
+                effects.delete(entry.dispose);
+            },
+        };
+        entries.add(entry);
+        effects.add(entry.dispose);
+        return entry;
+    };
+    const addSharedEntry = vi.fn(addEntry);
+    const root = {
+        inject(_services: string[], setup: (owner: unknown) => void) {
+            const effects = new Set<() => void>();
+            setup({ console: { addEntry: () => addSharedEntry(effects) } });
+            return {
+                dispose() {
+                    for (const dispose of effects) {
+                        dispose();
+                    }
+                },
+            };
+        },
+        get: vi.fn(),
+        set: () => vi.fn(),
+    };
+    return { root, entries, addEntry, addSharedEntry };
+}
+
+function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), level: 0 };
     const listeners = new Map<string, (data: { selfId: string }) => void>();
+    const effects = new Set<() => void>();
     const ctx = {
+        baseDir,
         config: { autoAssign: false, autoAuthorize: 0 },
         inject(_services: string[], setup: (fork: unknown) => void) {
             setup(this);
         },
-        root: { get: vi.fn(), set: () => vi.fn() },
+        root: consoleHost.root,
         console: {
+            entries: consoleHost.entries,
+            addEntry: () => consoleHost.addEntry(effects),
             addListener: (name: string, listener: (data: { selfId: string }) => void) =>
                 listeners.set(name, listener),
             ctx: { on: () => vi.fn() },
         },
-        on: vi.fn(),
+        on: (event: string, dispose: () => void) => {
+            if (event === "dispose") {
+                effects.add(dispose);
+            }
+        },
         logger,
     };
     const bot = new NapukettoBot(ctx as unknown as ConstructorParameters<typeof NapukettoBot>[0], {
-        selfId: SELF_ID,
+        selfId,
         qqPath: "test-qq/QQ.exe",
         restart: { backoffMs: RESTART_DELAY_MS },
     });
     return {
         bot,
         logger,
+        dispose() {
+            for (const dispose of effects) {
+                dispose();
+            }
+            effects.clear();
+            return bot.stop();
+        },
         click(action: "refresh-qr" | "relogin" | "qr-login") {
-            const handler = listeners.get(`napuketto-login-${SELF_ID}/${action}`);
+            const handler = listeners.get(`napuketto-login-${selfId}/${action}`);
             if (handler === undefined) {
                 throw new Error(`面板事件未注册: ${action}`);
             }
-            handler({ selfId: SELF_ID });
+            handler({ selfId });
         },
     };
 }
 
 const launch = vi.mocked(launchSelfHost);
 let children: IpcChild[];
+let baseDir: string;
 
 beforeEach(() => {
     vi.useFakeTimers();
     children = [];
+    baseDir = mkdtempSync(join(tmpdir(), "napuketto-console-test-"));
     launch.mockReset().mockImplementation(async () => {
         const child = new IpcChild();
         children.push(child);
@@ -187,10 +240,12 @@ beforeEach(() => {
 
 afterEach(() => {
     for (const child of children) {
+        child.emit("exit", 0, null);
         child.emit("close");
     }
     vi.clearAllTimers();
     vi.useRealTimers();
+    rmSync(baseDir, { recursive: true, force: true });
 });
 
 async function startBot(bot: NapukettoBot): Promise<IpcChild> {
@@ -208,6 +263,47 @@ function latestChild(): IpcChild {
 }
 
 describe("控制台事件到子进程 IPC 的接线", () => {
+    it("同一控制台的两个在线 Bot 共用入口，最后一个停用后释放，重新启用时恢复", async () => {
+        const shared = createConsole();
+        const first = setupPanel(SELF_ID, shared);
+        const secondId = "10002";
+        const second = setupPanel(secondId, shared);
+        const firstChild = await startBot(first.bot);
+        firstChild.ready();
+        const secondChild = await startBot(second.bot);
+        secondChild.ready(secondId);
+        expect(first.bot.online).toHaveBeenCalledOnce();
+        expect(second.bot.online).toHaveBeenCalledOnce();
+        expect(shared.entries.size).toBe(1);
+        expect(shared.addSharedEntry).toHaveBeenCalledOnce();
+
+        const stopFirst = first.dispose();
+        expect(shared.entries.size).toBe(1);
+        firstChild.emit("exit", 0, null);
+        await stopFirst;
+        second.click("refresh-qr");
+        expect(secondChild.received.at(-1)).toMatchObject({
+            type: "action",
+            payload: { action: "login.refreshQr" },
+        });
+
+        const stopSecond = second.dispose();
+        expect(shared.entries.size).toBe(0);
+        const enabledAgain = setupPanel(secondId, shared);
+        const starting = enabledAgain.bot.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(launch).toHaveBeenCalledTimes(2);
+        expect(shared.entries.size).toBe(1);
+        expect(shared.addSharedEntry).toHaveBeenCalledTimes(2);
+        secondChild.emit("exit", 0, null);
+        await Promise.all([stopSecond, starting]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(launch).toHaveBeenCalledTimes(3);
+        latestChild().ready(secondId);
+        expect(enabledAgain.bot.online).toHaveBeenCalledOnce();
+        expect(shared.entries.size).toBe(1);
+    });
+
     it("业务客户端尚未绑定时，可刷新二维码、重新登录和原地强制扫码", async () => {
         const { bot, click, logger } = setupPanel();
         const child = await startBot(bot);

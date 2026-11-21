@@ -3,8 +3,9 @@
  *
  * 用 FakeChild + MemoryLinePair 注入（test-utils.ts），不依赖真实子进程。
  */
+import { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import type { IpcMessage } from "../../ipc/index.js";
+import { encodeIpcMessage, IPC_VERSION, type IpcMessage } from "../../ipc/index.js";
 import { MemoryLinePair } from "../../ipc/test-utils.js";
 import { NapukettoDriver } from "../driver.js";
 import { createHarness, flush } from "../test-utils.js";
@@ -20,7 +21,7 @@ describe("NapukettoDriver 启动", () => {
         await flush();
         expect(driver.currentState).toBe("ready");
         expect(onReady).toHaveBeenCalledTimes(1);
-        driver.stop();
+        void driver.stop();
     });
 
     it("start 幂等（非 idle 忽略）", async () => {
@@ -30,7 +31,7 @@ describe("NapukettoDriver 启动", () => {
         const count = spawns.length;
         driver.start();
         expect(spawns.length).toBe(count);
-        driver.stop();
+        void driver.stop();
     });
 
     it("spawn 抛错 → failed + onError", async () => {
@@ -47,6 +48,80 @@ describe("NapukettoDriver 启动", () => {
         expect(driver.currentState).toBe("failed");
         expect(onError).toHaveBeenCalled();
     });
+
+    it("Node 启动失败且无 PID 时可完成清理", async () => {
+        const failure = Promise.withResolvers<unknown>();
+        const onExit = vi.fn();
+        const driver = new NapukettoDriver({
+            launch: async () => ({ child: spawn(`${process.execPath}.missing`) }),
+            events: { onExit, onError: failure.resolve },
+        });
+        driver.start();
+        await expect(failure.promise).resolves.toMatchObject({ code: "ENOENT" });
+        expect(driver.currentState).toBe("failed");
+        expect(onExit).toHaveBeenCalledExactlyOnceWith({
+            code: null,
+            signal: null,
+            reason: "spawn-error",
+        });
+    });
+
+    it("真实子进程以 78 退出时停止重试", async () => {
+        const failure = Promise.withResolvers<unknown>();
+        const driver = new NapukettoDriver({
+            launch: async () => ({ child: spawn(process.execPath, ["-e", "process.exit(78)"]) }),
+            events: { onError: failure.resolve },
+        });
+        driver.start();
+        await expect(failure.promise).resolves.toMatchObject({ code: "INVALID_PARAM" });
+        expect(driver.currentState).toBe("failed");
+        expect(driver.restartAttempts).toBe(0);
+    });
+
+    it.skipIf(process.platform !== "linux")(
+        "Linux 宿主忽略 SIGTERM 时等待 SIGKILL 的真实退出事件",
+        async () => {
+            vi.useFakeTimers();
+            const status = encodeIpcMessage({
+                v: IPC_VERSION,
+                type: "status",
+                payload: { phase: "ready" },
+            });
+            const script = [
+                'process.on("SIGTERM", () => {})',
+                `process.stdout.write(${JSON.stringify(status)})`,
+                "setInterval(() => {}, 1000)",
+            ].join("\n");
+            const child = spawn(process.execPath, ["-e", script]);
+            const ready = Promise.withResolvers<void>();
+            const exited = Promise.withResolvers<unknown>();
+            const driver = new NapukettoDriver({
+                launch: async () => ({ child }),
+                heartbeatTimeoutMs: 1_000,
+                restart: { maxRetries: 0 },
+                events: { onReady: ready.resolve, onExit: exited.resolve },
+            });
+            try {
+                driver.start();
+                await ready.promise;
+                await vi.advanceTimersByTimeAsync(2_000);
+                expect(driver.currentState).toBe("terminating");
+                expect(child.killed).toBe(true);
+                expect(child.signalCode).toBeNull();
+                await vi.advanceTimersByTimeAsync(5_000);
+                await expect(exited.promise).resolves.toEqual({
+                    code: null,
+                    signal: "SIGKILL",
+                    reason: "stale",
+                });
+            } finally {
+                if (child.exitCode === null && child.signalCode === null) {
+                    child.kill("SIGKILL");
+                }
+                vi.useRealTimers();
+            }
+        },
+    );
 });
 
 describe("NapukettoDriver 停止", () => {
@@ -54,12 +129,15 @@ describe("NapukettoDriver 停止", () => {
         const onReady = vi.fn();
         const { driver, peers, spawns } = createHarness({ onReady });
         driver.start();
-        driver.stop();
+        const stopping = driver.stop();
         await flush();
 
-        expect(spawns[0]?.killed).toBe(true);
+        expect(spawns[0]?.signals).toEqual(["SIGTERM"]);
         expect(peers).toHaveLength(0);
         expect(driver.currentClient).toBeNull();
+        expect(driver.currentState).toBe("stopping");
+        spawns[0]?.emitExit(null, "SIGTERM");
+        await stopping;
         expect(driver.currentState).toBe("stopped");
         expect(onReady).not.toHaveBeenCalled();
     });
@@ -76,27 +154,33 @@ describe("NapukettoDriver 停止", () => {
             const msg = JSON.parse(line) as IpcMessage;
             received.push(msg);
         });
-        driver.stop();
+        const stopping = driver.stop();
         expect(driver.currentState).toBe("stopping");
         expect(received.some((m) => m.type === "control")).toBe(true);
 
         // 子进程收到 stop 后退出 → finishStop
         spawns[0]?.emitExit(0, null);
-        await flush();
+        await stopping;
         expect(driver.currentState).toBe("stopped");
-        expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ code: 0, reason: "crash" }));
+        expect(onExit).toHaveBeenCalledExactlyOnceWith({ code: 0, signal: null, reason: "stop" });
     });
 
-    it("stop 后子进程不退出 → 5s 超时强杀 → stopped", async () => {
+    it("stop 逐级终止，确认退出后才完成停止", async () => {
         vi.useFakeTimers();
         try {
             const { driver, spawns } = createHarness();
             driver.start();
             await flush();
-            driver.stop();
-            // 子进程不退出：超时后强杀 + finishStop
-            await vi.advanceTimersByTimeAsync(5_100);
-            expect(spawns[0]?.killed).toBe(true);
+            const stopping = driver.stop();
+            expect(driver.stop()).toBe(stopping);
+            expect(spawns[0]?.signals).toEqual([]);
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(spawns[0]?.signals).toEqual(["SIGTERM"]);
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(spawns[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+            expect(driver.currentState).toBe("stopping");
+            spawns[0]?.emitExit(null, "SIGKILL");
+            await stopping;
             expect(driver.currentState).toBe("stopped");
         } finally {
             vi.useRealTimers();
@@ -107,9 +191,56 @@ describe("NapukettoDriver 停止", () => {
         const { driver, spawns } = createHarness();
         driver.start();
         await flush();
-        driver.stop();
+        void driver.stop();
         spawns[0]?.emitExit(1, null);
         await flush();
         expect(driver.currentState).toBe("stopped");
+    });
+
+    it("stop 的强制终止有界，超时时保留退出监听", async () => {
+        vi.useFakeTimers();
+        try {
+            const onExit = vi.fn();
+            const onError = vi.fn();
+            const { driver, spawns } = createHarness({ onExit, onError });
+            driver.start();
+            await flush();
+            const stopping = driver.stop();
+            await vi.advanceTimersByTimeAsync(15_000);
+            await stopping;
+            expect(driver.currentState).toBe("failed");
+            expect(spawns[0]?.listenerCount("exit")).toBe(1);
+            expect(onError).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({ code: "EXIT_TIMEOUT" }),
+            );
+            expect(onExit).not.toHaveBeenCalled();
+            spawns[0]?.emitExit(null, "SIGKILL");
+            expect(driver.currentState).toBe("stopped");
+            expect(onExit).not.toHaveBeenCalled();
+            expect(spawns).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("插件重载时同一数据目录等待旧宿主退出", async () => {
+        const options = { accountDir: "reload-account" };
+        const previous = createHarness({}, options);
+        const next = createHarness({}, options);
+        previous.driver.start();
+        await flush();
+        const stopping = previous.driver.stop();
+        next.driver.start();
+        await flush();
+        expect(next.spawns).toHaveLength(0);
+        expect(previous.driver.currentState).toBe("stopping");
+        previous.spawns[0]?.emitExit(0, null);
+        await stopping;
+        await flush();
+        expect(next.spawns).toHaveLength(1);
+        expect(next.driver.currentState).toBe("booting");
+        const stopNext = next.driver.stop();
+        next.spawns[0]?.emitExit(0, null);
+        await stopNext;
     });
 });

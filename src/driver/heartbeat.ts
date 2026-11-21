@@ -13,7 +13,7 @@ export interface HeartbeatSource {
     seenAt: () => number;
     /** 最近一次 spawn 的时间戳（epoch ms），0 = 未 spawn。 */
     spawnAt: () => number;
-    /** 当前驱动状态（stopping/failed/restarting 时暂停判定）。 */
+    /** 当前驱动状态（仅 booting / ready 时判定）。 */
     state: () => DriverState;
 }
 
@@ -54,8 +54,8 @@ export class HeartbeatMonitor {
     /** 单次判定（可单测：注入 source 后直接调用）。 */
     check(): void {
         const state = this.source.state();
-        if (state === "stopping" || state === "failed" || state === "restarting") {
-            return; // 停止/失败/重启中：不判失联（重启流程有自己的超时）
+        if (state !== "booting" && state !== "ready") {
+            return;
         }
         // 距最后一条消息超时 → 判定失联（兜 dlopen/登录卡死：
         // 从未收到消息时用 spawn 时间兜底，spawn 后无任何消息同样判失联）

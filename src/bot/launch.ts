@@ -26,7 +26,7 @@ import {
     resolveQqInstall,
 } from "@napuketto/loader";
 import type { NapukettoBotConfig } from "../config.js";
-import type { DriverLauncher, DriverLaunchResult } from "../driver/index.js";
+import type { DriverLauncher } from "../driver/index.js";
 
 /**
  * 解析包入口（override 优先；否则 createRequire.resolve——CJS 产物下
@@ -178,7 +178,6 @@ export function buildLaunch(config: NapukettoBotConfig, host: LaunchHost = {}): 
             ...options,
             ...(host.onStage !== undefined ? { onStage: host.onStage } : {}),
         });
-        // ChildProcess → 宽松 ChildProcessLike（pid 类型差异，driver 内部断言收窄）
-        return { child: child as unknown as DriverLaunchResult["child"] };
+        return { child };
     };
 }
