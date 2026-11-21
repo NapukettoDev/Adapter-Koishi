@@ -8,13 +8,11 @@
 allowBuilds:
     esbuild: true
 
-# 同步升级的 Napuketto 发布组
+# 外部包在发布满一天后进入锁文件。Napuketto 五包由整组 IPC 门禁验证。
+minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
     - "@napuketto/adapter"
     - "@napuketto/kernel"
     - "@napuketto/loader"
     - "@napuketto/media"
     - "@napuketto/network"
-
-# 本仓 lockfile 自产自销，视为可信基础（同主仓理由）。
-trustLockfile: true

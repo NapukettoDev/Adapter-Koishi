@@ -1,22 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026-present Napuketto contributors.
 
-# Dependabot 配置
-#
-# 把「常规更新」纳入 Git 审计，而不是只靠仓库设置托管的 security updates：
-#   - npm（单包工程）：每周一次，patch/minor 按生产/开发分组，避免一次十几条 PR；
-#     major 单独开，便于人工 review 破坏性变更。
-#   - @napuketto/* 是上游 NapukettoQQ 的发布包（本仓用 `~` 范围引用），单独成组：
-#     它们常需成组升版并回归事件/动作面，拆开只会增加噪音。major 仍单独开。
-#   - github-actions：每周更新固定的 commit SHA 及同行的版本注释。
-#
-# labels 显式指定 "ci" 与 "dependencies"（两个 label 都已在仓库中存在）：Dependabot
-# 触发的 workflow 按 fork 处理（GITHUB_TOKEN 只读），.github/workflows/triage.yml 的
-# actions/labeler 会失败并显式跳过 Dependabot PR，标签只能由本文件给出。
-#
-# 升级后仍需人工跑
-# `pnpm install && pnpm build && pnpm build:client && pnpm check && pnpm test`
-# （本文件不自动改代码）。
 version: 2
 updates:
     - package-ecosystem: npm
@@ -27,27 +11,31 @@ updates:
           time: "09:00"
           timezone: Asia/Shanghai
       open-pull-requests-limit: 5
+      cooldown:
+          default-days: 1
       labels:
           - ci
           - dependencies
+      ignore:
+          # 这组由 sync-napuketto-deps.yml 整体更新。
+          - dependency-name: "@napuketto/*"
       groups:
-          # 不设 production-dependencies 分组：本包的 `dependencies` 只有 @napuketto/*，
-          # 而按 dependency-type 的分组会先于 patterns 分组命中（实测 Dependabot 把 5 个
-          # @napuketto/* 归进了 production 分组），分组归属因此不确定。
-          # 只留唯一匹配的分组，避免同一批依赖被两个分组抢。
-          #
-          # 只收 patch：本仓用 `~` 范围钉住上游，0.x 语义下 minor 可能是破坏性变更，
-          # 必须人工评估后改范围（上游发版节奏是里程碑式，0.3 → 0.18 不是常规升级）。
-          napuketto-upstream:
+          koishi-host:
               patterns:
-                  - "@napuketto/*"
-              update-types:
-                  - patch
-          development-dependencies:
+                  - koishi
+                  - "@koishijs/plugin-console"
+          frontend:
+              patterns:
+                  - vue
+                  - vite
+                  - "@vitejs/plugin-vue"
+                  - vitest
+          runtime:
+              dependency-type: production
+              update-types: [minor, patch]
+          development:
               dependency-type: development
-              update-types:
-                  - patch
-                  - minor
+              update-types: [minor, patch]
 
     - package-ecosystem: github-actions
       directory: "/"
