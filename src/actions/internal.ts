@@ -8,8 +8,11 @@
  * koishi 主包不 import（单测崩溃，docs/guides/development.md 单测边界）：方法签名用宽松结构，
  * bot.ts（§6 第 6 步）挂载时与 koishi Internal 类型适配。
  */
+import type { Universal } from "koishi";
+import { IpcError } from "../ipc/errors.js";
 import { parseChannelId } from "./channel.js";
 import { toCanonicalElements } from "./elements.js";
+import { isHistoryMessage, toHistoryMessage } from "./history.js";
 import {
     downloadRemoteMedia,
     enrichVideoElements,
@@ -18,6 +21,10 @@ import {
     materializeDataUrlVideos,
 } from "./media.js";
 import type { MessageListResponse, NapukettoInternalOptions } from "./types.js";
+
+const DEFAULT_HISTORY_LIMIT = 20;
+// 将包含锚点和探测条目的 IPC count 限制在有符号 32 位整数范围内。
+const MAX_HISTORY_LIMIT = 2 ** 31 - 3;
 
 /** koishi bot.internal 封装（动作方法签名对齐 koishi Internal 惯例）。 */
 export class NapukettoInternal {
@@ -87,30 +94,42 @@ export class NapukettoInternal {
         });
     }
 
-    /** 拉取消息历史：RawMessage[] → koishi MessageList 形状 { data, next? }。 */
+    /** 拉取比锚点更早的消息；排序只影响单页显示。 */
     async getMessageList(
         channelId: string,
-        before?: string,
-        limit?: number,
-    ): Promise<MessageListResponse<unknown>> {
-        const peer = parseChannelId(channelId);
-        const params: Record<string, unknown> = {
-            chatType: peer.chatType,
-            peerUin: peer.peerUin,
-            count: limit ?? 20,
-        };
-        if (before !== undefined && before !== "") {
-            params["msgId"] = before;
+        next?: string,
+        limit = DEFAULT_HISTORY_LIMIT,
+        direction: Universal.Direction = "before",
+        order: Universal.Order = "asc",
+    ): Promise<MessageListResponse<Universal.Message>> {
+        if (direction !== "before") {
+            throw new IpcError(`消息历史暂不支持 ${direction} 方向`, "UNSUPPORTED");
         }
-        const data = await this.options.request("msg.fetchMessages", params);
-        const list: unknown[] = Array.isArray(data) ? data : [];
-        const last = list.at(-1) as { msgId?: unknown } | undefined;
-        return {
-            data: list,
-            ...(last !== undefined && typeof last["msgId"] === "string"
-                ? { next: last["msgId"] }
-                : {}),
-        };
+        if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_HISTORY_LIMIT) {
+            throw new IpcError("消息历史 limit 超出支持的正整数范围", "INVALID_PARAM");
+        }
+        const h = this.options.h;
+        if (h === undefined) {
+            throw new IpcError("消息历史需要 Koishi 元素工厂", "UNSUPPORTED");
+        }
+
+        const peer = parseChannelId(channelId);
+        const anchor = next || undefined;
+        const raw = await this.options.request("msg.fetchMessages", {
+            ...peer,
+            count: limit + (anchor === undefined ? 1 : 2),
+            ...(anchor === undefined ? {} : { msgId: anchor }),
+        });
+        const messages = Array.isArray(raw)
+            ? raw.filter(isHistoryMessage).filter((message) => message.msgId !== anchor)
+            : [];
+        const page = messages.slice(0, limit);
+        const cursor = messages.length > limit ? page.at(-1)?.msgId : undefined;
+        const channel: Universal.Channel = { id: channelId, type: peer.chatType === 2 ? 0 : 1 };
+        const data = (order === "desc" ? page : page.reverse()).map((message) =>
+            toHistoryMessage(message, channel, h),
+        );
+        return { data, ...(cursor === undefined ? {} : { prev: cursor, next: cursor }) };
     }
 
     /** 标记已读。 */

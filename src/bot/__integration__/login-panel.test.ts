@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { launchSelfHost } from "@napuketto/loader";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockH } from "../../events/test-utils.js";
+import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import {
     decodeIpcMessage,
     encodeIpcMessage,
@@ -70,6 +70,7 @@ class IpcChild extends EventEmitter {
     readonly stdout = new PassThrough();
     readonly stderr = null;
     readonly received: IpcMessage[] = [];
+    history: unknown[] = [];
     readonly stdin = new Writable({
         write: (chunk: Buffer, _encoding, done) => {
             const message = decodeIpcMessage(chunk.toString());
@@ -83,7 +84,10 @@ class IpcChild extends EventEmitter {
                     v: IPC_VERSION,
                     type: "result",
                     id: message.id,
-                    payload: { ok: true, value: true },
+                    payload: {
+                        ok: true,
+                        value: message.payload.action === "msg.fetchMessages" ? this.history : true,
+                    },
                 });
             }
             done();
@@ -104,7 +108,7 @@ class IpcChild extends EventEmitter {
         this.send({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } });
     }
 
-    receiveMessage(): void {
+    receiveMessage(msgId = "m1", timestamp = Date.now()): void {
         this.send({
             v: IPC_VERSION,
             type: "event",
@@ -114,9 +118,9 @@ class IpcChild extends EventEmitter {
                 args: [
                     [
                         {
-                            msgId: "m1",
+                            msgId,
                             msgSeq: "1",
-                            msgTime: "1700000000",
+                            msgTime: String(timestamp),
                             msgType: 9,
                             chatType: 1,
                             peerUid: "u2",
@@ -309,6 +313,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
     it("消息和业务动作等待 ready，软重登换账号后中止业务和面板连接", async () => {
         const { bot, click } = setupPanel();
         const child = await startBot(bot);
+        child.receiveMessage("old", Date.now() - 60_000);
         child.receiveMessage();
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.dispatch).not.toHaveBeenCalled();
@@ -338,5 +343,31 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.dispatch).toHaveBeenCalledTimes(1);
         expect(child.received).toHaveLength(sent);
+    });
+
+    it("Bot 的历史查询透传分页参数并返回旧消息", async () => {
+        const { bot } = setupPanel();
+        const child = await startBot(bot);
+        child.history = [
+            makeRawMessage({ msgId: "newer", msgTime: "1700000002" }),
+            makeRawMessage({ msgId: "older", msgTime: "1700000001" }),
+            makeRawMessage({ msgId: "oldest", msgTime: "1700000000" }),
+        ];
+        child.ready();
+
+        const page = await bot.getMessageList("10001", "anchor", "before", 2, "desc");
+        expect(child.received.at(-1)).toMatchObject({
+            type: "action",
+            payload: {
+                action: "msg.fetchMessages",
+                params: { chatType: 2, peerUin: "10001", count: 4, msgId: "anchor" },
+            },
+        });
+        expect(page.data).toMatchObject([
+            { id: "newer", content: "你好", createdAt: 1_700_000_002_000 },
+            { id: "older", content: "你好", createdAt: 1_700_000_001_000 },
+        ]);
+        expect(page.next).toBe("older");
+        expect(bot.dispatch).not.toHaveBeenCalled();
     });
 });

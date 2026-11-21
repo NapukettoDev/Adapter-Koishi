@@ -93,7 +93,7 @@ bots:
 
 ## 运行环境
 
-- Koishi `^4.18.7`。
+- Koishi `^4.18.11`。
 - `@koishijs/plugin-console` `^5.30.11`（peer，可选启用；面板依赖它）。
 - CI 使用 Node 24 + pnpm 12.4.1；仓库未声明 `engines`，以 CI 版本为验证基线。
 - QQ NT 客户端：Windows 原生；Linux 通过 WSL/Wine 运行，QQ 文件由 loader 准备。

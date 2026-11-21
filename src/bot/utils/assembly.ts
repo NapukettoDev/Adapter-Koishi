@@ -168,6 +168,7 @@ export interface InternalHost {
 /** 装配动作桥：koishi 动作 → IPC action（request 绑定 client 引用）。 */
 export function createInternal(host: InternalHost): NapukettoInternal {
     return new NapukettoInternal({
+        h: koishiH,
         request: async (action, params) => {
             const client = host.getClient();
             if (client === null) {

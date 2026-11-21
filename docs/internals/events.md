@@ -8,7 +8,7 @@
   └─ driver.onEvent → NapukettoEventBridge.handle(payload)
        ├─ service === "Msg" && name === "onRecvMsg"
        │    └─ args[0] = RawMessage | RawMessage[]
-       │         → 过滤系统占位消息
+       │         → 过滤系统占位消息和启动前历史积压
        │         → adaptRawMessageWithMedia()
        │              ├─ kernel toCanonicalElements()
        │              ├─ 收向媒体富化（语音 silk → WAV，可失败透传）
@@ -35,6 +35,11 @@
 **系统占位消息过滤**：`senderUin === "0"` 的消息跳过。QQ 在群通知等场景会把无内容的占位消息混在
 批量推送里；派发它们只会让 koishi 对无价值消息创建 channel，并放大并发落库竞态。
 
+**历史积压过滤**：每次订阅子进程的 IPC，以及已就绪子进程软重登进入 `sessioning` 时，记录订阅基准。
+早于基准（宿主时间按秒取整再减 5 秒）的原始 `Msg/onRecvMsg` 消息会被跳过。5 秒用于容纳服务端与宿主的
+时钟偏差。基准在 ready 前确定，启动期暂存的新消息仍会在 ready 后回放。缺失或非法的消息时间保留派发，
+时间字段使用宿主当前时间。原始 OB11 订阅和历史查询保持各自的行为。
+
 ## 会话字段映射
 
 `adaptRawMessage(msg, { selfId, platform, h })` 的输出：
@@ -49,7 +54,7 @@
 
 - `selfId` = 登录账号（优先登录快照 `self.uin`，缺省用配置 `selfId`）。
 - `platform` = `"onebot"`。
-- `timestamp` = `Number(msg.msgTime) * 1000`。
+- `timestamp` 使用毫秒。QQ NT 的秒值乘以 1000，毫秒值保留原精度。
 - `messageId` = `msg.msgId`。
 - `elements` = 见下节。
 

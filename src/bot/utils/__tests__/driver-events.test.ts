@@ -16,7 +16,7 @@ import { buildDriverEvents, type DriverEventsHost } from "../driver-events.js";
 function createHost(overrides: { isDisconnected?: () => boolean } = {}) {
     const logger = { debug: vi.fn(), warn: vi.fn() };
     const login = { onLogin: vi.fn(), onQr: vi.fn(), onExit: vi.fn() };
-    const bridge = { handle: vi.fn() };
+    const bridge = { handle: vi.fn(), resetMessageBaseline: vi.fn() };
     const handleReady = vi.fn();
     const clearClient = vi.fn();
     const offline = vi.fn();
@@ -85,6 +85,12 @@ describe("buildDriverEvents", () => {
         const qr = { pngBase64: "aGk=", qrcodeUrl: "https://x" };
         events.onQr?.(qr);
         expect(login.onQr).toHaveBeenCalledWith(qr);
+    });
+
+    it("订阅新事件源时刷新事件桥的历史过滤基准", () => {
+        const { host, bridge } = createHost();
+        buildDriverEvents(host).onEventSubscription?.();
+        expect(bridge.resetMessageBaseline).toHaveBeenCalledOnce();
     });
 
     it("onEvent → bridge.handle 转发 + logger.debug", () => {

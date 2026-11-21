@@ -2,6 +2,8 @@
  * driver-events.test.ts：NapukettoDriver 事件转发单测（login/qr/event/log）。
  */
 import { describe, expect, it, vi } from "vitest";
+import { NapukettoEventBridge } from "../../events/bridge.js";
+import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import {
     decodeIpcMessage,
     encodeIpcMessage,
@@ -96,6 +98,103 @@ describe("NapukettoDriver 事件转发", () => {
         expect(onEvent.mock.calls.map(([payload]) => payload.args[0])).toEqual([1, 2, 3, 4]);
         driver.stop();
         spawns[0]?.emitExit(0, null);
+    });
+
+    it("过滤首启、软重登和重启时的旧消息，保留握手期消息", async () => {
+        vi.useFakeTimers();
+        const initial = 1_800_000_000_000;
+        const dispatch = vi.fn();
+        const bridge = new NapukettoEventBridge({ dispatch, selfId: () => "1", h: mockH() });
+        const onReady = vi.fn();
+        const { driver, emit, peers, spawns } = createHarness({
+            onEventSubscription: () => bridge.resetMessageBaseline(),
+            onEvent: (payload) => bridge.handle(payload),
+            onReady,
+        });
+        const recv = (at: MemoryLinePair | undefined, ...entries: [string, string][]) => {
+            at?.peer.write(
+                encodeIpcMessage({
+                    v: IPC_VERSION,
+                    type: "event",
+                    payload: {
+                        service: "Msg",
+                        name: "onRecvMsg",
+                        args: [
+                            entries.map(([msgId, msgTime]) => makeRawMessage({ msgId, msgTime })),
+                        ],
+                    },
+                }),
+            );
+        };
+        const dispatchedIds = () => dispatch.mock.calls.map(([fields]) => fields.messageId);
+        try {
+            vi.setSystemTime(initial);
+            driver.start();
+            await flush();
+            vi.setSystemTime(initial + 10_000);
+            emit("sessioning");
+            recv(
+                peers[0],
+                ["old-seconds", String(initial / 1000 - 6)],
+                ["old-millis", String(initial - 5_001)],
+                ["within-grace", String(initial / 1000 - 5)],
+                ["handshake", String(initial + 123)],
+                ["invalid-time", "NaN"],
+            );
+            expect(dispatch).not.toHaveBeenCalled();
+
+            vi.setSystemTime(initial + 20_000);
+            emit("ready");
+            await flush();
+            expect(
+                dispatch.mock.calls.map(([fields]) => [fields.messageId, fields.timestamp]),
+            ).toEqual([
+                ["within-grace", initial - 5_000],
+                ["handshake", initial + 123],
+                ["invalid-time", initial + 20_000],
+            ]);
+
+            vi.setSystemTime(initial + 30_000);
+            emit("sessioning");
+            vi.setSystemTime(initial + 40_000);
+            emit("sessioning");
+            recv(
+                peers[0],
+                ["soft-old", String(initial + 20_000)],
+                ["soft-new", String(initial + 29_000)],
+            );
+            emit("ready");
+            await flush();
+            expect(onReady).toHaveBeenCalledOnce();
+            expect(dispatchedIds()).toEqual([
+                "within-grace",
+                "handshake",
+                "invalid-time",
+                "soft-new",
+            ]);
+
+            spawns[0]?.emitExit(1, null);
+            await vi.advanceTimersByTimeAsync(100);
+            recv(
+                peers[1],
+                ["restart-old", String(initial + 30_000)],
+                ["restart-new", String(Date.now())],
+            );
+            emit("ready");
+            await flush();
+            expect(onReady).toHaveBeenCalledTimes(2);
+            expect(dispatchedIds()).toEqual([
+                "within-grace",
+                "handshake",
+                "invalid-time",
+                "soft-new",
+                "restart-new",
+            ]);
+        } finally {
+            driver.stop();
+            spawns.at(-1)?.emitExit(0, null);
+            vi.useRealTimers();
+        }
     });
 
     it("启动期事件最多保留最近 256 条，并保持顺序", async () => {

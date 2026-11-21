@@ -193,14 +193,11 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
     override async getMessageList(
         channelId: string,
         next?: string,
-        _direction?: Universal.Direction,
+        direction?: Universal.Direction,
         limit?: number,
+        order?: Universal.Order,
     ): Promise<Universal.BidiList<Universal.Message>> {
-        const list = await this.internal.getMessageList(channelId, next, limit);
-        return {
-            data: list.data as Universal.Message[],
-            ...(list.next !== undefined ? { next: list.next } : {}),
-        };
+        return this.internal.getMessageList(channelId, next, limit, direction, order);
     }
 
     /** 撤回消息。 */

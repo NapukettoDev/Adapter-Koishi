@@ -228,9 +228,21 @@ export class NapukettoDriver {
     }
 
     private subscribeClient(client: NapukettoIpcClient): void {
+        this.events.onEventSubscription?.();
+        let previousPhase: IpcStatusPayload["phase"] | undefined;
         client.on("status", (message) => {
-            this.events.onStatus?.(message.payload);
-            this.handleStatus(message.payload);
+            const status = message.payload;
+            // Loader 在软重登时先报告 sessioning，再接入新一轮原始事件转发。
+            const reassembling =
+                this.state === "ready" &&
+                status.phase === "sessioning" &&
+                previousPhase !== "sessioning";
+            previousPhase = status.phase;
+            if (reassembling) {
+                this.events.onEventSubscription?.();
+            }
+            this.events.onStatus?.(status);
+            this.handleStatus(status);
         });
         client.on("login", (message) => {
             this.events.onLogin?.(message.payload);

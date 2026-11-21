@@ -21,7 +21,7 @@ export interface DriverEventsHost {
     /** 登录状态机（onLogin/onQr/onExit 转发）。 */
     login: Pick<NapukettoLoginState, "onLogin" | "onQr" | "onExit">;
     /** 事件桥（kernel 事件 → koishi session）。 */
-    bridge: Pick<NapukettoEventBridge, "handle">;
+    bridge: Pick<NapukettoEventBridge, "handle" | "resetMessageBaseline">;
     /** 是否已主动断开（status === DISCONNECT，onExit 判断是否 offline）。 */
     isDisconnected: () => boolean;
     /** 就绪回调（clientRef 更新 + online + 拉登录信息）。 */
@@ -53,6 +53,7 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
             }
         },
         onQr: (qr) => host.login.onQr(qr),
+        onEventSubscription: () => host.bridge.resetMessageBaseline(),
         onEvent: (payload) => {
             // 事件桥入口（debug：Group 等高频事件在 info 下不刷屏；
             // 用户配 debug 可见全量事件转发，便于排查）
