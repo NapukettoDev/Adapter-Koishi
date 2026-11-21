@@ -37,7 +37,7 @@
 ## 不在本目录的内容
 
 - 版本变更记录：[CHANGELOG.md](../CHANGELOG.md)。
-- 安装与项目介绍：[readme.md](../readme.md)。
+- 安装与项目介绍：[README.md](../README.md)。
 - 上游包（`@napuketto/kernel`、`@napuketto/loader`、`@napuketto/media`、`@napuketto/adapter`）
   的内部实现：见各自仓库文档；本目录只描述适配器如何消费它们。
 
