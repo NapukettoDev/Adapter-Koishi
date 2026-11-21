@@ -152,7 +152,8 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
         // koishi h 可调用（Element 工厂）；绑定生产 h（elements.ts bindKoishiH）
         h: bindKoishiH(koishiH),
         platform: "onebot",
-        enrichElements: (elements) => enrichReceiveVoice(elements, host.dataRoot),
+        enrichElements: (elements) =>
+            enrichReceiveVoice(elements, host.dataRoot, (message) => host.logger.warn(message)),
     });
 }
 
@@ -160,6 +161,7 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
 
 /** 动作桥装配依赖。 */
 export interface InternalHost {
+    config: NapukettoBotConfig;
     /** 当前 IPC 客户端（null = 子进程未就绪，request 抛错）。 */
     getClient: () => NapukettoIpcClient | null;
     getSelfIdentity: NonNullable<NapukettoInternalOptions["getSelfIdentity"]>;
@@ -171,6 +173,15 @@ export interface InternalHost {
 export function createInternal(host: InternalHost): NapukettoInternal {
     return new NapukettoInternal({
         h: koishiH,
+        ...(host.config.remoteMediaPolicy === undefined
+            ? {}
+            : { remoteMediaPolicy: host.config.remoteMediaPolicy }),
+        ...(host.config.localFilePolicy === undefined
+            ? {}
+            : { localFilePolicy: host.config.localFilePolicy }),
+        ...(host.config.localMediaRoots === undefined
+            ? {}
+            : { localMediaRoots: host.config.localMediaRoots }),
         getSelfIdentity: host.getSelfIdentity,
         request: async (action, params) => {
             const client = host.getClient();

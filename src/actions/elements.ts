@@ -17,6 +17,7 @@
  */
 import { fileURLToPath } from "node:url";
 import type { CanonicalElement } from "@napuketto/kernel";
+import { IpcError } from "../ipc/errors.js";
 
 /** koishi 元素宽松结构（h() 元素，不 import koishi 主包）。 */
 interface LooseElement {
@@ -92,9 +93,13 @@ function mediaElement(
     // file:// URL → 转真实本地路径（fileURLToPath），避免带协议前缀透传给
     // wrapper.node 导致 rich media transfer failed（redposter 实证）
     if (isFileUrl(src)) {
-        return toMedia(normalizeMediaPath(fileURLToPath(src)));
+        try {
+            return toMedia(normalizeMediaPath(fileURLToPath(src)));
+        } catch {
+            throw new IpcError("本地媒体 file URL 格式无效", "INVALID_PARAM");
+        }
     }
-    if (isHttpUrl(src)) {
+    if (isHttpUrl(src) || /^data:/i.test(src)) {
         // 远程 URL 透传：internal.sendMessage 的 downloadRemoteMedia 下载到本地
         // 临时文件后发送；下载失败回退占位文本（media.ts）
         return toMedia(src);

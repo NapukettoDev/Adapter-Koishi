@@ -102,11 +102,10 @@ koishi 运行时。
 1. 只处理本地路径的 `voice` 元素（跳过 `http(s)://` 与 `data:`）。
 2. `resolveNtFile` 直接使用存在的绝对路径。相对路径统一分隔符后，Linux 从子进程使用的
    `<dataRoot>/nt_qq/global` 解析，Windows 默认沿用 `<home>/Documents/Tencent Files/nt_qq/global`，上游调试沙箱则使用传给子进程的数据根。
-3. `decodeSilkToWav(silk, { outDir: <tmpdir>/napuketto-voice })` 输出 WAV，供 koishi 侧播放。
+3. 每次解码使用独占临时目录，避免并发时同名 QQ 文件覆盖彼此。WAV 供 Koishi 消费 10 分钟，
+   期满后清理。进程最多保留 64 个解码中或等待消费的 WAV，达到上限时新语音原样透传。
+   进程非正常退出留下的目录由系统临时目录策略清理。
 4. 任何一步失败都原样返回原路径（fail-soft，不阻塞消息）。
-
-WAV 落在系统临时目录，**不主动清理**：消费方（平台适配器/控制台）拉取时机不确定，交给 OS
-临时目录回收。高频语音场景需要注意磁盘占用。
 
 事件桥对富化做了异步化：`adaptRawMessageWithMedia()` 失败时回退到普通 `adaptRawMessage()`；
 `dispatch()` 回调不等待 Promise。

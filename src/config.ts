@@ -12,6 +12,11 @@
  * 运行时 import koishi（Schema）——本文件不进单测（docs/guides/development.md 单测边界）。
  */
 import { Schema } from "koishi";
+import {
+    DEFAULT_LOCAL_FILE_POLICY,
+    DEFAULT_REMOTE_MEDIA_POLICY,
+    type OutboundMediaPolicy,
+} from "./actions/media-policy.js";
 
 /** 日志等级（reggol Logger level；默认 debug——事件/消息详细日志，可调低减少输出）。 */
 export type LogLevel = "debug" | "info" | "error" | "silent";
@@ -27,7 +32,7 @@ export interface RestartConfig {
 }
 
 /** bot 配置。 */
-export interface NapukettoBotConfig {
+export interface NapukettoBotConfig extends OutboundMediaPolicy {
     /** 登录账号（QQ 号，必填：数据目录账号隔离 + 快速登录账号）。 */
     selfId: string;
     /** QQ 可执行文件路径（缺省由 loader 自动探测）。 */
@@ -99,6 +104,15 @@ export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.object({
                 "并透出 ob11 原始事件；关闭则只保留 kernel 动作面",
         )
         .default(true),
+    remoteMediaPolicy: Schema.union([Schema.const("compatible"), Schema.const("public-only")])
+        .description("远程媒体策略（compatible 支持本机/LAN，public-only 仅允许公网）")
+        .default(DEFAULT_REMOTE_MEDIA_POLICY),
+    localFilePolicy: Schema.union([Schema.const("legacy"), Schema.const("allowlist")])
+        .description("本地媒体策略（allowlist 仅允许指定的媒体目录）")
+        .default(DEFAULT_LOCAL_FILE_POLICY),
+    localMediaRoots: Schema.array(Schema.string())
+        .description("允许低信任调用者发送的本地媒体目录")
+        .default([]),
     logLevel: Schema.union([
         Schema.const("debug" as const),
         Schema.const("info" as const),

@@ -1,164 +1,191 @@
-/**
- * media.test.ts：ensureSilk / ensureVoiceSilk 单测（mock @napuketto/media）。
- *
- * 锁定语音归一化的三条路径（docs/internals/actions.md）：
- * - 已是 silk（#!SILK 头）→ 原样返回（不触发转码）
- * - 非 silk → encodePcmToSilk 转码返回新路径
- * - 转码失败 → 回落原路径（kernel 发送兜底，不阻断）
- */
-
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, extname, join } from "node:path";
+import type { CanonicalElement } from "@napuketto/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-    enrichVideoElements,
-    ensureSilk,
-    ensureVoiceSilk,
-    materializeDataUrlImages,
-    materializeDataUrlVideos,
-} from "../media.js";
+import { prepareOutboundMedia } from "../media.js";
 
-const { encodePcmToSilkMock, extractVideoFrameMock, getVideoInfoMock } = vi.hoisted(() => ({
-    encodePcmToSilkMock: vi.fn(),
-    extractVideoFrameMock: vi.fn(),
-    getVideoInfoMock: vi.fn(),
-}));
-vi.mock("@napuketto/media", () => ({
-    encodePcmToSilk: encodePcmToSilkMock,
-    extractVideoFrame: extractVideoFrameMock,
-    getVideoInfo: getVideoInfoMock,
+const { encode, frame, videoInfo, publicDownload, compatibleDownload } = vi.hoisted(() => ({
+    encode: vi.fn(),
+    frame: vi.fn(),
+    videoInfo: vi.fn(),
+    publicDownload: vi.fn(),
+    compatibleDownload: vi.fn(),
 }));
 
-describe("ensureSilk", () => {
+vi.mock("@napuketto/media", async (original) => ({
+    ...(await original<typeof import("@napuketto/media")>()),
+    encodePcmToSilk: encode,
+    extractVideoFrame: frame,
+    getVideoInfo: videoInfo,
+    downloadPublicUrl: publicDownload,
+    downloadUrl: compatibleDownload,
+}));
+
+function pathOf(element?: CanonicalElement): string {
+    if (element?.type !== "image" && element?.type !== "voice" && element?.type !== "video") {
+        throw new Error("媒体元素丢失");
+    }
+    return element.path;
+}
+
+describe("prepareOutboundMedia", () => {
     let dir: string;
+
     beforeEach(() => {
         dir = mkdtempSync(join(tmpdir(), "napuketto-koishi-media-"));
-        encodePcmToSilkMock.mockReset();
+        vi.resetAllMocks();
     });
+
     afterEach(() => {
         rmSync(dir, { recursive: true, force: true });
     });
 
-    it("已是 silk（#!SILK 头）→ 原样返回（不转码）", async () => {
+    it.each(["#!SILK_V3", "\x02#!SILK_V3"])("已有 SILK %s 保留原路径", async (header) => {
         const silk = join(dir, "voice.silk");
-        writeFileSync(silk, Buffer.concat([Buffer.from("#!SILK_V3"), Buffer.alloc(16)]));
-
-        await expect(ensureSilk(silk)).resolves.toBe(silk);
-        expect(encodePcmToSilkMock).not.toHaveBeenCalled();
+        writeFileSync(silk, header);
+        const result = await prepareOutboundMedia([{ type: "voice", path: silk }]);
+        expect(pathOf(result.elements[0])).toBe(silk);
+        expect(encode).not.toHaveBeenCalled();
+        await result.cleanup();
+        expect(readFileSync(silk, "utf8")).toBe(header);
     });
 
-    it("非 silk（ogg）→ encodePcmToSilk 转码返回新路径", async () => {
+    it("并发转换同一源文件各有独占 SILK，清理不覆盖同名文件或源文件", async () => {
         const ogg = join(dir, "voice.ogg");
-        writeFileSync(ogg, Buffer.from("OggS........"));
-        encodePcmToSilkMock.mockResolvedValue(join(dir, "voice.silk"));
-
-        await expect(ensureSilk(ogg)).resolves.toBe(join(dir, "voice.silk"));
-        expect(encodePcmToSilkMock).toHaveBeenCalledWith(ogg);
-    });
-
-    it("转码失败 → 回落原路径（不阻断发送）", async () => {
-        const ogg = join(dir, "voice.ogg");
-        writeFileSync(ogg, Buffer.from("OggS........"));
-        encodePcmToSilkMock.mockRejectedValue(new Error("ffmpeg 不可用"));
-
-        await expect(ensureSilk(ogg)).resolves.toBe(ogg);
-    });
-
-    it("ensureVoiceSilk：voice 元素转码，其他元素原样", async () => {
-        const ogg = join(dir, "voice.ogg");
-        writeFileSync(ogg, Buffer.from("OggS........"));
-        encodePcmToSilkMock.mockResolvedValue(join(dir, "voice.silk"));
-
-        const out = await ensureVoiceSilk([
-            { type: "text", text: "hi" },
-            { type: "voice", path: ogg },
+        const existing = join(dir, "voice.silk");
+        writeFileSync(ogg, "OggS");
+        writeFileSync(existing, "existing");
+        encode.mockImplementation(async (input: string) => {
+            expect(input).not.toBe(ogg);
+            expect(extname(input)).toBe(".ogg");
+            expect(readFileSync(input, "utf8")).toBe("OggS");
+            const output = input.replace(/\.ogg$/, ".silk");
+            writeFileSync(output, "silk");
+            return output;
+        });
+        const elements: CanonicalElement[] = [{ type: "voice", path: ogg }];
+        const [first, second] = await Promise.all([
+            prepareOutboundMedia(elements),
+            prepareOutboundMedia(elements),
         ]);
-
-        expect(out[0]).toEqual({ type: "text", text: "hi" });
-        expect(out[1]).toEqual({ type: "voice", path: join(dir, "voice.silk") });
-    });
-});
-
-describe("materializeDataUrlImages", () => {
-    it("将 Base64 图片 data URL 写入临时文件并在清理后删除", async () => {
-        const source = "data:image/jpeg;base64,/9j/AA==";
-        const materialized = await materializeDataUrlImages([{ type: "image", path: source }]);
-        const path = (materialized.elements[0] as { path: string }).path;
-
-        expect(path).not.toBe(source);
-        expect(path).toMatch(/\.jpg$/);
-        expect(readFileSync(path)).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0x00]));
-
-        await materialized.cleanup();
-        expect(() => readFileSync(path)).toThrow();
-    });
-});
-
-describe("materializeDataUrlVideos", () => {
-    it("将 Base64 视频 data URL 写入 .mp4 临时文件并在清理后删除", async () => {
-        const source = "data:video/mp4;base64,AAAA";
-        const materialized = await materializeDataUrlVideos([{ type: "video", path: source }]);
-        const path = (materialized.elements[0] as { path: string }).path;
-
-        expect(path).not.toBe(source);
-        expect(path).toMatch(/\.mp4$/);
-        expect(readFileSync(path)).toEqual(Buffer.from([0, 0, 0]));
-
-        await materialized.cleanup();
-        expect(() => readFileSync(path)).toThrow();
+        const a = pathOf(first.elements[0]);
+        const b = pathOf(second.elements[0]);
+        expect(a).not.toBe(b);
+        expect(dirname(a)).not.toBe(dir);
+        await first.cleanup();
+        expect(existsSync(a)).toBe(false);
+        expect(readFileSync(b, "utf8")).toBe("silk");
+        await second.cleanup();
+        expect(existsSync(b)).toBe(false);
+        expect(readFileSync(existing, "utf8")).toBe("existing");
+        expect(readFileSync(ogg, "utf8")).toBe("OggS");
     });
 
-    it("非视频 data URL 元素原样返回（不触发落盘）", async () => {
-        const image = { type: "image" as const, path: "data:image/png;base64,AA==" };
-        const materialized = await materializeDataUrlVideos([image]);
-        expect(materialized.elements[0]).toEqual(image);
+    it("转码失败回落源文件并在发送结束后清理部分输出", async () => {
+        const source = join(dir, "voice.silk");
+        writeFileSync(source, "OggS");
+        let partial = "";
+        encode.mockImplementation(async (input: string) => {
+            partial = input.replace(/\.bin$/, ".silk");
+            writeFileSync(partial, "partial");
+            throw new Error("ffmpeg unavailable");
+        });
+        const warn = vi.fn();
+        const result = await prepareOutboundMedia([{ type: "voice", path: source }], {
+            logger: { warn },
+        });
+        expect(pathOf(result.elements[0])).toBe(source);
+        expect(warn).toHaveBeenCalledOnce();
+        await result.cleanup();
+        expect(existsSync(partial)).toBe(false);
+        expect(readFileSync(source, "utf8")).toBe("OggS");
     });
-});
 
-describe("enrichVideoElements", () => {
-    it("本地视频 → 抽帧 + 宽高/时长填入 canonical video", async () => {
-        getVideoInfoMock.mockResolvedValue({ width: 640, height: 360, durationMs: 3200 });
-        extractVideoFrameMock.mockImplementation(async (_input: string, output: string) => {
+    it("允许白名单外的适配器 data URL 产物并保留二进制字节", async () => {
+        videoInfo.mockRejectedValue(new Error("无探测器"));
+        const result = await prepareOutboundMedia(
+            [
+                { type: "image", path: "data:image/jpeg,%FF%D8%FF%00" },
+                { type: "video", path: "data:video/mp4;base64,AAAA" },
+                { type: "voice", path: "data:audio/silk;base64,AiMhU0lMS19WMw==" },
+            ],
+            { localFilePolicy: "allowlist" },
+        );
+        const files = result.elements.map(pathOf);
+        expect(files.map((file) => extname(file))).toEqual([".jpg", ".mp4", ".silk"]);
+        expect(files.map((file) => readFileSync(file, "hex"))).toEqual([
+            "ffd8ff00",
+            "000000",
+            "02232153494c4b5f5633",
+        ]);
+        expect(encode).not.toHaveBeenCalled();
+        await result.cleanup();
+        expect(files.some(existsSync)).toBe(false);
+    });
+
+    it("公网策略只调用上游公网入口，拒绝时不回退兼容下载器", async () => {
+        publicDownload
+            .mockImplementationOnce(async (_url: string, path: string) => {
+                writeFileSync(path, "media");
+                return 5;
+            })
+            .mockRejectedValueOnce(new Error("blocked"));
+        const result = await prepareOutboundMedia(
+            [
+                { type: "image", path: "https://media.example/image.png" },
+                { type: "image", path: "https://user:secret@media.example/other.png?token=secret" },
+            ],
+            { remoteMediaPolicy: "public-only", localFilePolicy: "allowlist" },
+        );
+        expect(publicDownload).toHaveBeenCalledTimes(2);
+        expect(compatibleDownload).not.toHaveBeenCalled();
+        expect(readFileSync(pathOf(result.elements[0]), "utf8")).toBe("media");
+        expect(result.elements[1]).toEqual({
+            type: "text",
+            text: "[图片: https://media.example/other.png]",
+        });
+        await result.cleanup();
+    });
+
+    it("本地视频抽帧后保留其他元素并清理缩略图", async () => {
+        videoInfo.mockResolvedValue({ width: 640, height: 360, durationMs: 3200 });
+        frame.mockImplementation(async (_input: string, output: string) => {
             writeFileSync(output, "png");
             return output;
         });
-
-        const enriched = await enrichVideoElements([
-            { type: "video", path: "C:/tmp/a.mp4" },
-            { type: "text", text: "hi" },
-        ]);
-        const video = enriched.elements[0] as {
-            thumbPath?: string;
-            width?: number;
-            height?: number;
-            durationSec?: number;
-        };
-
-        expect(video.width).toBe(640);
-        expect(video.height).toBe(360);
-        expect(video.durationSec).toBe(3);
-        expect(video.thumbPath).toMatch(/\.png$/);
-        expect(readFileSync(video.thumbPath as string).toString()).toBe("png");
-        expect(enriched.elements[1]).toEqual({ type: "text", text: "hi" });
-
-        const thumbPath = video.thumbPath as string;
-        await enriched.cleanup();
-        expect(() => readFileSync(thumbPath)).toThrow();
+        const source = join(dir, "a.mp4");
+        const text: CanonicalElement = { type: "text", text: "hi" };
+        const result = await prepareOutboundMedia([{ type: "video", path: source }, text]);
+        const [video, rest] = result.elements;
+        expect(video).toMatchObject({
+            type: "video",
+            path: source,
+            width: 640,
+            height: 360,
+            durationSec: 3,
+        });
+        expect(rest).toBe(text);
+        if (video?.type !== "video" || video.thumbPath === undefined) throw new Error("缺少缩略图");
+        expect(readFileSync(video.thumbPath, "utf8")).toBe("png");
+        await result.cleanup();
+        expect(existsSync(video.thumbPath)).toBe(false);
     });
 
-    it("抽帧失败 → 降级为无缩略图并打 warn（不抛错）", async () => {
-        getVideoInfoMock.mockResolvedValue({ width: 640, height: 360, durationMs: 1000 });
-        extractVideoFrameMock.mockRejectedValue(new Error("ffmpeg 不可用"));
-        const warn = vi.fn();
-
-        const enriched = await enrichVideoElements([{ type: "video", path: "C:/tmp/b.mp4" }], {
-            logger: { warn },
+    it("后续 data URL 无效时清理已经生成的缩略图", async () => {
+        videoInfo.mockResolvedValue({ width: 640, height: 360, durationMs: 3200 });
+        let thumb = "";
+        frame.mockImplementation(async (_input: string, output: string) => {
+            thumb = output;
+            writeFileSync(output, "png");
         });
-
-        expect(enriched.elements[0]).toEqual({ type: "video", path: "C:/tmp/b.mp4" });
-        expect(warn).toHaveBeenCalledTimes(1);
-        expect(warn.mock.calls[0]?.[0]).toContain("视频缩略图");
-        await enriched.cleanup();
+        await expect(
+            prepareOutboundMedia([
+                { type: "video", path: join(dir, "a.mp4") },
+                { type: "image", path: "data:audio/ogg;base64,AAAA" },
+            ]),
+        ).rejects.toThrow("data URL");
+        expect(thumb).not.toBe("");
+        expect(existsSync(dirname(thumb))).toBe(false);
     });
 });

@@ -1,5 +1,12 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.41
+
+### Patch Changes
+
+- 出站媒体改用流式下载，支持公网出站策略与本地目录白名单。语音 data URL 可经 Koishi 正常发送。
+- 为出站 SILK 使用独占目录并在发送结束后回收。入站 WAV 有数量和有效期上限，消费窗口为 10 分钟。
+
 ## 0.0.40
 
 ### Patch Changes

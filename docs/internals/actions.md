@@ -97,26 +97,24 @@ OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见
 
 ## 发送媒体管线
 
-`sendMessage()` 按固定顺序处理元素，任一步生成临时文件都登记 cleanup，最后在 `finally` 中**逆序清理**：
+Koishi `sendMessage()` 为图片（`img` / `image`）、语音（`audio`）和视频（`video`）
+分别处理 HTTP(S)、调用方本地路径、`file://` 和符合媒体类型的 `data:` URL。
 
-1. **远程下载** `downloadRemoteMedia`：处理 `image` / `voice` / `video` 的 `http(s)` URL。
-   - 单文件上限：图片/语音 30MB，视频 100MB；超时 15s；流式读取时再次校验总大小。
-   - 相同 URL 只下载一次；非 2xx、空响应、超限或网络错误 → 替换为占位文本
-     `[图片: <url>]` / `[语音: <url>]` / `[视频: <url>]` 并 `warn`，不阻断其他元素。
-2. **语音转 silk** `ensureVoiceSilk`：读文件头 8 字节，`#!SILK` 前缀原样保留；否则用
-   `@napuketto/media` 的 `encodePcmToSilk` 转成 silk v3。转码失败原样返回，由 kernel 兜底。
-   原因：QQ 语音协议只接受 silk；直接上传 ogg/mp3 会“发送成功但对方无法播放”。
-3. **图片 data URL 落盘** `materializeDataUrlImages`：`data:image/*`（支持 base64 与百分号编码）
-   写入临时文件，供子进程按路径读取。格式非法会抛错并中止本次发送。
-4. **视频 data URL 落盘** `materializeDataUrlVideos`：`data:video/*`，按 MIME 选扩展名，
-   未知回落 `.bin` 交给 ffprobe 识别。
-5. **视频补全** `enrichVideoElements`：对本地且尚无 `thumbPath` 的视频调用
-   `getVideoInfo`（ffprobe）与 `extractVideoFrame`（ffmpeg 抽首帧 PNG），补
-   `thumbPath` / `width` / `height` / `durationSec`（时长四舍五入，且至少 1 秒）。
-   ffmpeg/ffprobe 缺失或处理失败 → 打 `warn`，去掉缩略图继续发送，不阻塞其他元素。
-6. 调用 `msg.sendMessage`，从返回值取 `msgId`。
+1. 处理调用方的本地路径和 `file://`。启用目录白名单时，在转码、读取或 IPC 之前校验实际路径。
+   下载、内联材料和派生文件由适配器管理，使用独立临时目录。
+2. HTTP(S) 使用 `@napuketto/media` 流式落盘，单文件上限为图片/语音 30 MiB、视频 100 MiB，
+   15 秒覆盖跳转和读取。相同媒体类型及 URL 在一次发送中复用。优先按可识别的文件内容定扩展名，
+   其次使用 URL 扩展名。下载失败或出站地址被拒绝会发占位文本及类别告警，其他元素继续发送。白名单拒绝的调用方本地文件会中止本次发送。
+3. 图片、语音与视频的 data URL 支持 base64 和百分号编码。格式非法、内容为空或超限会中止发送。
+4. 非 SILK 语音在适配器独占目录中调用 `encodePcmToSilk`。转码失败继续使用原音频并记录告警。
+   已有的 SILK（含 QQ 的前导字节变体）原样使用。
+5. 视频尝试提取缩略图、宽高和时长，再调用 `msg.sendMessage`。探测或抽帧失败会继续尝试发送。
+   IPC 完成或失败后回收适配器为本次发送创建的目录，调用方文件由调用方管理。
 
-注意：下载失败是“降级为文本”，data URL 解析失败是“抛错”；后者通常意味着上游传入了损坏的 data URI。
+原始 `bot.internal._request()` 可直接调用子进程的 kernel 与 OB11 动作。OB11 的发送消息、下载、
+头像、群公告图和闪传等根据上游动作处理媒体。向低信任调用者开放时，应只暴露 Koishi 的
+`sendMessage()`，并把原始动作接口保留给受信任插件。`ob11Actions: false` 关闭 OB11 桥，
+原始 kernel 动作仍由 `_request()` 调用。
 
 ## 子进程侧的动作实现
 

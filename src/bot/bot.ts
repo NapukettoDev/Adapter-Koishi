@@ -158,6 +158,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
 
         // 动作桥：request 绑定 clientRef（client null 时抛错，driver 就绪后可用）
         this.internal = createInternal({
+            config: this.config,
             getClient: () => this.clientRef.current,
             getSelfIdentity: () => this.login.snapshot.self,
             // 远程媒体下载失败等告警日志
