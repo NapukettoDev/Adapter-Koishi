@@ -17,6 +17,7 @@ import {
     DEFAULT_REMOTE_MEDIA_POLICY,
     type OutboundMediaPolicy,
 } from "./actions/media-policy.js";
+import { SELF_ID_PATTERN } from "./self-id.js";
 
 /** 日志等级（reggol Logger level；默认 debug——事件/消息详细日志，可调低减少输出）。 */
 export type LogLevel = "debug" | "info" | "error" | "silent";
@@ -72,7 +73,8 @@ export interface NapukettoBotConfig extends OutboundMediaPolicy {
 /** 配置 schema（koishi）。 */
 export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.object({
     selfId: Schema.string()
-        .description("登录账号（QQ 号，数据目录账号隔离 + 快速登录账号）")
+        .pattern(SELF_ID_PATTERN)
+        .description("登录 QQ 号（5–11 位 ASCII 数字，用于数据目录隔离和快速登录）")
         .required(),
     qqPath: Schema.string().description(
         "本机 Windows 或 Linux 版 QQ 可执行文件路径（缺省自动探测）",

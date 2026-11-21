@@ -8,10 +8,11 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { QqInstallInfo } from "@napuketto/loader";
 import { describe, expect, it, vi } from "vitest";
 import type { NapukettoBotConfig } from "../../config.js";
+import { requireSelfId, SELF_ID_PATTERN } from "../../self-id.js";
 import { resolveEntry, resolveLaunchOptions } from "../launch.js";
 
 /** 测试配置（覆盖注入，避免探测/解析环境差异）。 */
@@ -116,11 +117,73 @@ describe("resolveLaunchOptions", () => {
         });
     });
 
-    it("quickUin = selfId（快速登录账号）", async () => {
-        const options = await resolveLaunchOptions(makeConfig({ selfId: "3567141148" }), {
-            resolveQq: fakeResolveQq,
+    it.each(["10001", "123456789", "3567141148", "12345678901"])(
+        "保留 QQ 号 %s，账号目录是数据根的直属子目录",
+        async (selfId) => {
+            expect(SELF_ID_PATTERN.test(selfId)).toBe(true);
+            expect(requireSelfId(selfId)).toBe(selfId);
+            const options = await resolveLaunchOptions(makeConfig({ selfId }), {
+                resolveQq: fakeResolveQq,
+            });
+            expect(options.quickUin).toBe(selfId);
+            expect(dirname(options.cfgDir)).toBe(options.cwd);
+            expect(relative(options.cwd, options.cfgDir)).toBe(selfId);
+        },
+    );
+
+    it.each([
+        undefined,
+        null,
+        10001,
+        "",
+        " ",
+        "1000",
+        "123456789012",
+        "１０００１",
+        " 10001",
+        "10001\n",
+        "10001\0",
+        ".",
+        "..",
+        "../10001",
+        "..\\10001",
+        "10001/20002",
+        "/10001",
+        "C:10001",
+        "C:\\10001",
+        "\\\\server\\share\\10001",
+        "10001:stream",
+        "10001.",
+        "10001 ",
+    ])("无效 selfId %j 在解析数据根和 QQ 前被拒绝", async (selfId) => {
+        if (typeof selfId === "string") {
+            expect(SELF_ID_PATTERN.test(selfId)).toBe(false);
+        }
+        expect(() => requireSelfId(selfId)).toThrow(TypeError);
+        const readDataDir = vi.fn(() => "unused");
+        const resolveQq = vi.fn(fakeResolveQq);
+        const forceQr = { current: true };
+        // 模拟绕过 Schema 的运行时调用。
+        const config = makeConfig({ selfId: selfId as string });
+        Object.defineProperty(config, "dataDir", { get: readDataDir });
+        await expect(resolveLaunchOptions(config, { resolveQq, forceQr })).rejects.toThrow(
+            /selfId/,
+        );
+        expect(readDataDir).not.toHaveBeenCalled();
+        expect(resolveQq).not.toHaveBeenCalled();
+        expect(forceQr.current).toBe(true);
+    });
+
+    it("QQ 探测后仍使用同一个已校验的账号", async () => {
+        const config = makeConfig({ selfId: "10001" });
+        const options = await resolveLaunchOptions(config, {
+            resolveQq: (opts) => {
+                config.selfId = "20002";
+                return fakeResolveQq(opts);
+            },
         });
-        expect(options.quickUin).toBe("3567141148");
+        expect(options.quickUin).toBe("10001");
+        expect(relative(options.cwd, options.cfgDir)).toBe("10001");
     });
 
     it("显式 qqPath 优先于 loader 的缓存环境设置，并在切换 cwd 前解析", async () => {

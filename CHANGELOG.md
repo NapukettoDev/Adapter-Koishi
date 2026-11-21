@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.49
+
+### Patch Changes
+
+- 配置与运行时统一校验 `selfId` 为 5–11 位 ASCII 数字，在探测 QQ 和计算账号目录前拒绝无效值。Bot 头像改用 HTTPS。
+
 ## 0.0.48
 
 ### Patch Changes
