@@ -61,26 +61,32 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 
 | 时机 | 行为 |
 | :--- | :--- |
-| `start()` | `isActive` 时直接返回；`status = CONNECT`；`setupDriver()`（幂等）→ `driver.start()`；异常 `offline(error)` |
+| `start()` | `isActive` 时直接返回；`status = CONNECT`；复位登录快照/账号闸门/clientRef；等待进行中的 stop 与旧 driver 退出；创建**新 driver** → `driver.start()`；异常 `offline(error)` |
 | driver `onReady` | `clientRef = driver.currentClient` → `login.onReady()` → 账号校验 → `online()` → `getLogin()`（失败只 warn） |
 | driver `onExit` | `login.onExit()`（回 idle）；非主动断开且非账号不一致时 `offline()` |
 | driver `onError` | warn 日志 + `offline(error)` |
-| `stop()` | `driver.stop()` → `super.stop()` |
+| `stop()` | 递增停止序号、解除 driver 引用；`driver.stop()` → `super.stop()`；重复调用串联等待停止任务 |
 | `dispose()` | 由 Bot 基类处理（从 `ctx.bots` 移除并 stop） |
 
-`setupDriver()` 只创建一次 driver；launch 每次 spawn 由 `buildLaunch` 重新组装。driver 事件接线
-集中在 `utils/driver-events.ts`：
+每次 `start()` 都创建新 driver（不在 `stopped` 实例上复用）；launch 每次 spawn 由 `buildLaunch`
+重新组装。同一实例正常 `stop()` 后再次 `start()` 会重新 spawn 并重新 `online()`。旧 driver 的
+迟到回调由 `isCurrent` 轮次校验丢弃，不会改写新一轮状态。driver 事件接线集中在
+`utils/driver-events.ts`：
 
 | driver 事件 | 接线 |
 | :--- | :--- |
 | `onStatus` | debug 日志（引导阶段） |
 | `onLogin` | `login.onLogin(state, selfInfo, message)`；`logged_in` 且带 `selfInfo` 时再调 `handleLoggedIn()` |
 | `onQr` | `login.onQr(qr)` |
+| `onEventSubscription` | `bridge.resetMessageBaseline()` |
 | `onEvent` | debug 日志 + `bridge.handle(payload)` |
 | `onReady` | `handleReady()` |
 | `onExit` | `login.onExit()` + 非主动断开时 `offline()` |
 | `onError` | warn + `offline(error)` |
 | `onLog` | debug 日志（`[napuketto 子进程]`） |
+
+所有回调先经过 `isCurrent()` 轮次校验：Bot 在每次 start/stop 时递增轮次，旧 driver 在停止边界
+上迟到的 `onExit` / `onError` / `onReady` / 登录消息都会被丢弃。
 
 ## 动作方法
 

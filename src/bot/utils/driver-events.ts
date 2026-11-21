@@ -36,15 +36,27 @@ export interface DriverEventsHost {
     onLoggedIn?(self: NonNullable<IpcLoginPayload["selfInfo"]>): void;
     /** 下线回调（driver 崩溃/错误时置 offline）。 */
     offline: (error?: Error) => void;
+    /**
+     * 回调是否仍属于当前轮次。Bot 每次 start/stop 都递增轮次，旧 driver 在
+     * 停止边界上的迟到回调（onExit/onError/onReady 等）据此丢弃。
+     */
+    isCurrent?: () => boolean;
 }
 
 /** 组装 driver 事件回调（bot.setupDriver 注入 DriverEvents）。 */
 export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
+    const current = () => host.isCurrent?.() ?? true;
     return {
         onStatus: (status) => {
+            if (!current()) {
+                return;
+            }
             host.logger.debug("[napuketto] 引导阶段: %s", status.phase);
         },
         onLogin: (payload) => {
+            if (!current()) {
+                return;
+            }
             host.login.onLogin(payload.state, payload.selfInfo, payload.message);
             // 软重登换账号检测：logged_in 携带 selfInfo 时立即校验（初次引导
             // 也会经此早于 ready 触发一次——同账号幂等通过，见 checkIdentity）
@@ -52,9 +64,20 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
                 host.onLoggedIn?.(payload.selfInfo);
             }
         },
-        onQr: (qr) => host.login.onQr(qr),
-        onEventSubscription: () => host.bridge.resetMessageBaseline(),
+        onQr: (qr) => {
+            if (current()) {
+                host.login.onQr(qr);
+            }
+        },
+        onEventSubscription: () => {
+            if (current()) {
+                host.bridge.resetMessageBaseline();
+            }
+        },
         onEvent: (payload) => {
+            if (!current()) {
+                return;
+            }
             // 事件桥入口（debug：Group 等高频事件在 info 下不刷屏；
             // 用户配 debug 可见全量事件转发，便于排查）
             host.logger.debug(
@@ -66,9 +89,14 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
             host.bridge.handle(payload);
         },
         onReady: () => {
-            host.handleReady();
+            if (current()) {
+                host.handleReady();
+            }
         },
         onExit: () => {
+            if (!current()) {
+                return;
+            }
             host.clearClient();
             host.login.onExit();
             // 非主动停止的退出 → offline（driver 内部会重启；达上限 onError）
@@ -77,11 +105,16 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
             }
         },
         onError: (error) => {
+            if (!current()) {
+                return;
+            }
             host.logger.warn("[napuketto] 驱动错误: %o", error);
             host.offline(error instanceof Error ? error : new Error(String(error)));
         },
         onLog: (log) => {
-            host.logger.debug("[napuketto 子进程] %s", log.message);
+            if (current()) {
+                host.logger.debug("[napuketto 子进程] %s", log.message);
+            }
         },
     };
 }

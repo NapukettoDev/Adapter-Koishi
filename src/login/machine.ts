@@ -65,6 +65,16 @@ export class NapukettoLoginState implements LoginObserver {
 
     /** 子进程退出（driver.onExit）：登录状态归 idle（重启后重新登录）。 */
     onExit(): void {
+        this.reset();
+    }
+
+    /**
+     * 复位登录会话（清理二维码/账号/错误并回到 idle）。
+     *
+     * 子进程退出与 Bot 的新一轮 start 共用：旧 driver 在 stop 后不会再触发
+     * onExit（回调已过期），新一轮启动必须在 spawn 前主动清掉上一轮快照。
+     */
+    reset(): void {
         this.qr = null;
         this.self = null;
         this.lastError = null;

@@ -148,8 +148,18 @@ export class NapukettoDriver {
         return this.restartCount;
     }
 
-    /** 启动子进程（幂等：非 idle 直接忽略；spawn 异步 fire-and-forget）。 */
+    /**
+     * 启动子进程（spawn 异步 fire-and-forget）。
+     *
+     * idle 直接启动；stopped 表示上一轮已确认退出（client/host/账号所有权都已
+     * 释放），复位重启计数后开始新一轮。其余状态（含 failed 与仍在终止的实例）
+     * 一律忽略，避免与自动重启或未确认退出的旧宿主竞争。
+     */
     start(): void {
+        if (this.state === "stopped") {
+            this.restartCount = 0;
+            this.setState("idle");
+        }
         if (this.state !== "idle") {
             return;
         }

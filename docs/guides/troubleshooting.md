@@ -26,6 +26,9 @@
    - 首次启动需要下载/解包 QQ 文件，观察 `onStage` 日志确认进度。
 5. `spawn ENOENT` / 命令缺失：检查 `qqPath`、`stubDir`、`kernelEntry`、`selfHostEntry` 覆盖值是否
    指向真实存在的文件/目录。
+6. 同一 Bot 实例 stop 后重新 start 长时间停在 `CONNECT`：新一轮会先等待旧 driver 确认退出。
+   若日志出现 `EXIT_TIMEOUT`，说明旧宿主未响应 `control stop` / `SIGTERM` / `SIGKILL`，账号目录
+   仍被占用；在系统中结束该进程后再次启用插件。
 
 ## 上线但消息/指令无响应
 

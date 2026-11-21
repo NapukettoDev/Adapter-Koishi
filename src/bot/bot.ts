@@ -94,7 +94,14 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     private readonly qrOnlyRef = { current: false };
     /** 控制台登录面板（console 服务就绪后装配；自 bot.ts 拆出，login-panel.ts）。 */
     private readonly panel: NapukettoLoginPanel;
+    /** 当前轮次的 driver；每次 start 新建，stop 立即解除引用。 */
     private driver: NapukettoDriver | null = null;
+    /** 进行中的停止任务：重复 stop 串联等待，start 也等待它结束。 */
+    private stopTask: Promise<void> | null = null;
+    /** 启动轮次号：每创建一个 driver 递增，用于丢弃上一轮 driver 的迟到回调。 */
+    private round = 0;
+    /** 停止请求序号：让进行中的 start 在 stop 之后放弃创建新 driver。 */
+    private stopEpoch = 0;
     private readonly login: NapukettoLoginState;
     private readonly bridge: NapukettoEventBridge;
     private readonly dataRoot: string;
@@ -173,24 +180,83 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         });
     }
 
-    /** 启动：spawn driver（子进程引导 + 登录 + session READY）。 */
+    /**
+     * 启动：为本次启动创建全新的 driver（子进程引导 + 登录 + session READY）。
+     *
+     * 每次 start 都是一个独立轮次：即使上一轮正常 stop 后 driver 停在 stopped，
+     * Bot 也不再复用它，而是创建新实例；旧 driver 的迟到回调必须被丢弃
+     * （见 round/isCurrent）。与 stop 重叠时先等上一轮确认退出，沿用同账号
+     * 数据目录的宿主退出保护。
+     */
     override async start(): Promise<void> {
         if (this.isActive) {
             return;
         }
+        const startRound = this.round;
+        const startEpoch = this.stopEpoch;
+        const superseded = () => startRound !== this.round || startEpoch !== this.stopEpoch;
+        this.status = BOT_STATUS.CONNECT;
+        // 上一轮的登录、账号闸门与动作客户端都要在 spawn 前复位；否则错账号
+        // 留下的 identityMismatch 会让新一轮即使登录正确也永远拒绝上线。
+        this.resetSessionState();
+
+        const stopping = this.stopTask;
+        if (stopping !== null) {
+            await stopping;
+            if (superseded()) {
+                return; // 等待期间被新的 stop/start 取代
+            }
+        }
+        const previous = this.driver;
+        this.driver = null;
+        if (previous !== null) {
+            // 防御：driver 可能在离线状态下仍在退避重试（Bot.status 已 OFFLINE）。
+            // 先停止并确认退出，避免同一账号数据目录被两个宿主同时占用。
+            await previous.stop();
+            if (superseded()) {
+                return;
+            }
+        }
+        // 等待旧宿主期间可能已经被 super.stop() 置为 OFFLINE，这里重新进入 CONNECT。
         this.status = BOT_STATUS.CONNECT;
         try {
-            this.setupDriver();
-            this.driver?.start();
+            // 真正创建 driver 时才递增轮次：等待期间的 stop 不会让本轮旧 driver
+            // 的 onExit/onError 被误判为过期。
+            const round = ++this.round;
+            const driver = this.createDriver(round);
+            this.driver = driver;
+            driver.start();
         } catch (error) {
             this.offline(error instanceof Error ? error : new Error(String(error)));
         }
     }
 
-    /** 停止：停 driver（子进程优雅退出）→ 基类 offline。 */
+    /**
+     * 停止：停 driver（子进程优雅退出）→ 基类 offline。
+     *
+     * 立即递增停止序号并解除 driver 引用：进行中的 start 会在下一个等待点
+     * 放弃创建 driver。这里不递增启动轮次，本轮 driver 的 onExit/onError 仍按
+     * 原有停止语义处理（登录归 idle、EXIT_TIMEOUT 照常上报）；只有新的 start
+     * 才递增轮次并让旧 driver 的迟到回调失效。driver.stop() 保留既有的 5s
+     * 分级终止与确认退出语义，本方法不额外缩短或放宽。
+     */
     override async stop(): Promise<void> {
+        this.stopEpoch++;
         this.clientRef.current = null;
-        await Promise.all([super.stop(), this.driver?.stop()]);
+        const driver = this.driver;
+        this.driver = null;
+        const previous = this.stopTask;
+        const task = (async () => {
+            await Promise.all([previous ?? Promise.resolve(), driver?.stop(), super.stop()]);
+        })();
+        this.stopTask = task;
+        try {
+            await task;
+        } finally {
+            if (this.stopTask === task) {
+                this.stopTask = null;
+            }
+        }
     }
 
     // ── koishi 动作方法（走 internal → IPC action → kernel API） ──
@@ -344,12 +410,22 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
 
     // ── 内部 ──
 
-    /** 创建 driver（launch 工厂组装 launchSelfHost，events 接线走 driver-events.ts）。 */
-    private setupDriver(): void {
-        if (this.driver !== null) {
-            return;
-        }
-        const driver = new NapukettoDriver({
+    /**
+     * 新一轮启动前复位会话状态。
+     *
+     * 上一轮可能因账号不一致、崩溃或正常 stop 结束：clientRef 可能仍指向旧
+     * client，identityMismatch 会阻断 dispatch，登录快照会残留旧账号信息。
+     * 三者都必须清掉，新一轮的 ready 才能重新走 online/派发。
+     */
+    private resetSessionState(): void {
+        this.clientRef.current = null;
+        this.identityMismatch = false;
+        this.login.reset();
+    }
+
+    /** 为指定轮次创建 driver（launch 工厂组装 launchSelfHost，events 接线走 driver-events.ts）。 */
+    private createDriver(round: number): NapukettoDriver {
+        return new NapukettoDriver({
             accountDir: join(this.dataRoot, this.config.selfId),
             // launch 工厂：logger 接线 onStage（下载/解包/win-node/启动阶段日志，
             // 2026-08-23 起——此前首次下载 313MB 全程静默，用户以为流程没生效）
@@ -380,6 +456,8 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
                 offline: (error) => {
                     this.offline(error);
                 },
+                // 旧 driver 在 stop 完成边界上的迟到回调不得改写新一轮状态
+                isCurrent: () => round === this.round,
             }),
             // exactOptionalPropertyTypes：可选字段条件展开，不显式赋 undefined
             ...(this.config.restart !== undefined ? { restart: this.config.restart } : {}),
@@ -395,7 +473,6 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
                 );
             },
         });
-        this.driver = driver;
     }
 
     /** driver ready：登录状态就绪 + 校验账号 + 绑定客户端 + online。 */
