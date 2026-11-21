@@ -3,9 +3,10 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { adaptRawMessage } from "../adapt.js";
+import { adaptRawMessage, adaptRawMessageWithMedia } from "../adapt.js";
 import { normalizeMessageTime } from "../message-time.js";
 import { makeRawMessage as makeMsg, mockH } from "../test-utils.js";
+import { enrichReceiveVoice } from "../voice-decode.js";
 
 /** 默认适配选项（mock h）。 */
 function adaptOpts(overrides: Partial<{ selfId: string; platform: string }> = {}): {
@@ -79,6 +80,25 @@ describe("adaptRawMessage", () => {
         } finally {
             now.mockRestore();
         }
+    });
+});
+
+describe("adaptRawMessageWithMedia", () => {
+    it("QQ 语音目录未知时保留原音频路径和同条消息的文本", async () => {
+        const path = "nt_data/Ptt/a.silk";
+        const session = await adaptRawMessageWithMedia(
+            makeMsg({
+                elements: [
+                    { elementType: 4, pttElement: { filePath: path } },
+                    { elementType: 1, textElement: { content: "你好" } },
+                ],
+            }),
+            { ...adaptOpts(), enrichElements: (elements) => enrichReceiveVoice(elements) },
+        );
+        expect(session.elements).toMatchObject([
+            { type: "audio", attrs: { src: path } },
+            { type: "text", attrs: { content: "你好" } },
+        ]);
     });
 });
 
