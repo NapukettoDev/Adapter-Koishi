@@ -83,6 +83,29 @@ describe("NapukettoInternal", () => {
         });
     });
 
+    it("消息动作使用登录 UID 寻址自聊", async () => {
+        const request = vi.fn<RequestFn>(async () => ({ msgId: "self-message" }));
+        const internal = new NapukettoInternal({
+            request,
+            h,
+            getSelfIdentity: () => ({ uin: "10001", uid: "u_self" }),
+        });
+        const channel = "private:10001";
+        await expect(internal.sendMessage(channel, "发给自己")).resolves.toEqual(["self-message"]);
+        await internal.getMessageList(channel);
+        await internal.markAsRead(channel);
+        await internal.deleteMessage(channel, "self-message");
+
+        expect(request.mock.calls.map(([action, params]) => [action, params?.["peerUid"]])).toEqual(
+            [
+                ["msg.sendMessage", "u_self"],
+                ["msg.fetchMessages", "u_self"],
+                ["msg.markRead", "u_self"],
+                ["msg.recallMessage", "u_self"],
+            ],
+        );
+    });
+
     it("sendMessage：空内容 → 不请求返回 []", async () => {
         const { internal, request } = createInternal();
         const ids = await internal.sendMessage("123", "");

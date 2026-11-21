@@ -30,6 +30,16 @@ const MAX_HISTORY_LIMIT = 2 ** 31 - 3;
 export class NapukettoInternal {
     constructor(private readonly options: NapukettoInternalOptions) {}
 
+    private resolveMessagePeer(channelId: string, guildId?: string) {
+        const peer = parseChannelId(channelId, guildId);
+        const self = this.options.getSelfIdentity?.();
+        // Linux 原生 getUidByUins 可能没有自己的 UIN 记录，登录已提供同一账号的 UID。
+        if (peer.chatType === 1 && peer.peerUin === self?.uin && self.uid !== "") {
+            return { chatType: peer.chatType, peerUid: self.uid };
+        }
+        return peer;
+    }
+
     /**
      * 统一动作调用（napcat internal._request 同构；IPC 动作请求）。
      *
@@ -47,7 +57,7 @@ export class NapukettoInternal {
 
     /** 发消息：koishi 元素 → canonical →（远程媒体下载 → silk 归一化 → data URL 落盘 → 视频补全）→ msg.sendMessage。返回消息 id 数组。 */
     async sendMessage(channelId: string, content: unknown, guildId?: string): Promise<string[]> {
-        const peer = parseChannelId(channelId, guildId);
+        const peer = this.resolveMessagePeer(channelId, guildId);
         const elements = toCanonicalElements(content);
         if (elements.length === 0) {
             return []; // 空内容：不发请求
@@ -71,8 +81,7 @@ export class NapukettoInternal {
             const enriched = await enrichVideoElements(videos.elements, loggerOptions);
             cleanups.push(enriched.cleanup);
             const result = await this.options.request("msg.sendMessage", {
-                chatType: peer.chatType,
-                peerUin: peer.peerUin,
+                ...peer,
                 elements: enriched.elements,
             });
             const msgId = (result as { msgId?: string } | null | undefined)?.msgId;
@@ -86,10 +95,9 @@ export class NapukettoInternal {
 
     /** 撤回消息（messageId → msg.recallMessage）。 */
     async deleteMessage(channelId: string, messageId: string): Promise<void> {
-        const peer = parseChannelId(channelId);
+        const peer = this.resolveMessagePeer(channelId);
         await this.options.request("msg.recallMessage", {
-            chatType: peer.chatType,
-            peerUin: peer.peerUin,
+            ...peer,
             msgIds: [messageId],
         });
     }
@@ -113,7 +121,7 @@ export class NapukettoInternal {
             throw new IpcError("消息历史需要 Koishi 元素工厂", "UNSUPPORTED");
         }
 
-        const peer = parseChannelId(channelId);
+        const peer = this.resolveMessagePeer(channelId);
         const anchor = next || undefined;
         const raw = await this.options.request("msg.fetchMessages", {
             ...peer,
@@ -134,11 +142,8 @@ export class NapukettoInternal {
 
     /** 标记已读。 */
     async markAsRead(channelId: string): Promise<void> {
-        const peer = parseChannelId(channelId);
-        await this.options.request("msg.markRead", {
-            chatType: peer.chatType,
-            peerUin: peer.peerUin,
-        });
+        const peer = this.resolveMessagePeer(channelId);
+        await this.options.request("msg.markRead", { ...peer });
     }
 
     /** 群列表。 */

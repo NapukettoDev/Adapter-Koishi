@@ -14,6 +14,7 @@
  */
 import { type Context as KoishiContext, h as koishiH, type Logger, type Universal } from "koishi";
 import { NapukettoInternal } from "../../actions/index.js";
+import type { NapukettoInternalOptions } from "../../actions/types.js";
 import type { NapukettoBotConfig } from "../../config.js";
 import { bindKoishiH } from "../../events/elements.js";
 import {
@@ -161,6 +162,7 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
 export interface InternalHost {
     /** 当前 IPC 客户端（null = 子进程未就绪，request 抛错）。 */
     getClient: () => NapukettoIpcClient | null;
+    getSelfIdentity: NonNullable<NapukettoInternalOptions["getSelfIdentity"]>;
     /** 告警日志（远程媒体下载失败等；缺省静默）。 */
     logger?: { warn(message: string): void };
 }
@@ -169,6 +171,7 @@ export interface InternalHost {
 export function createInternal(host: InternalHost): NapukettoInternal {
     return new NapukettoInternal({
         h: koishiH,
+        getSelfIdentity: host.getSelfIdentity,
         request: async (action, params) => {
             const client = host.getClient();
             if (client === null) {

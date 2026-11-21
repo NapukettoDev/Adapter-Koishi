@@ -34,15 +34,17 @@ OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见
 
 | 方法 | IPC 动作 | 参数/返回 |
 | :--- | :--- | :--- |
-| `sendMessage(channelId, content, guildId?)` | `msg.sendMessage` | `{ chatType, peerUin, elements }`；返回 `string[]`（0 或 1 个 msgId） |
-| `deleteMessage(channelId, messageId)` | `msg.recallMessage` | `{ chatType, peerUin, msgIds: [messageId] }` |
-| `getMessageList(channelId, next?, direction?, limit?, order?)` | `msg.fetchMessages` | `{ chatType, peerUin, count, msgId? }`；返回 `Universal.BidiList<Universal.Message>` |
-| `markAsRead(channelId)` | `msg.markRead` | `{ chatType, peerUin }` |
+| `sendMessage(channelId, content, guildId?)` | `msg.sendMessage` | `{ chatType, peerUin 或 peerUid, elements }`；返回 `string[]`（0 或 1 个 msgId） |
+| `deleteMessage(channelId, messageId)` | `msg.recallMessage` | `{ chatType, peerUin 或 peerUid, msgIds: [messageId] }` |
+| `getMessageList(channelId, next?, direction?, limit?, order?)` | `msg.fetchMessages` | `{ chatType, peerUin 或 peerUid, count, msgId? }`；返回 `Universal.BidiList<Universal.Message>` |
+| `markAsRead(channelId)` | `msg.markRead` | `{ chatType, peerUin 或 peerUid }` |
 | `getGroupList()` | `group.getGroupList` | 群列表（子进程侧走 `groupCache.listGroupsRefreshed()`） |
 | `getFriendList()` | `friend.getFriendList` | 好友列表 |
 | `getSelf()` | `login.getSelf` | 子进程登录自身信息 |
 
 `sendMessage` 在 canonical 元素为空时直接返回 `[]`，不发请求。
+
+私聊目标是当前已登录账号时，消息动作使用登录返回的 `peerUid`，避开 Linux 自聊缺少 UIN 查找记录的情况。其他频道仍按 `peerUin` 交给 loader。
 
 ### 消息历史
 
