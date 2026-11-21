@@ -2,8 +2,37 @@
  * test-utils.ts：IPC 层测试共享设施。
  * MemoryLinePair（内存双端传输）+ captureAction（捕获对端发出的 action 请求）。
  */
+import { Writable } from "node:stream";
 import { decodeIpcMessage, type IpcMessage } from "./index.js";
 import { BaseLineTransport } from "./transport.js";
+
+/** 保留真实 Writable 的排队和 error 语义，由测试控制每次写入完成。 */
+export class ControlledWritable extends Writable {
+    readonly written: string[] = [];
+    private finishWrite: ((error?: Error | null) => void) | undefined;
+
+    constructor() {
+        super({ highWaterMark: 1 });
+    }
+
+    override _write(
+        chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+    ): void {
+        this.written.push(chunk.toString());
+        this.finishWrite = callback;
+    }
+
+    completeWrite(error?: Error): void {
+        const finish = this.finishWrite;
+        if (finish === undefined) {
+            throw new Error("没有待完成的写入");
+        }
+        this.finishWrite = undefined;
+        finish(error);
+    }
+}
 
 /** 内存双端传输：一端 write → 对端（peer）lineHandlers 立即收到。 */
 export class MemoryLinePair extends BaseLineTransport {

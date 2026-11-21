@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.47
+
+### Patch Changes
+
+- IPC stdin 不可写或异步写入失败时立即关闭通道，拒绝在途请求并记录底层错误类别。主动关闭后已提交的写入仍受错误监听保护，宿主退出和重启继续由 driver 确认。
+
 ## 0.0.46
 
 ### Patch Changes

@@ -151,6 +151,17 @@ describe("buildDriverEvents", () => {
         expect((arg as Error).message).toBe("boom");
     });
 
+    it("onIpcWriteError 将底层错误原样写入日志，交由宿主退出事件处理下线", () => {
+        const { host, logger, offline } = createHost();
+        const error = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+        buildDriverEvents(host).onIpcWriteError?.(error);
+        expect(logger.warn).toHaveBeenCalledExactlyOnceWith(
+            "[napuketto] IPC stdin 写入失败: %o",
+            error,
+        );
+        expect(offline).not.toHaveBeenCalled();
+    });
+
     it("onLog → logger.debug 带子进程消息", () => {
         const { host, logger } = createHost();
         const events = buildDriverEvents(host);
@@ -170,9 +181,11 @@ describe("buildDriverEvents", () => {
         events.onReady?.();
         events.onExit?.({ code: 1, signal: null, reason: "crash" });
         events.onError?.(new Error("late"));
+        events.onIpcWriteError?.(new Error("late write"));
         events.onLog?.({ level: "debug", message: "late" });
 
         expect(logger.debug).not.toHaveBeenCalled();
+        expect(logger.warn).not.toHaveBeenCalled();
         expect(login.onLogin).not.toHaveBeenCalled();
         expect(login.onQr).not.toHaveBeenCalled();
         expect(login.onExit).not.toHaveBeenCalled();

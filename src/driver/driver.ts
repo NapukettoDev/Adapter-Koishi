@@ -58,11 +58,6 @@ const DEFAULT_RESTART: Required<RestartPolicy> = {
     backoffFactor: 2,
 };
 
-/** 默认传输工厂（ChildProcessIpcTransport，断言收窄宽松 child 面）。 */
-const defaultTransport: TransportFactory = (child) => {
-    return new ChildProcessIpcTransport(child as ChildProcess);
-};
-
 interface HostProcess {
     child: ChildProcessLike;
     removeListeners(): void;
@@ -103,7 +98,12 @@ export class NapukettoDriver {
         this.events = options.events;
         this.launch = options.launch;
         this.accountDir = options.accountDir;
-        this.createTransport = options.createTransport ?? defaultTransport;
+        this.createTransport =
+            options.createTransport ??
+            ((child) =>
+                new ChildProcessIpcTransport(child as ChildProcess, (error) => {
+                    this.events.onIpcWriteError?.(error);
+                }));
         this.onJunkLine = options.onJunkLine;
         this.restart = {
             maxRetries: options.restart?.maxRetries ?? DEFAULT_RESTART.maxRetries,
