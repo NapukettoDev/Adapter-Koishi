@@ -41,6 +41,39 @@ function audioElement(src: string): { type: string; attrs: { src: string }; toSt
     return { type: "audio", attrs: { src }, toString: () => "[audio]" };
 }
 
+describe("Koishi 请求审批", () => {
+    it("拒绝好友请求时不写备注，拒绝群请求时转发理由", async () => {
+        const { internal, request } = createInternal(async () => ({ status: "ok", retcode: 0 }));
+        await internal.handleFriendRequest("4321", false, "拒绝");
+        await internal.handleGuildMemberRequest("90071992547409930", false, "请补充验证");
+        expect(request.mock.calls).toEqual([
+            ["set_friend_add_request", { flag: "4321", approve: false }],
+            [
+                "set_group_add_request",
+                { flag: "90071992547409930", approve: false, reason: "请补充验证" },
+            ],
+        ]);
+    });
+
+    it("空 ID、OB11 业务失败和异常信封均拒绝", async () => {
+        const { internal, request } = createInternal(async () => ({
+            status: "failed",
+            retcode: 102,
+        }));
+        await expect(internal.handleFriendRequest("", true)).rejects.toMatchObject({
+            code: "INVALID_PARAM",
+        });
+        expect(request).not.toHaveBeenCalled();
+        await expect(internal.handleGuildMemberRequest("42", false)).rejects.toMatchObject({
+            code: "102",
+        });
+        request.mockResolvedValueOnce(null);
+        await expect(internal.handleFriendRequest("43", true)).rejects.toMatchObject({
+            code: "INVALID_RESPONSE",
+        });
+    });
+});
+
 describe("NapukettoInternal", () => {
     let dir: string;
     beforeEach(() => {

@@ -99,9 +99,8 @@ export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.object({
         .default(45_000),
     ob11Actions: Schema.boolean()
         .description(
-            "OB11 动作桥（默认开）：子进程挂载全部 OneBot 11 动作" +
-                "（send_like / set_group_ban 等 79 个，经 bot.internal._request 调用）" +
-                "并透出 ob11 原始事件；关闭则只保留 kernel 动作面",
+            "OB11 动作桥（默认开）：提供 OneBot 11 动作、原始事件以及 Koishi 群成员变动和请求事件。" +
+                "关闭后仍可收发消息和接收撤回事件。",
         )
         .default(true),
     remoteMediaPolicy: Schema.union([Schema.const("compatible"), Schema.const("public-only")])

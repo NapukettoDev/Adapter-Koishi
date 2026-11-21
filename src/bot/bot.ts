@@ -214,6 +214,22 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         await this.internal.deleteMessage(_channelId, messageId);
     }
 
+    override async handleFriendRequest(
+        messageId: string,
+        approve: boolean,
+        comment?: string,
+    ): Promise<void> {
+        await this.internal.handleFriendRequest(messageId, approve, comment);
+    }
+
+    override async handleGuildMemberRequest(
+        messageId: string,
+        approve: boolean,
+        comment?: string,
+    ): Promise<void> {
+        await this.internal.handleGuildMemberRequest(messageId, approve, comment);
+    }
+
     /** 登录信息（优先本地登录快照 self；缺省走 IPC login.getSelf 兜底）。 */
     override async getLogin(): Promise<Universal.Login> {
         // 登录成功时 kernel 已推送 selfInfo（sendLogin logged_in → snapshot.self），
@@ -247,7 +263,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     /**
      * 订阅原始 OB11 事件（docs/internals/actions.md）：子进程 OB11 动作桥透出的
      * OneBot 11 格式事件（post_type = message/notice/request/meta_event），
-     * 不经 koishi session 翻译。ob11Actions=false 或子进程降级时无事件到来。
+     * 原始订阅独立于 Koishi Session 派发。ob11Actions=false 或子进程降级时无事件到来。
      */
     onOb11(listener: (event: Ob11EventPayload) => void): () => void {
         return this.bridge.onOb11(listener);
@@ -421,7 +437,9 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         // 原子预热 channel/user（docs/internals/bot.md，2026-08-09 并发竞态修复）：
         // 预热后 koishi SELECT 必命中，永远走不到 get-or-create 的并发 INSERT
         //（根因 koishijs/koishi#1545）。预热失败不阻断派发（框架兜底）。
-        await this.preheat(fields);
+        if (fields.type === "message") {
+            await this.preheat(fields);
+        }
         if (this.clientRef.current !== client) {
             return; // 预热期间子进程已退出或被替换
         }
@@ -432,6 +450,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
             selfId: fields.selfId,
             platform: fields.platform,
             timestamp: fields.timestamp,
+            ...(fields.member === undefined ? {} : { member: fields.member }),
         });
         // 可选字段赋值 + elements 特殊处理（content 由 satorijs getter 派生）——
         // 抽到 session.ts 纯函数（可单测，exactOptionalPropertyTypes 条件展开）
@@ -444,7 +463,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
             fields.channelId ?? "?",
             fields.userId ?? "?",
             fields.isDirect,
-            fields.elements?.join("") ?? "",
+            fields.type === "message" ? (fields.elements?.join("") ?? "") : "",
         );
         this.dispatch(session);
     }

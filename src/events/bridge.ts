@@ -1,16 +1,8 @@
-/**
- * bridge.ts：NapukettoEventBridge——kernel 事件 → koishi session（docs/internals/events.md）。
- *
- * 订阅 driver.onEvent（kernel 事件 { service, name, args }）→ 翻译 → dispatch。
- * 本轮实现消息事件（Msg/onRecvMsg，args 为 RawMessage[] 运行时实证）——
- * 群通知/请求类（notice/request 系列）后续轮次。
- * 2026-08-27：service="ob11"（子进程 OB11 动作桥透出的 OneBot 11 原始事件，
- * §5.14）不经 koishi session 翻译，直接分发到 onOb11 订阅者（poke 类通知
- * 未来可用；args[0] 为完整事件对象）。
- */
+/** raw IPC 和 OB11 事件到 Koishi Session 的分发入口。 */
 import type { RawMessage } from "@napuketto/kernel";
 import { adaptRawMessageWithMedia } from "./adapt.js";
 import { normalizeMessageTime } from "./message-time.js";
+import { type AdaptedEvent, adaptOb11Event, adaptRecall, findSystemTip } from "./notices.js";
 import type { EventBridge, EventBridgeOptions, Ob11EventPayload } from "./types.js";
 
 /** 消息事件名。 */
@@ -21,11 +13,14 @@ const SYSTEM_SENDER_UIN = "0";
 
 /** 兼容 QQ 服务端与宿主时钟偏差（NapukettoQQ #122）。 */
 const STARTUP_GRACE_SECONDS = 5;
+const MAX_RECENT_EVENTS = 4096;
 
 /** 事件桥（driver 事件源 → koishi dispatch）。 */
 export class NapukettoEventBridge implements EventBridge {
     private readonly options: EventBridgeOptions;
     private readonly ob11Listeners = new Set<(event: Ob11EventPayload) => void>();
+    // 软重登会重建上游 OB11 订阅。保留 Bot 的去重记录以吸收未处理请求的重放。
+    private readonly recentEvents = new Map<string, number>();
     private minMessageTime = 0;
 
     constructor(options: EventBridgeOptions) {
@@ -44,7 +39,7 @@ export class NapukettoEventBridge implements EventBridge {
             return;
         }
         if (payload.service !== "Msg" || payload.name !== MSG_RECV_EVENT) {
-            return; // 本轮只处理消息事件
+            return;
         }
         // onRecvMsg args[0] 为 RawMessage[]（批量推送，运行时实证）
         const messages = payload.args[0];
@@ -64,14 +59,45 @@ export class NapukettoEventBridge implements EventBridge {
             // 纯日志噪音，但无意义；框架侧根因见 koishijs/koishi#1545，真实消息
             // 批量到达的场景由 database 模块预热规避）。
             const timestamp = normalizeMessageTime(raw.msgTime);
-            if (
-                raw.senderUin === SYSTEM_SENDER_UIN ||
-                (timestamp !== undefined && timestamp < this.minMessageTime)
-            ) {
+            if (timestamp !== undefined && timestamp < this.minMessageTime) {
                 continue;
             }
-            this.dispatchMessage(raw);
+            const tip = findSystemTip(raw);
+            if (tip !== undefined) {
+                const recall = adaptRecall(raw, tip, this.eventContext(), timestamp);
+                if (recall !== undefined) {
+                    this.dispatchOnce(recall);
+                }
+                continue;
+            }
+            if (raw.senderUin !== SYSTEM_SENDER_UIN) {
+                this.dispatchMessage(raw);
+            }
         }
+    }
+
+    private eventContext() {
+        return {
+            selfId: this.options.selfId(),
+            platform: this.options.platform ?? "onebot",
+            h: this.options.h,
+        };
+    }
+
+    private dispatchOnce({ fields, key, expiresAt }: AdaptedEvent): void {
+        const seenUntil = this.recentEvents.get(key);
+        if (seenUntil !== undefined && seenUntil >= Date.now()) {
+            return;
+        }
+        this.recentEvents.delete(key);
+        if (this.recentEvents.size >= MAX_RECENT_EVENTS) {
+            const oldest = this.recentEvents.keys().next().value;
+            if (oldest !== undefined) {
+                this.recentEvents.delete(oldest);
+            }
+        }
+        this.recentEvents.set(key, expiresAt ?? Infinity);
+        this.options.dispatch(fields);
     }
 
     /** 单条 RawMessage → session → dispatch（含收向媒体富化，异步 fail-soft）。 */
@@ -81,9 +107,7 @@ export class NapukettoEventBridge implements EventBridge {
 
     private async adaptAndDispatch(msg: RawMessage): Promise<void> {
         const session = await adaptRawMessageWithMedia(msg, {
-            selfId: this.options.selfId(),
-            platform: this.options.platform ?? "onebot",
-            h: this.options.h,
+            ...this.eventContext(),
             ...(this.options.enrichElements !== undefined
                 ? { enrichElements: this.options.enrichElements }
                 : {}),
@@ -105,12 +129,16 @@ export class NapukettoEventBridge implements EventBridge {
             return;
         }
         const typed = event as Ob11EventPayload;
+        const adapted = adaptOb11Event(typed, this.eventContext());
         for (const listener of this.ob11Listeners) {
             try {
                 listener(typed);
             } catch {
                 // 单订阅者异常不中断其他订阅者（与 EventBroadcaster 同款容错）
             }
+        }
+        if (adapted !== undefined) {
+            this.dispatchOnce(adapted);
         }
     }
 }

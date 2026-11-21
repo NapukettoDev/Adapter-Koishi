@@ -1,5 +1,12 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.43
+
+### Patch Changes
+
+- 派发 Koishi 撤回、群成员变动、好友请求和入群请求事件。撤回使用原生消息 ID，原始 OB11 订阅照常收到事件。
+- 支持用请求 Session 的 `messageId` 直接审批好友及入群申请。关闭 OB11 动作桥时保留消息和撤回事件。
+
 ## 0.0.42
 
 ### Patch Changes

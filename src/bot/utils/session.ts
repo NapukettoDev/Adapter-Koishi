@@ -15,6 +15,7 @@ export interface SessionLike {
     platform?: string;
     timestamp?: number;
     userId?: string;
+    operatorId?: string;
     channelId?: string;
     guildId?: string;
     messageId?: string;
@@ -42,6 +43,9 @@ export function applySessionFields(session: SessionLike, fields: NapukettoSessio
     }
     if (fields.userId !== undefined) {
         session.userId = fields.userId;
+    }
+    if (fields.operatorId !== undefined) {
+        session.operatorId = fields.operatorId;
     }
     if (fields.channelId !== undefined) {
         session.channelId = fields.channelId;
