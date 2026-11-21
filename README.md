@@ -11,7 +11,7 @@
 <p>
   <a href="https://github.com/NapukettoDev/Adapter-Koishi/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/NapukettoDev/Adapter-Koishi/ci.yml?style=flat-square&label=CI" alt="CI"></a>&emsp;
   <a href="https://www.npmjs.com/package/koishi-plugin-adapter-napuketto"><img src="https://img.shields.io/npm/v/koishi-plugin-adapter-napuketto?style=flat-square&label=npm&color=cb3837" alt="npm"></a>&emsp;
-  <a href=""><img src="https://img.shields.io/badge/Koishi-%5E4.18.7-5546a3?style=flat-square" alt="Koishi"></a>&emsp;
+  <a href=""><img src="https://img.shields.io/badge/Koishi-%5E4.18.11-5546a3?style=flat-square" alt="Koishi"></a>&emsp;
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
 </p>
 </div>
