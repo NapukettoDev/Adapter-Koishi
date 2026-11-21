@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.55
+
+### Patch Changes
+
+- 控制台登录成功与失败面板使用等高的上下留白。
+
 ## 0.0.54
 
 ### Patch Changes
