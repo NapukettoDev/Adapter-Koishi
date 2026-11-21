@@ -64,7 +64,7 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
-        "@napuketto/adapter": "~0.3.2",
+        "@napuketto/adapter": "~0.18.1",
         "@napuketto/kernel": "~0.2.0",
         "@napuketto/loader": "~0.0.35",
         "@napuketto/media": "~0.0.5",
