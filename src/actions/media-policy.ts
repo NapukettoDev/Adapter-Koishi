@@ -13,10 +13,11 @@ export interface OutboundMediaPolicy {
 
 // UNC、设备路径及 ADS 即使能 stat，也不属于本地普通文件白名单。
 function isLocalPath(path: string): boolean {
+    const withoutDrivePrefix = process.platform === "win32" ? path.replace(/^[a-z]:/i, "") : path;
     return (
         !path.startsWith("//") &&
         !path.startsWith("\\\\") &&
-        !path.replace(process.platform === "win32" ? /^[a-z]:/i : /^$/, "").includes(":") &&
+        !withoutDrivePrefix.includes(":") &&
         !path.includes("\0")
     );
 }
