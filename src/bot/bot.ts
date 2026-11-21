@@ -35,6 +35,7 @@ import type {
 import { IpcError } from "../ipc/errors.js";
 import type { IpcLoginPayload, NapukettoIpcClient } from "../ipc/index.js";
 import type { NapukettoLoginState } from "../login/index.js";
+import { requireSelfId } from "../self-id.js";
 import { buildLaunch } from "./launch.js";
 import type { NapukettoLoginPanel } from "./login-panel.js";
 import { NapukettoMessageEncoder } from "./message.js";
@@ -115,15 +116,19 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     private identityMismatch = false;
 
     constructor(ctx: SatoriContext, config: NapukettoBotConfig) {
+        const selfId = requireSelfId(config.selfId);
         super(ctx, config, "onebot");
         this.dataRoot = resolveDataRoot(config.dataDir);
         // 日志等级（用户可配，默认 debug——多点日志便于排查；reggol setter 按名字
         // 写全局 Logger.levels，只影响 napuketto 及其子 namespace）
         this.logger.level = LOG_LEVEL_MAP[config.logLevel ?? "debug"];
         // selfId setter 写 user.id（satorijs defineAccessor），sid 立即可用
-        this.selfId = config.selfId;
+        this.selfId = selfId;
         this.user ??= {} as Universal.User;
-        this.user.avatar = `http://q.qlogo.cn/headimg_dl?dst_uin=${config.selfId}&spec=640`;
+        const avatar = new URL("https://q.qlogo.cn/headimg_dl");
+        avatar.searchParams.set("dst_uin", selfId);
+        avatar.searchParams.set("spec", "640");
+        this.user.avatar = avatar.href;
 
         this.login = createLoginState({
             logger: this.logger,
@@ -137,7 +142,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         // 控制台登录面板（login-panel.ts 独立类：装配/reload 去重/连接回放/
         // 指令上行全封装；deps 只暴露 selfId + 快照 + IPC 能力，bot 不碰细节）
         this.panel = createPanel({
-            selfId: this.config.selfId,
+            selfId,
             logger: this.logger,
             getLogin: () => this.login,
             // 登录指令在业务就绪前就要发给正在引导的子进程。
@@ -425,20 +430,19 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
 
     /** 为指定轮次创建 driver（launch 工厂组装 launchSelfHost，events 接线走 driver-events.ts）。 */
     private createDriver(round: number): NapukettoDriver {
+        const config = { ...this.config, dataDir: this.dataRoot };
+        const selfId = requireSelfId(config.selfId);
         return new NapukettoDriver({
-            accountDir: join(this.dataRoot, this.config.selfId),
+            accountDir: join(this.dataRoot, selfId),
             // launch 工厂：logger 接线 onStage（下载/解包/win-node/启动阶段日志，
             // 2026-08-23 起——此前首次下载 313MB 全程静默，用户以为流程没生效）
-            launch: buildLaunch(
-                { ...this.config, dataDir: this.dataRoot },
-                {
-                    onStage: (message) => {
-                        this.logger.info("[napuketto] %s", message);
-                    },
-                    // 一次性强制扫码标记（面板「扫码登录」；spawn 时消费清零）
-                    forceQr: this.qrOnlyRef,
+            launch: buildLaunch(config, {
+                onStage: (message) => {
+                    this.logger.info("[napuketto] %s", message);
                 },
-            ),
+                // 一次性强制扫码标记（面板「扫码登录」；spawn 时消费清零）
+                forceQr: this.qrOnlyRef,
+            }),
             // 事件接线（driver-events.ts 工厂：logger/login/bridge/offline 依赖注入）
             events: buildDriverEvents({
                 logger: this.logger,

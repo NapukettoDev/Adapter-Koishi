@@ -27,6 +27,7 @@ import {
 } from "@napuketto/loader";
 import type { NapukettoBotConfig } from "../config.js";
 import type { DriverLauncher } from "../driver/index.js";
+import { requireSelfId } from "../self-id.js";
 
 /**
  * 解析包入口（override 优先；否则 createRequire.resolve——CJS 产物下
@@ -103,12 +104,13 @@ export async function resolveLaunchOptions(
     config: NapukettoBotConfig,
     deps: LaunchResolvers = {},
 ): Promise<ResolvedLaunch> {
+    const selfId = requireSelfId(config.selfId);
     const dataRoot = resolveDataRoot(config.dataDir);
+    const cfgDir = join(dataRoot, selfId);
     const qq = await (deps.resolveQq ?? ((opts) => defaultResolveQq(opts, deps.onStage)))({
         qqPath: config.qqPath,
         dataRoot,
     });
-    const cfgDir = join(dataRoot, config.selfId);
     // OB11 动作桥入口（§5.14）：ob11Actions !== false 时解析 adapter/network
     // 磁盘入口传给子进程（launcher 透传 NAPUKETTO_ADAPTER_ENTRY/NAPUKETTO_NETWORK_ENTRY，
     // loader IPC 分支检测到即装配）。解析失败（依赖未装/损坏）fail-soft 降级为
@@ -152,7 +154,7 @@ export async function resolveLaunchOptions(
         ...(config.nativeMediaPatch !== undefined
             ? { nativeMediaPatch: config.nativeMediaPatch }
             : {}),
-        quickUin: config.selfId,
+        quickUin: selfId,
         selfHost: true,
         ipc: true,
         stdio: ["pipe", "pipe", "pipe"],

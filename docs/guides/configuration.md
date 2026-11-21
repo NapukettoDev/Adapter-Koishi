@@ -41,7 +41,7 @@ bots:
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `selfId` | `string` | **必填** | 登录 QQ 号。用于数据目录隔离、快速登录目标、`user.id` 与账号一致性校验 |
+| `selfId` | `string` | **必填** | 登录 QQ 号，须为 5–11 位 ASCII 数字组成的字符串。用于数据目录隔离、快速登录目标、`user.id` 与账号一致性校验 |
 | `qqPath` | `string` | 自动探测 | 指向 QQ 可执行文件，安装目录含 `versions/`。显式给出时优先使用 |
 | `stubDir` | `string` | loader 包内默认 | Windows 的 stub `QQNT.dll` 目录 |
 | `linuxStubPath` | `string` | loader 包内默认 | Linux 的 ELF stub `.so` 文件路径 |
@@ -72,13 +72,14 @@ bots:
 | 值 | 解析 |
 | :--- | :--- |
 | 数据根 `dataRoot` | `resolveDataRoot(config.dataDir)`（kernel：显式参数 > 环境变量 > 项目根 `.napuketto` > 用户目录兜底） |
-| 账号目录 `cfgDir` | `<dataRoot>/<selfId>` |
+| 账号目录（driver `accountDir`、loader `cfgDir`） | `<dataRoot>/<selfId>`，为数据根的直属子目录 |
 | 子进程 `cwd` | `dataRoot`（避免原生层把频道库等文件写进 Koishi 工作目录） |
 | 全局配置 `configPath` | `resolveConfigPath({ dataRoot })`（`NAPKETTO_CONFIG` > 项目根探测 > 数据根兜底） |
 | 子进程 `NAPUKETTO_DATA_ROOT` | 同一个 `dataRoot`，用于 Linux 的 QQ 数据及入站相对语音路径 |
 | QQ 文件（Linux） | 优先复用本机安装或数据根缓存，缺失时下载官方 Linux 包 |
 
-因此 `selfId` 不只是登录账号，也是账号数据边界。登录成其他 QQ 号会被判定为账号不一致并拒绝上线
+配置和运行时使用同一 `selfId` 格式规则。空值、空白与路径形式会在计算账号目录及探测或下载 QQ 前被拒绝。
+YAML 中请给 QQ 号加引号以保留字符串原值。登录成其他 QQ 号会被判定为账号不一致并拒绝上线
 （见 [生命周期](../architecture/lifecycle.md#就绪处理与账号一致性)）。
 
 ## QQ 安装
