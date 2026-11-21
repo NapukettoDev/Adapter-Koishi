@@ -111,6 +111,11 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
             host.logger.warn("[napuketto] 驱动错误: %o", error);
             host.offline(error instanceof Error ? error : new Error(String(error)));
         },
+        onIpcWriteError: (error) => {
+            if (current()) {
+                host.logger.warn("[napuketto] IPC stdin 写入失败: %o", error);
+            }
+        },
         onLog: (log) => {
             if (current()) {
                 host.logger.debug("[napuketto 子进程] %s", log.message);

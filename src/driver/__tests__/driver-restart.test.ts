@@ -1,10 +1,82 @@
 /**
  * driver-restart.test.ts：NapukettoDriver 重启 + 心跳失联单测。
  */
+import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { createHarness, flush } from "../test-utils.js";
+import { ControlledWritable } from "../../ipc/test-utils.js";
+import { NapukettoDriver } from "../driver.js";
+import { createHarness, FakeChild, flush } from "../test-utils.js";
+import type { DriverLauncher } from "../types.js";
 
 describe("NapukettoDriver 重启", () => {
+    it("stdin 写入失败后关闭客户端，宿主真实退出后才释放账号并安排重启", async () => {
+        vi.useFakeTimers();
+        try {
+            const stdin = new ControlledWritable();
+            const child = Object.assign(new FakeChild(), {
+                stdin,
+                stdout: new PassThrough(),
+                stderr: null,
+            });
+            const replacement = Object.assign(new FakeChild(), {
+                stdin: new PassThrough(),
+                stdout: new PassThrough(),
+                stderr: null,
+            });
+            const launch = vi.fn<DriverLauncher>(async () => ({ child: replacement }));
+            launch.mockImplementationOnce(async () => ({ child }));
+            const accountDir = "ipc-stdin-failure";
+            const onExit = vi.fn();
+            const onIpcWriteError = vi.fn();
+            const driver = new NapukettoDriver({
+                launch,
+                accountDir,
+                restart: { backoffMs: 100 },
+                events: { onExit, onIpcWriteError },
+            });
+            driver.start();
+            await flush();
+            const client = driver.currentClient;
+            if (client === null) {
+                throw new Error("IPC 通道尚未打开");
+            }
+            const pending = expect(client.request("pending")).rejects.toMatchObject({
+                code: "CLOSED",
+            });
+            const error = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+            stdin.completeWrite(error);
+            await vi.advanceTimersByTimeAsync(500);
+            await pending;
+            expect(driver.currentClient).toBeNull();
+            expect(onIpcWriteError).toHaveBeenCalledExactlyOnceWith(error);
+            expect(onExit).not.toHaveBeenCalled();
+            expect(launch).toHaveBeenCalledTimes(1);
+            expect(child.signals).toEqual([]);
+
+            const blocked = createHarness({}, { accountDir });
+            blocked.driver.start();
+            await flush();
+            expect(blocked.spawns).toHaveLength(0);
+
+            child.emitExit(1, null);
+            expect(onExit).toHaveBeenCalledExactlyOnceWith({
+                code: 1,
+                signal: null,
+                reason: "crash",
+            });
+            expect(driver.currentState).toBe("restarting");
+            await vi.advanceTimersByTimeAsync(100);
+            expect(launch).toHaveBeenCalledTimes(2);
+            expect(driver.currentClient).not.toBeNull();
+            const stopping = driver.stop();
+            replacement.emitExit(0, null);
+            await stopping;
+            replacement.stdin.destroy();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("崩溃 → 退避重启 → ready 重置计数", async () => {
         vi.useFakeTimers();
         try {

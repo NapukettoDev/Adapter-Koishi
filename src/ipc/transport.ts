@@ -6,8 +6,10 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
+import type { Writable } from "node:stream";
 import { KernelError } from "@napuketto/kernel";
 import { isNativeNoiseLine } from "@napuketto/loader";
+import { IpcError } from "./errors.js";
 import { SubscriberSet } from "./subscribers.js";
 
 /** JSON 行传输接口。 */
@@ -66,8 +68,10 @@ export abstract class BaseLineTransport implements IpcLineTransport {
 
 /** 基于 ChildProcess stdio 的传输：stdout 收行（readline），stdin 发行。 */
 export class ChildProcessIpcTransport extends BaseLineTransport {
+    private readonly stdin: Writable;
     private readonly stdoutLines: Interface;
     private readonly stderrLines: Interface | undefined;
+    private writeFailed = false;
 
     private readonly onStdoutLine = (line: string): void => {
         // 整行原生噪音静默丢弃，协议行撕裂留给客户端诊断。
@@ -86,12 +90,32 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
         this.close();
     };
 
-    constructor(private readonly child: ChildProcess) {
+    private readonly handleWriteError = (error?: Error | null): void => {
+        if (error == null || this.writeFailed) {
+            return;
+        }
+        // 同一次写入可能先调用回调，随后触发 stdin 的 error 事件。
+        this.writeFailed = true;
+        this.close();
+        this.onWriteError?.(error);
+    };
+
+    constructor(
+        private readonly child: ChildProcess,
+        private readonly onWriteError?: (error: Error) => void,
+    ) {
         super();
-        if (child.stdout === null || child.stdin === null) {
+        const { stdin, stdout } = child;
+        if (stdout === null || stdin === null) {
             throw new KernelError("子进程 stdio 未启用（需要 stdout/stdin pipe）", "INVALID_STATE");
         }
-        this.stdoutLines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+        this.stdin = stdin;
+        // IPC 可以先于 stdin 关闭，已提交的写入此后仍可能触发 error。
+        if (!stdin.closed) {
+            stdin.on("error", this.handleWriteError);
+            stdin.once("close", () => stdin.off("error", this.handleWriteError));
+        }
+        this.stdoutLines = createInterface({ input: stdout, crlfDelay: Infinity });
         this.stdoutLines.on("line", this.onStdoutLine);
         // stderr 保留宿主的原始诊断，同时过滤原生噪音。
         if (child.stderr !== null) {
@@ -105,10 +129,14 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
         if (this.closed) {
             return;
         }
-        const stdin = this.child.stdin;
-        if (stdin !== null) {
-            stdin.write(line);
+        const { stdin } = this;
+        if (!stdin.writable) {
+            this.handleWriteError(
+                stdin.errored ?? new IpcError("IPC stdin 不可写", "IPC_STDIN_UNAVAILABLE"),
+            );
+            return;
         }
+        stdin.write(line, this.handleWriteError);
     }
 
     protected override onClosed(): void {

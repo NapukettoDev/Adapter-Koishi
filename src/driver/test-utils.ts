@@ -13,8 +13,8 @@ import { MemoryLinePair } from "../ipc/test-utils.js";
 import { NapukettoDriver } from "./driver.js";
 import type { ChildProcessLike, DriverEvents } from "./types.js";
 
-/** 假子进程：可手动触发 exit（仅 createHarness 内部使用）。 */
-class FakeChild
+/** 假子进程：可手动触发 exit。 */
+export class FakeChild
     extends EventEmitter<{
         exit: [code: number | null, signal: string | null];
         error: [error: Error];

@@ -99,6 +99,8 @@ export interface DriverEvents {
     onExit?(info: { code: number | null; signal: string | null; reason: ExitReason }): void;
     /** 驱动错误（spawn 失败、重启达上限等）。 */
     onError?(error: unknown): void;
+    /** IPC stdin 写入故障诊断，进程生命周期由 driver 继续管理。 */
+    onIpcWriteError?(error: Error): void;
 }
 
 /** 退出原因。 */

@@ -79,6 +79,7 @@ interface DriverOptions {
 | `onReady` | 每轮就绪（重播的 ready 被幂等守卫忽略）；上层在此更新 client 引用并 `online()` |
 | `onExit` | 子进程确认退出或启动失败（crash / stale / stop / spawn-error） |
 | `onError` | 启动失败、引导失败、发送信号失败、无法确认退出或重试达上限 |
+| `onIpcWriteError` | 每轮首个 stdin 写入故障，记录原始错误类别 |
 
 spawn 流程：
 
@@ -164,6 +165,10 @@ spawn 流程：
 - stdout/stderr 都先经过 `isNativeNoiseLine()` 过滤 wrapper 的原生噪音；stderr 其余内容以
   `[napuketto 子进程] ` 前缀转发到父进程 stderr（保留原生宿主和 Node 原始报错）。
 - 子进程 `close` 事件触发 transport 关闭；`stdin`/`stdout` 不是 pipe 时构造直接抛错。
+- stdin 写入前不可用、已提交的写入回调报错或 stdin 发出 `error` 时，传输立即幂等关闭。
+  写入回调和 stdin 错误监听在传输提前关闭后仍处理已提交写入的错误。监听保留到 stdin 关闭，
+  首个错误通过 bot logger 记录（例如 `EPIPE`，预检没有底层错误时用 `IPC_STDIN_UNAVAILABLE`）。
+- IPC 关闭后宿主仍由 driver 持有。退出、心跳失联、停止和重启沿用 driver 的进程确认流程。
 - `BaseLineTransport` 统一订阅管理与 `close()` 幂等；`MemoryLinePair` 是测试用内存双端。
 
 **客户端**（`src/ipc/client.ts`）：
@@ -172,6 +177,7 @@ spawn 流程：
 - 成功 `result` resolve；失败 `result` reject 为 `IpcError("动作 <name> 失败: <message>", code)`
   （code 是协议边界的宽松 string，不伪造成 kernel 错误码）。
 - 超时 → `IpcError("动作超时", "TIMEOUT")`；通道关闭 → `IpcError("IPC 通道已关闭", "CLOSED")`。
+- stdin 故障关闭通道时，所有在途请求立即以 `CLOSED` 结束，`driver.currentClient` 返回 `null`。
 - 迟到响应直接忽略（pending 已清理）。
 - `on(type, handler)` 泛型收窄并返回退订函数；`result` 只用于 pending 匹配，不派发给事件订阅者。
 - 收到 `ping` 自动回 `pong` 并记录 `pingAt` / `pongAt`；任何合法消息更新 `seenAt`。
