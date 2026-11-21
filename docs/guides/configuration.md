@@ -53,7 +53,7 @@ bots:
 | `adapterEntry` | `string` | 依赖自动解析 | OB11 动作桥 adapter 入口覆盖（高级项） |
 | `networkEntry` | `string` | 依赖自动解析 | OB11 动作桥 network 入口覆盖（高级项） |
 | `heartbeatTimeoutMs` | `number` | `45000` | 子进程心跳超时（毫秒），超时判定失联并重启 |
-| `ob11Actions` | `boolean` | `true` | 是否在子进程挂载全部 OneBot 11 动作并透出 OB11 事件 |
+| `ob11Actions` | `boolean` | `true` | 是否挂载 OneBot 11 动作、原始订阅和标准成员变动 / 请求事件。消息与撤回仍通过 kernel IPC 提供 |
 | `logLevel` | `debug` \| `info` \| `error` \| `silent` | `debug` | 插件日志等级 |
 | `restart.maxRetries` | `number` | `3` | 子进程崩溃/失联最大重启次数；`0` = 不重启 |
 | `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒） |

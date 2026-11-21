@@ -33,6 +33,7 @@ const FULL_FIELDS: NapukettoSessionFields = {
     platform: "onebot",
     timestamp: 1_700_000_000_000,
     userId: "u1",
+    operatorId: "u2",
     channelId: "g1",
     guildId: "g1",
     messageId: "m1",
@@ -65,14 +66,15 @@ describe("applySessionFields", () => {
         expect(session).toMatchObject({
             subtype: "group",
             userId: "u1",
+            operatorId: "u2",
             channelId: "g1",
             guildId: "g1",
             messageId: "m1",
             isDirect: false,
             elements: FULL_FIELDS.elements,
         });
-        // 必填 4 + 可选 7（subtype/userId/channelId/guildId/messageId/isDirect/elements）
-        expect(setKeys).toHaveLength(11);
+        // 必填 4 + 可选 8
+        expect(setKeys).toHaveLength(12);
         expect(setKeys).not.toContain("content");
     });
 

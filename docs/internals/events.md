@@ -1,6 +1,6 @@
 # 事件桥：QQ → Koishi
 
-收方向链路把子进程转发出来的 kernel 事件翻译成 koishi session，并交给 `bot.dispatch()`。
+收方向链路把子进程转发的 kernel 和 OneBot 11 事件翻译成 Koishi Session，并交给 `bot.dispatch()`。
 发送方向见 [动作桥](actions.md)。
 
 ```
@@ -8,18 +8,19 @@
   └─ driver.onEvent → NapukettoEventBridge.handle(payload)
        ├─ service === "Msg" && name === "onRecvMsg"
        │    └─ args[0] = RawMessage | RawMessage[]
-       │         → 过滤系统占位消息和启动前历史积压
+       │         → 过滤启动前历史积压并分流撤回、成员变动和戳一戳灰条
+       │         → 过滤系统占位消息
        │         → adaptRawMessageWithMedia()
        │              ├─ kernel toCanonicalElements()
        │              ├─ 收向媒体富化（语音 silk → WAV，可失败透传）
        │              └─ toKoishiElements()
        │         → bot.dispatchSession(fields)
-       │              → 预热 channel/user → Bot.session() → applySessionFields → dispatch
+       │              → 消息预热 channel/user → Bot.session() → applySessionFields → dispatch
        └─ service === "ob11"
-            └─ args[0] → 分发给 bot.onOb11() 订阅者（不转 session）
+            └─ args[0] → 成员变动和请求转换，同时保留 bot.onOb11() 原始订阅
 ```
 
-涉及代码：`src/events/bridge.ts`、`adapt.ts`、`elements.ts`、`voice-decode.ts`、`types.ts`；
+涉及代码：`src/events/bridge.ts`、`adapt.ts`、`notices.ts`、`elements.ts`、`voice-decode.ts`、`types.ts`；
 `src/bot/bot.ts` 的 `dispatchSession()` 与 `src/bot/utils/session.ts`。
 
 ## kernel 事件入口
@@ -28,9 +29,10 @@
 
 1. `service === "Msg"` 且 `name === "onRecvMsg"`：`args[0]` 是 `RawMessage` 或 `RawMessage[]`
    （QQ 会批量推送）。逐条处理，非对象条目跳过。
-2. `service === "ob11"`：`args[0]` 是 OneBot 11 原始事件对象，直接交给订阅者。
+2. `service === "ob11"`：`args[0]` 是 OneBot 11 原始事件对象，成员变动和请求可以生成标准事件。
+   原始对象仍交给 `onOb11` 订阅者。
 
-其余 service/name 一律忽略（当前不翻译群通知、加群/好友请求等）。
+其他 service/name 由子进程透传，适配器不转换。
 
 **系统占位消息过滤**：`senderUin === "0"` 的消息跳过。QQ 在群通知等场景会把无内容的占位消息混在
 批量推送里；派发它们只会让 koishi 对无价值消息创建 channel，并放大并发落库竞态。
@@ -83,15 +85,15 @@ koishi 运行时。
 
 `dispatchSession(fields)` 不是直接给 session 赋所有字段，而是：
 
-1. `bot.session({ type, subtype?, selfId, platform, timestamp })` 创建 session。
+1. `bot.session({ type, subtype?, selfId, platform, timestamp, member? })` 创建 session。
 2. `applySessionFields(session, fields)`：必填字段直接赋；可选字段（`subtype` / `userId` /
-   `channelId` / `guildId` / `messageId` / `isDirect`）只在有值时赋值，遵守
+   `channelId` / `guildId` / `messageId` / `operatorId` / `isDirect`）只在有值时赋值，遵守
    `exactOptionalPropertyTypes`。
 3. **只赋 `elements`，绝不赋 `content`**。satorijs 的 `content` 是 getter
    （`elements.join("")` 派生），而 setter 会用 `h.parse(value)` 覆盖 `elements`：结构化元素会丢失，
    内容含特殊字符时 `h.parse` 还可能抛错导致 dispatch 失败。
-4. 先做 channel/user 预热（见 [Bot 集成的数据库预热](bot.md#数据库预热)），失败不阻断派发。
-5. 输出一条 info 级 dispatch 日志（type/self/channel/user/isDirect/渲染文本），再 `this.dispatch(session)`。
+4. 普通消息先做 channel/user 预热（见 [Bot 集成的数据库预热](bot.md#数据库预热)），失败不阻断派发。
+5. 输出 info 级 dispatch 日志，再 `this.dispatch(session)`。只有普通消息的日志包含渲染文本。
 
 `isDirect` 必须设置：它驱动 `event.channel.type`（DIRECT/TEXT）；不设置时私聊会被当群聊路由。
 
@@ -113,8 +115,7 @@ koishi 运行时。
 ## OB11 原始事件
 
 子进程 OB11 动作桥装配成功时，事件以 `{ service: "ob11", name: <post_type>, args: [event] }`
-透出。`NapukettoEventBridge` 把它们分发给 `onOb11` 订阅者（`bot.onOb11(listener)`），
-**不翻译成 koishi session**：
+透出。`NapukettoEventBridge` 将收到的原始事件交给 `bot.onOb11(listener)`，原始回调仍逐条触发。
 
 ```ts
 const off = bot.onOb11((event) => {
@@ -126,10 +127,28 @@ const off = bot.onOb11((event) => {
 - 单个订阅者抛错不影响其他订阅者。
 - `ob11Actions: false`、入口解析失败或子进程降级时，不会有这类事件。
 
-## 当前不翻译的事件
+## 标准通知与请求
 
-- 群通知（成员增减、禁言、撤回通知等）→ 不会产生 koishi `notice`。
-- 加群 / 加好友请求 → 不会产生 koishi `request`。
-- 消息撤回 / 已读等状态事件 → 不派发。
+| Koishi 事件 | 输入 | `userId` | `channelId` / `guildId` | `messageId` | `ob11Actions: false` |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `message-deleted` | raw `Msg/onRecvMsg` 的撤回灰条 | 原消息发送者 QQ 号 | 群号 / 群号，或 `private:<对端 QQ 号>` | 原生 `msgId` | 可用 |
+| `guild-member-added` / `guild-member-removed` | OB11 `group_increase` / `group_decrease` | 加入或退出的成员 QQ 号 | 群号 / 群号 | 无 | 不可用 |
+| `guild-added` / `guild-removed` | 上述通知的目标是登录账号 | 登录账号 QQ 号 | 群号 / 群号 | 无 | 不可用 |
+| `friend-request` | OB11 `request_type=friend` | 申请人 QQ 号 | `private:<申请人 QQ 号>` | `flag`（`BuddyReq.reqTime`） | 不可用 |
+| `guild-member-request` | OB11 `request_type=group`、`sub_type=add` | 申请人 QQ 号 | 群号 / 群号 | `flag`（`GroupNotify.seq`） | 不可用 |
 
-需要这些信息时，通过 OB11 事件面或 `bot.internal._request()` 直接调用对应动作。
+- 撤回使用 raw `msgId`，与实时消息和历史消息共享 ID。OB11 撤回的 `message_id` 是 `msgSeq`，
+  继续交给原始订阅者。私聊使用对端 QQ 号定位频道，包括机器人自己撤回的情况。
+  只能依据 raw 载荷确认操作者 QQ 号时才填写 `operatorId`，无法确认时省略。缺少原消息发送者、
+  频道或原生消息 ID 时跳过。
+- 群成员变动使用 OB11 已回填为 QQ 号的 `operator_id`。零值和无效 QQ 号视为缺失。
+  成员相关 Session 同时携带 `event.member.user.id`。Koishi 4.18.11 同时会分发 `guild-member-deleted` 和 `guild-deleted` 旧别名。
+- 请求留言使用文本元素承载，缺失时使用空串。将 `session.messageId` 原样传给
+  [审批方法](actions.md#审批好友与入群申请)。缺必要 ID 的事件只留在适用的原始入口。
+  OB11 的 `invite` 混合机器人受邀和需管理员批准的成员邀请，继续由原始订阅消费。
+- 每类标准事件只从一个入口产生。同一 Bot 的有界去重记录跨软重登保留。撤回按频道和原生消息 ID，
+  成员变动按事件类型、群号、成员及上游时间，请求按类型、申请人、群号（如有）和 flag。
+  标准去重不影响原始订阅。调用 `onOb11` 返回的函数可随时退订，进程更换无需重新注册。
+- 戳一戳针对用户，没有消息 ID，仅通过原始 OB11 订阅提供（桥装配成功时）。表情回应的 raw `732:16`
+  载荷包含群号、消息序号和表情，但缺可用的实际操作者。当前发布的 OB11 仅声明 `msg_emoji_like`，
+  没有该通知的接线。因此这两类载荷均不产生 Koishi `reaction-added` 或 `reaction-removed`。

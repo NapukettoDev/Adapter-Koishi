@@ -5,6 +5,7 @@
  * Bot.session(event) 完成（apply() 层注入 dispatch 回调），本层只产字段。
  */
 import type { CanonicalElement } from "@napuketto/kernel";
+import type { Universal } from "koishi";
 import type { IpcEventPayload } from "../ipc/index.js";
 import type { HFn } from "./elements.js";
 
@@ -17,6 +18,8 @@ export interface NapukettoSessionFields {
     platform: string;
     timestamp: number;
     userId?: string;
+    operatorId?: string;
+    member?: Universal.GuildMember;
     channelId?: string;
     guildId?: string;
     messageId?: string;

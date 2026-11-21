@@ -8,6 +8,7 @@
  * koishi 主包不 import（单测崩溃，docs/guides/development.md 单测边界）：方法签名用宽松结构，
  * bot.ts（§6 第 6 步）挂载时与 koishi Internal 类型适配。
  */
+import { isRecord } from "@napuketto/kernel";
 import type { Universal } from "koishi";
 import { IpcError } from "../ipc/errors.js";
 import { parseChannelId } from "./channel.js";
@@ -76,6 +77,45 @@ export class NapukettoInternal {
             ...peer,
             msgIds: [messageId],
         });
+    }
+
+    async handleFriendRequest(
+        messageId: string,
+        approve: boolean,
+        comment?: string,
+    ): Promise<void> {
+        await this.approveOb11Request("set_friend_add_request", {
+            flag: messageId,
+            approve,
+            ...(approve && comment !== undefined ? { remark: comment } : {}),
+        });
+    }
+
+    async handleGuildMemberRequest(
+        messageId: string,
+        approve: boolean,
+        comment?: string,
+    ): Promise<void> {
+        await this.approveOb11Request("set_group_add_request", {
+            flag: messageId,
+            approve,
+            ...(comment === undefined ? {} : { reason: comment }),
+        });
+    }
+
+    private async approveOb11Request(
+        action: string,
+        params: { flag: string; approve: boolean; remark?: string; reason?: string },
+    ): Promise<void> {
+        if (params.flag.trim() === "") {
+            throw new IpcError("审批需要请求事件的 messageId", "INVALID_PARAM");
+        }
+        const response = await this._request(action, params);
+        const retcode = isRecord(response) ? response["retcode"] : undefined;
+        if (retcode !== 0) {
+            const code = typeof retcode === "number" ? String(retcode) : "INVALID_RESPONSE";
+            throw new IpcError(`OB11 审批失败（${action}, ${code}）`, code);
+        }
     }
 
     /** 拉取比锚点更早的消息；排序只影响单页显示。 */

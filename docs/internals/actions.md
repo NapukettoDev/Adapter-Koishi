@@ -153,4 +153,12 @@ kernel 动作面（launch 已就绪）：
 
 **事件**：`bot.onOb11(listener)`（见 [事件桥](events.md#ob11-原始事件)）。
 
+## 审批好友与入群申请
+
+`bot.handleFriendRequest(messageId, approve, comment?)` 和
+`bot.handleGuildMemberRequest(messageId, approve, comment?)` 消费对应请求 Session 的 `messageId`。
+适配器将它作为 OB11 `flag` 原样传给 `set_friend_add_request` 或 `set_group_add_request`。
+同意好友请求时，`comment` 用作好友备注，拒绝时省略备注。群申请的 `comment` 作为审批说明传递。
+这两个方法依赖 OB11 动作桥，子进程返回失败时方法会拒绝 Promise。
+
 **明确不支持**：Satori 动作面、`session.onebot.*` 驼峰兼容糖、网络传输与心跳/生命周期广播。

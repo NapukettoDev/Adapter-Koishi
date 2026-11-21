@@ -89,6 +89,8 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 | `createDirectChannel(userId)` | `{ id: "private:<userId>", type: 1, name: userId }` |
 | `getMessageList(channelId, next?, dir?, limit?)` | `internal.getMessageList` → `{ data, next? }` |
 | `deleteMessage(channelId, messageId)` | `internal.deleteMessage` |
+| `handleFriendRequest(messageId, approve, comment?)` | OB11 `set_friend_add_request` |
+| `handleGuildMemberRequest(messageId, approve, comment?)` | OB11 `set_group_add_request` |
 | `getLogin()` | 优先登录快照 `self`（同步 user、`selfId`）；否则 `internal.getSelf()` 兜底 |
 | `getFriendList()` | `internal.getFriendList()` → `Universal.Friend` 列表 |
 | `getGuildList()` | `internal.getGroupList()` → `Universal.Guild` 列表 |
@@ -98,17 +100,17 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 形状转换集中在 `utils/transform.ts`（纯函数）：`toFriendList` / `toGuildList` /
 `toDirectChannel` / `toTextChannel` / `toUserFields`。
 
-`onOb11(listener)` 转发到事件桥的 OB11 订阅（返回退订函数），不经过 koishi session。
+`onOb11(listener)` 订阅 OB11 原始载荷并返回退订函数，独立于 [Koishi 事件转换](events.md#标准通知与请求)。
 
 ## dispatch 链路
 
-kernel 消息 → 事件桥产出 `NapukettoSessionFields` → `dispatchSession(fields)`：
+kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `dispatchSession(fields)`：
 
 1. `identityMismatch` 为真 → 直接丢弃（不得用错账号落库）。
-2. `preheat(fields)`：按需预热 channel / user（见下节），失败不阻断。
-3. `this.session({ type, subtype?, selfId, platform, timestamp })`。
+2. 普通消息按需调用 `preheat(fields)` 预热 channel / user（见下节），失败不阻断。
+3. `this.session({ type, subtype?, selfId, platform, timestamp, member? })`。
 4. `applySessionFields(session, fields)`（见 [事件桥](events.md#session-写入规则)）。
-5. 输出 info 日志（type/self/channel/user/isDirect/渲染文本）。
+5. 输出 info 日志。只有普通消息记录渲染文本。
 6. `this.dispatch(session)`。
 
 ## 数据库预热

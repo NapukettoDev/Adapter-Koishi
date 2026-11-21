@@ -20,8 +20,8 @@
 （CJS 产物）+ Vue 3（控制台前端）+ Biome / ESLint / Vitest；MIT，包名
 `koishi-plugin-adapter-napuketto`（单包，无 changesets，版本号在 PR 中手工 bump）。
 
-能力边界：只翻译消息事件（`Msg/onRecvMsg`）；群通知、加好友请求不变成 koishi 的
-`notice` / `request`，需要时用 `bot.onOb11()` 订阅原始 OneBot 11 事件。收方向支持
+能力边界：翻译消息、撤回、群成员变动、好友与入群申请。成员变动和请求依赖 OB11 动作桥，
+`bot.onOb11()` 保留原始订阅。支持的载荷与字段见 `docs/internals/events.md`。消息收方向支持
 `text` / `at` / `image` / `face` / `voice` / `reply`，发方向额外支持 `video`；不提供 Satori 动作面，
 不提供 `session.onebot.*` 驼峰兼容糖。
 
@@ -50,8 +50,8 @@
 7. **测试边界**：单测**不加载 koishi 运行时**（会初始化 loader 并直接崩溃）。可测逻辑必须是纯函数 /
    依赖注入；`bot.ts`、`message.ts`、`login-panel.ts`、`assembly.ts`、`config.ts`、`console/provider.ts`、
    `index.ts` 不进单测（见 `docs/guides/development.md#测试边界`）。
-8. **范围禁区**：不引入 changesets；不做本地 `npm publish`；不新增 Satori 动作面；不把群通知 /
-   请求事件硬翻成 koishi `notice` / `request`；不为扩展协议去改 `@napuketto/network` / `kernel` 行为。
+8. **范围禁区**：不引入 changesets；不做本地 `npm publish`；不新增 Satori 动作面；事件转换须有
+   上游载荷与 Koishi 契约依据；不为扩展协议去改 `@napuketto/network` / `kernel` 行为。
 
 ## 代码风格与红线
 

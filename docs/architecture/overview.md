@@ -131,8 +131,8 @@ client/                      控制台前端（由本仓 vite.config.client.ts �
 
 ## 能力边界
 
-- Koishi 侧只翻译**消息事件**（`Msg/onRecvMsg`）。群通知、加群/加好友请求不会变成 koishi 的
-  `notice` / `request` 事件；需要原始 OneBot 11 事件时用 `bot.onOb11()` 订阅（默认开启 OB11 动作桥）。
+- Koishi 侧翻译消息、撤回、群成员变动和好友 / 入群申请。成员变动和申请依赖默认启用的 OB11 动作桥。
+  原始事件可用 `bot.onOb11()` 订阅。字段和降级规则见 [事件桥](../internals/events.md)。
 - 消息元素在收方向支持 `text` / `at` / `image` / `face` / `voice` / `reply`，发送方向额外支持
   `video`（补缩略图/宽高/时长）。其他类型（file、forward、json、xml、unknown）在收方向降级为
   `[type]` 占位文本。
