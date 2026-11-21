@@ -36,7 +36,7 @@
 | 事件名 | 前端动作 | bot 层行为 |
 | :--- | :--- | :--- |
 | `napuketto-login-<uin>/relogin` | 重新登录 | 按登录状态走 `control login` 或 `control restart` |
-| `napuketto-login-<uin>/qr-login` | 扫码登录 | 登录期 `control login qr=true`；否则一次性 `qrOnly` + 重启 |
+| `napuketto-login-<uin>/qr-login` | 扫码登录 | 登录期或已登录时走 `control login qr=true`；失败态或连接不可用时改走一次性扫码启动 |
 | `napuketto-login-<uin>/refresh-qr` | 刷新二维码 | IPC 动作 `login.refreshQr`（不重启子进程） |
 
 **日志必须注入 bot logger，不能用 provider 自己的 ctx logger**：DataService 构造会把 fork ctx 的
@@ -77,9 +77,13 @@ interface LoginPanelPayload {
 
 `push()` 在 provider 尚未装配时只打 debug 日志并跳过；装配后 `snapshot → payload → update`。
 
-重登/扫码决策见 [生命周期](../architecture/lifecycle.md#重新登录与强制扫码)：
-`planRelogin()` 根据当前状态选择 `control login`（原地/软重登）或 `control restart`；
-`forceQrRestart()` 置一次性 `qrOnly` 标记并重启子进程，下次 spawn 注入 `NAPUTO_QR_ONLY=1`。
+面板每次操作都读取 driver 当前仍打开的 IPC 连接，引导期即可刷新二维码和发送登录指令。
+业务动作和消息派发继续使用 ready 后按账号一致性校验绑定的连接。子进程替换时，面板随 driver 切换连接。
+
+`planRelogin()` 根据当前登录状态选择原地重登、软重登或重启。需要重启才能扫码时，
+`forceQrRestart()` 先置一次性 `qrOnly` 标记，再通过当前连接发送 `control restart`。
+当前没有连接时，刷新和普通重登记录告警，强制扫码保留标记并告警。下次 spawn 消费标记并注入
+`NAPUTO_QR_ONLY=1`。状态与指令对应关系见 [生命周期](../architecture/lifecycle.md#重新登录与强制扫码)。
 
 ## 前端入口与 403 防护
 

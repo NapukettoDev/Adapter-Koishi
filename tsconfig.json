@@ -17,7 +17,6 @@
         /* 语法与转译安全 */
         "verbatimModuleSyntax": true,
         "isolatedModules": true,
-        "erasableSyntaxOnly": true,
         /* 类型严格度 */
         "strict": true,
         "exactOptionalPropertyTypes": true,
