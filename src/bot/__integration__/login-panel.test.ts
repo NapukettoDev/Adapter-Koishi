@@ -143,7 +143,6 @@ class IpcChild extends EventEmitter {
 
 function createConsole() {
     const entries = new Set<object>();
-    const rootEffects = new Set<() => void>();
     const addEntry = (effects: Set<() => void>) => {
         const entry = {
             dispose() {
@@ -155,12 +154,23 @@ function createConsole() {
         effects.add(entry.dispose);
         return entry;
     };
+    const addSharedEntry = vi.fn(addEntry);
     const root = {
-        console: { entries, addEntry: vi.fn(() => addEntry(rootEffects)) },
+        inject(_services: string[], setup: (owner: unknown) => void) {
+            const effects = new Set<() => void>();
+            setup({ console: { addEntry: () => addSharedEntry(effects) } });
+            return {
+                dispose() {
+                    for (const dispose of effects) {
+                        dispose();
+                    }
+                },
+            };
+        },
         get: vi.fn(),
         set: () => vi.fn(),
     };
-    return { root, entries, addEntry };
+    return { root, entries, addEntry, addSharedEntry };
 }
 
 function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
@@ -265,7 +275,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(first.bot.online).toHaveBeenCalledOnce();
         expect(second.bot.online).toHaveBeenCalledOnce();
         expect(shared.entries.size).toBe(1);
-        expect(shared.root.console.addEntry).toHaveBeenCalledOnce();
+        expect(shared.addSharedEntry).toHaveBeenCalledOnce();
 
         const stopFirst = first.dispose();
         expect(shared.entries.size).toBe(1);
@@ -284,7 +294,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(launch).toHaveBeenCalledTimes(2);
         expect(shared.entries.size).toBe(1);
-        expect(shared.root.console.addEntry).toHaveBeenCalledTimes(2);
+        expect(shared.addSharedEntry).toHaveBeenCalledTimes(2);
         secondChild.emit("exit", 0, null);
         await Promise.all([stopSecond, starting]);
         await vi.advanceTimersByTimeAsync(0);

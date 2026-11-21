@@ -98,7 +98,8 @@ interface LoginPanelPayload {
    - portal/本地路径/桌面端等非标准安装 → 把 `index.js` / `index.css` 复制到
      `<baseDir>/data/napuketto-console/node_modules/koishi-plugin-adapter-napuketto/dist`，
      addEntry 指向复制产物。按 size/mtime 比较，未变化不重复写盘。
-3. 在 Koishi 根作用域调用 `addEntry({ dev: <root>/client/index.ts, prod })`，让入口独立于任一 Bot。
+3. 从 Koishi 根作用域创建一个依赖 `console` 的注入作用域，在其中调用
+   `addEntry({ dev: <root>/client/index.ts, prod })`。入口独立于任一 Bot，并在 console 服务卸载前销毁。
 4. 每个 console 的入口由其活跃 Bot 共享。Bot 的注入作用域销毁时释放一次引用，最后一个 Bot 释放时
    销毁入口。重新启用后重新注册，不同 console 服务各自管理自己的入口。
 

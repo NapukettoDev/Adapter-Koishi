@@ -115,12 +115,14 @@ function addConsoleEntry(ctx: Context): SharedEntry {
         resolve(root, "client/index.ts"),
         prod,
     );
-    // addEntry 通过调用作用域注册 dispose，入口需独立于首个 Bot。
-    const entry = ctx.root.console.addEntry({
-        dev: resolve(root, "client/index.ts"),
-        prod,
+    // 入口独立于 Bot。注入作用域先于 console 服务卸载，确保 dispose 仍可访问服务。
+    const scope = ctx.root.inject(["console"], (owner) => {
+        owner.console.addEntry({
+            dev: resolve(root, "client/index.ts"),
+            prod,
+        });
     });
-    return { users: 0, dispose: () => entry.dispose() };
+    return { users: 0, dispose: () => scope.dispose() };
 }
 
 export function registerConsoleEntry(ctx: Context): void {
