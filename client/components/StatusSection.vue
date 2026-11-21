@@ -21,7 +21,7 @@
   </div>
 
   <!-- logged_in：登录成功 -->
-  <div v-else-if="state === 'logged_in'" class="status-block">
+  <div v-else-if="state === 'logged_in'" class="status-block status-block--success">
     <p class="status-title">{{ message || '登录成功' }}</p>
     <p v-if="self" class="account">
       <k-icon name="user" />
@@ -108,6 +108,10 @@ const emit = defineEmits<{
       color: var(--k-text-light);
     }
   }
+}
+
+.status-block--success {
+  padding-bottom: 0.5rem;
 }
 
 .relogin-button {
