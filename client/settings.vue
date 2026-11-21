@@ -202,10 +202,20 @@ function refreshQr(): void {
   }, 3000);
 }
 
+/** 二维码外链只允许 http/https（后端已过滤，前端再兜底一次）。 */
+function isSafeExternalUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /** 新窗口打开登录链接（无法扫码时兜底）。 */
 function openQrUrl(): void {
   const url = data.value?.qr?.qrcodeUrl;
-  if (url) {
+  if (url && isSafeExternalUrl(url)) {
     window.open(url, '_blank', 'noopener');
   }
 }
