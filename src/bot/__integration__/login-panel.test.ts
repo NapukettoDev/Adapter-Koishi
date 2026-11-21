@@ -70,14 +70,20 @@ vi.mock("@koishijs/plugin-console", () => {
         options: { authority?: number; immediate?: boolean } | undefined;
 
         constructor(
-            _ctx: unknown,
-            _key: string,
+            private readonly ctx: { console: { broadcast: TestBroadcast } },
+            private readonly key: string,
             options?: { authority?: number; immediate?: boolean },
         ) {
             this.options = options;
         }
 
-        async refresh(): Promise<void> {}
+        async get(_forced: boolean, _client: TestConsoleClient): Promise<LoginPanelPayload> {
+            throw new Error("mock DataService 需要子类实现 get()");
+        }
+
+        async refresh(): Promise<void> {
+            await this.ctx.console.broadcast(this.key, (client) => this.get(true, client));
+        }
     }
     return {
         // biome-ignore lint/style/useNamingConvention: 与控制台导出名一致
@@ -180,9 +186,25 @@ class IpcChild extends EventEmitter {
     }
 }
 
+type TestBroadcast = (
+    key: string,
+    get: (client: TestConsoleClient) => Promise<LoginPanelPayload>,
+) => Promise<void>;
+
 function createConsole() {
     const entries = new Set<object>();
-    const services = new Map<string, unknown>();
+    const services = new Map<string, TestLoginProvider>();
+    const listeners: Record<string, TestConsoleListener> = {};
+    const connections = new Set<() => void>();
+    const clients = new Set<TestConsoleClient>();
+    const pushed: LoginPanelPayload[] = [];
+    const broadcast: TestBroadcast = async (_key, get) => {
+        await Promise.all(
+            Array.from(clients, async (client) => {
+                pushed.push(await get(client));
+            }),
+        );
+    };
     const addEntry = (effects: Set<() => void>) => {
         const entry = {
             dispose() {
@@ -195,25 +217,92 @@ function createConsole() {
         return entry;
     };
     const addSharedEntry = vi.fn(addEntry);
+    function createScope(effects: Set<() => void>) {
+        const on = (event: string, callback: () => void) => {
+            if (event === "dispose") {
+                effects.add(callback);
+                return () => effects.delete(callback);
+            }
+            expect(event).toBe("console/connection");
+            connections.add(callback);
+            const off = () => {
+                connections.delete(callback);
+                effects.delete(off);
+            };
+            effects.add(off);
+            return off;
+        };
+        return {
+            on,
+            console: {
+                entries,
+                listeners,
+                broadcast,
+                ctx: { on },
+                addEntry: () => addSharedEntry(effects),
+                addListener: (
+                    name: string,
+                    callback: TestConsoleListener["callback"],
+                    options?: TestConsoleListener["options"],
+                ) => {
+                    // Console 的监听器表共享，注册本身不会创建作用域清理。
+                    listeners[name] = { callback, options };
+                },
+            },
+        };
+    }
     const root = {
         inject(_services: string[], setup: (owner: unknown) => void) {
             const effects = new Set<() => void>();
-            setup({ console: { addEntry: () => addSharedEntry(effects) } });
+            setup({ ...createScope(effects), set: this.set.bind(this, effects) });
             return {
                 dispose() {
                     for (const dispose of effects) {
                         dispose();
                     }
+                    effects.clear();
                 },
             };
         },
         get: (name: string) => services.get(name),
-        set: (name: string, value: unknown) => {
+        set: (effects: Set<() => void>, name: string, value: TestLoginProvider) => {
+            if (services.has(name)) {
+                throw new Error(`service ${name} has been registered`);
+            }
             services.set(name, value);
-            return () => services.delete(name);
+            const dispose = () => {
+                services.delete(name);
+                effects.delete(dispose);
+            };
+            effects.add(dispose);
+            return dispose;
         },
     };
-    return { root, entries, services, addEntry, addSharedEntry };
+    return {
+        root: {
+            ...root,
+            set: root.set.bind(root, new Set()),
+            inject: root.inject.bind(root),
+        },
+        entries,
+        services,
+        listeners,
+        connections,
+        pushed,
+        createScope,
+        addSharedEntry,
+        connect(client: TestConsoleClient = {}) {
+            // Client.refresh() 发起拉取后，Console.accept() 再登记客户端并发出连接事件。
+            const pulled = Promise.all(
+                Array.from(services.values(), (provider) => provider.get(false, client)),
+            );
+            clients.add(client);
+            for (const replay of connections) {
+                replay();
+            }
+            return pulled;
+        },
+    };
 }
 
 /** 集成测试侧的最小 client 形状：auth 由 @koishijs/plugin-auth 注入。 */
@@ -228,36 +317,21 @@ interface TestLoginProvider {
 }
 
 interface TestConsoleListener {
-    readonly handler: (this: TestConsoleClient, data: { selfId: string }) => void;
+    readonly callback: (this: TestConsoleClient, data: { selfId: string }) => void;
     readonly options: { authority?: number } | undefined;
 }
 
 function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), level: 0 };
-    const listeners = new Map<string, TestConsoleListener>();
     const effects = new Set<() => void>();
     const ctx = {
+        ...consoleHost.createScope(effects),
         baseDir,
         config: { autoAssign: false, autoAuthorize: 0 },
         inject(_services: string[], setup: (fork: unknown) => void) {
             setup(this);
         },
         root: consoleHost.root,
-        console: {
-            entries: consoleHost.entries,
-            addEntry: () => consoleHost.addEntry(effects),
-            addListener: (
-                name: string,
-                handler: (this: TestConsoleClient, data: { selfId: string }) => void,
-                options?: { authority?: number },
-            ) => listeners.set(name, { handler, options }),
-            ctx: { on: () => vi.fn() },
-        },
-        on: (event: string, dispose: () => void) => {
-            if (event === "dispose") {
-                effects.add(dispose);
-            }
-        },
         logger,
     };
     const bot = new NapukettoBot(ctx as unknown as ConstructorParameters<typeof NapukettoBot>[0], {
@@ -270,9 +344,9 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
         bot,
         logger,
         serviceName,
-        provider: consoleHost.services.get(serviceName) as TestLoginProvider | undefined,
+        provider: consoleHost.services.get(serviceName),
         listener(action: "refresh-qr" | "relogin" | "qr-login"): TestConsoleListener | undefined {
-            return listeners.get(`napuketto-login-${selfId}/${action}`);
+            return consoleHost.listeners[`napuketto-login-${selfId}/${action}`];
         },
         dispose() {
             for (const dispose of effects) {
@@ -282,11 +356,11 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
             return bot.stop();
         },
         click(action: "refresh-qr" | "relogin" | "qr-login", client: TestConsoleClient = {}) {
-            const entry = listeners.get(`napuketto-login-${selfId}/${action}`);
+            const entry = consoleHost.listeners[`napuketto-login-${selfId}/${action}`];
             if (entry === undefined) {
                 throw new Error(`面板事件未注册: ${action}`);
             }
-            entry.handler.call(client, { selfId });
+            entry.callback.call(client, { selfId });
         },
     };
 }
@@ -331,6 +405,111 @@ function latestChild(): IpcChild {
 }
 
 describe("控制台事件到子进程 IPC 的接线", () => {
+    it("同账号顺序卸载后，重建服务、控制监听和连接回放", async () => {
+        const shared = createConsole();
+        const first = setupPanel(SELF_ID, shared);
+        const stopping = first.dispose();
+        expect(shared.services.size).toBe(0);
+        expect(Object.keys(shared.listeners)).toHaveLength(0);
+        expect(shared.connections.size).toBe(0);
+        expect(shared.entries.size).toBe(0);
+        await stopping;
+
+        const current = setupPanel(SELF_ID, shared);
+        const child = await startBot(current.bot);
+        child.login({ state: "waiting_scan" });
+        child.qr("https://current.example/qr", "bmV3");
+        expect(current.provider).not.toBe(first.provider);
+        expect(shared.connections.size).toBe(1);
+        expect(shared.pushed).toEqual([]);
+        const payload = { selfId: SELF_ID, qr: { qrcodeUrl: "https://current.example/qr" } };
+        expect(await shared.connect()).toMatchObject([payload]);
+        expect(shared.pushed).toMatchObject([payload]);
+        current.click("refresh-qr");
+        expect(child.received.at(-1)).toMatchObject({
+            type: "action",
+            payload: { action: "login.refreshQr" },
+        });
+    });
+
+    it("同账号旧服务仍在注册表时，接管三个控制操作和新连接数据", async () => {
+        const shared = createConsole();
+        const old = setupPanel(SELF_ID, shared);
+        const oldChild = await startBot(old.bot);
+        oldChild.login({ state: "waiting_scan" });
+        oldChild.qr("https://old.example/qr", "b2xk");
+
+        // 宿主已退出，旧面板的作用域清理尚未执行。
+        const stopping = old.bot.stop();
+        oldChild.emit("exit", 0, null);
+        await stopping;
+        expect(shared.services.get(old.serviceName)).toBe(old.provider);
+
+        const current = setupPanel(SELF_ID, shared);
+        const child = await startBot(current.bot);
+        child.login({ state: "waiting_scan" });
+        child.qr("https://current.example/qr", "bmV3");
+        expect(current.provider).toBe(old.provider);
+        expect(Object.keys(shared.listeners)).toHaveLength(3);
+        expect(shared.connections.size).toBe(1);
+
+        const payload = { selfId: SELF_ID, qr: { qrcodeUrl: "https://current.example/qr" } };
+        expect(await shared.connect()).toMatchObject([payload]);
+        expect(shared.pushed).toMatchObject([payload]);
+        current.click("relogin");
+        current.click("qr-login");
+        current.click("refresh-qr");
+        expect(child.received).toMatchObject([
+            { type: "control", payload: { command: "login", uin: SELF_ID, qr: false } },
+            { type: "control", payload: { command: "login", uin: SELF_ID, qr: true } },
+            { type: "action", payload: { action: "login.refreshQr" } },
+        ]);
+    });
+
+    it("同账号实例重叠时，旧 Bot 的快照与晚到 dispose 不影响当前面板", async () => {
+        const shared = createConsole();
+        const old = setupPanel(SELF_ID, shared);
+        const oldChild = await startBot(old.bot);
+        const current = setupPanel(SELF_ID, shared);
+        oldChild.login({ state: "waiting_scan" });
+        oldChild.qr("https://old.example/qr", "b2xk");
+        const admin = { auth: { authority: 3, expiredAt: 9_999_999_999_999 } };
+        expect(await shared.connect(admin)).toMatchObject([{ selfId: SELF_ID, state: "idle" }]);
+        expect(shared.pushed).toMatchObject([{ selfId: SELF_ID, state: "idle" }]);
+        current.click("refresh-qr", admin);
+        expect(oldChild.received).toEqual([]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(current.logger.warn).toHaveBeenCalled();
+
+        const stopping = old.bot.stop();
+        oldChild.emit("exit", 0, null);
+        await stopping;
+        const child = await startBot(current.bot);
+        child.login({ state: "waiting_scan" });
+        child.qr("https://current.example/qr", "bmV3");
+        await old.dispose();
+        old.bot["panel"].push();
+        expect(shared.entries.size).toBe(1);
+        expect(shared.services.get(current.serviceName)).toBe(current.provider);
+        expect(shared.connections.size).toBe(1);
+        const payload = { selfId: SELF_ID, qr: { qrcodeUrl: "https://current.example/qr" } };
+        expect(await shared.connect()).toMatchObject([payload]);
+        expect(shared.pushed.at(-1)).toMatchObject(payload);
+        current.click("refresh-qr", admin);
+        expect(child.received.at(-1)).toMatchObject({
+            type: "action",
+            payload: { action: "login.refreshQr" },
+        });
+
+        const stopCurrent = current.dispose();
+        child.emit("exit", 0, null);
+        await stopCurrent;
+        expect(shared.services.size).toBe(0);
+        expect(Object.keys(shared.listeners)).toHaveLength(0);
+        expect(shared.connections.size).toBe(0);
+        expect(shared.entries.size).toBe(0);
+    });
+
     it("同一控制台的两个在线 Bot 共用入口，最后一个停用后释放，重新启用时恢复", async () => {
         const shared = createConsole();
         const first = setupPanel(SELF_ID, shared);
@@ -344,9 +523,19 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(second.bot.online).toHaveBeenCalledOnce();
         expect(shared.entries.size).toBe(1);
         expect(shared.addSharedEntry).toHaveBeenCalledOnce();
+        expect(shared.connections.size).toBe(2);
+        expect(Object.keys(shared.listeners)).toHaveLength(6);
+        const firstPayload = { selfId: SELF_ID, state: "logged_in" };
+        const secondPayload = { selfId: secondId, state: "logged_in" };
+        expect(await shared.connect()).toMatchObject([firstPayload, secondPayload]);
+        expect(shared.pushed).toMatchObject([firstPayload, secondPayload]);
 
         const stopFirst = first.dispose();
         expect(shared.entries.size).toBe(1);
+        expect(shared.connections.size).toBe(1);
+        expect(shared.services.has(first.serviceName)).toBe(false);
+        expect(first.listener("refresh-qr")).toBeUndefined();
+        expect(await shared.connect()).toMatchObject([secondPayload]);
         firstChild.emit("exit", 0, null);
         await stopFirst;
         second.click("refresh-qr");

@@ -12,9 +12,8 @@
 子进程 qr/login 消息
   → driver onQr/onLogin
   → NapukettoLoginState（状态机 + 快照）
-  → NapukettoLoginPanel.push()
-  → toLoginPanelPayload(snapshot, selfId)
-  → NapukettoLoginProvider.update(payload) → DataService.refresh()
+  → NapukettoLoginPanel.push() → DataService.refresh()
+  → NapukettoLoginProvider.get() → toLoginPanelPayload(snapshot, selfId)
   → console broadcast「data」→ 浏览器 store['napuketto-login-<uin>']
   → settings.vue computed 读取并渲染
 
@@ -27,10 +26,9 @@
 `NapukettoLoginProvider extends DataService<LoginPanelPayload>`：
 
 - serviceId / store key：`napuketto-login-<selfId>`（按 QQ 号隔离，支持多账号）。
-- `super(ctx, serviceId, { immediate: true, authority: 3 })`：`immediate` 让服务值由调用方注册
-  （见“面板装配”），避免 DataService 自动 `set` 与调用方重复；`authority` 是鉴权门槛，见下节。
-- `update(payload)`：保存快照并 `void refresh()`（推送不阻塞状态回调）。
-- `get()`：前端 PULL 时返回当前快照（控制台连接/刷新时调用）。
+- `super(ctx, serviceId, { immediate: true, authority: 3 })` 允许面板装配显式注册服务值。
+  `authority` 同时约束推送与拉取。
+- `get()` 在推送或连接拉取时读取当前 Bot 的快照。
 - 构造函数注册三个上行事件（均带同一 `authority` 选项）：
 
 | 事件名 | 前端动作 | bot 层行为 |
@@ -41,7 +39,7 @@
 
 **日志必须注入 bot logger，不能用 provider 自己的 ctx logger**：DataService 构造会把 fork ctx 的
 runtime name 改成 `console.services.<serviceId>`，reggol 按名字查日志等级，插件 `logLevel` 对它无效，
-INFO 诊断会一直刷屏。因此 `get()` / `update()` 的诊断日志走注入 logger 且为 debug 级。
+INFO 诊断会一直刷屏。Provider 使用当前 Bot 注入的 logger，诊断日志为 debug 级。
 
 payload 形状（`src/console/types.ts`）：
 
@@ -91,16 +89,13 @@ interface LoginPanelPayload {
 1. `ctx.inject(["console"], fork => …)`：等 console 服务就绪；未启用 console 插件时回调不触发，
    插件其余功能不受影响（但 `@koishijs/plugin-console` 包本身是 peer，需要可解析）。
 2. `registerConsoleEntry(fork)`：注册前端入口（见下节）。
-3. **reload 去重**：从 `fork.root.get("console.services.<serviceId>")` 取已有 provider。root store
-   不随插件 dispose 自动清理，同 selfId 已注册则复用，避免重复注册报错。
-4. 新建 provider（注入 `selfId`、bot logger、三个上行回调），并 `fork.root.set(...)` 拿到 dispose。
-5. `fork.console.ctx.on("console/connection", () => push())`：客户端连接瞬间重推一次。登录是自动启动的，
-   二维码/状态可能在客户端连接前就推完，被 `DataService.refresh()` 的“无订阅者直接返回”丢弃；
-   PULL 只能拿到最后一次快照，连接回放保证首屏有数据。
-6. `fork.on("dispose", () => { disposeService(); offConnection(); })`。
-7. 立即 `push()` 当前快照。
-
-`push()` 在 provider 尚未装配时只打 debug 日志并跳过；装配后 `snapshot → payload → update`。
+3. 账号的 Provider 在独立于 Bot 的 console 注入作用域注册。同 selfId 已有服务时复用 Provider，
+   最新装配的 Bot 接管快照读取、三个控制回调和日志。装配完成后立即推送。
+4. Provider 的作用域持有 `console/connection` 监听。连接时刷新数据，`Client.refresh()` 的主动拉取
+   也通过同一个 Provider 读取当前 Bot 的快照。没有客户端时跳过推送。
+5. Bot 的注入作用域卸载时只释放自己的绑定及入口引用。被接管的绑定无法再触发推送或销毁 Provider。
+   当前绑定释放时销毁 Provider 作用域，清理数据服务和连接监听，并从 Console 的监听器表中移除
+   仍由该 Provider 持有的三个控制监听器。
 
 面板每次操作都读取 driver 当前仍打开的 IPC 连接，引导期即可刷新二维码和发送登录指令。
 业务动作和消息派发继续使用 ready 后按账号一致性校验绑定的连接。子进程替换时，面板随 driver 切换连接。
