@@ -176,8 +176,8 @@ importers:
         specifier: ~0.0.35
         version: 0.0.35
       '@napuketto/media':
-        specifier: ~0.0.5
-        version: 0.0.5(supports-color@8.1.1)
+        specifier: ~0.1.3
+        version: 0.1.3(supports-color@8.1.1)
       '@napuketto/network':
         specifier: ~0.0.2
         version: 0.0.2
@@ -319,6 +319,9 @@ packages:
 
   '@borewit/text-codec@0.2.2':
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
+
+  '@borewit/text-codec@0.2.3':
+    resolution: {integrity: sha512-49CycTz1aAZmvFcwkeFyhud1HUmRIB5Tabf7ALV+VA4Iu85MTfz2cUwzPagMFAdVBvrWdkCxG67I30tUwwpKsw==}
 
   '@cacheable/memory@2.2.0':
     resolution: {integrity: sha512-CTLKqLItRCEixEAewD3/j9DB3/o96gpTPD4eJ1v+DGOlxZRZncRQkGYqqnAGCscYd6RNeXfGeiuCphsPtqyIfQ==}
@@ -1013,6 +1016,10 @@ packages:
   '@napuketto/media@0.0.5':
     resolution: {integrity: sha512-DUnC583XOpT12TiMjmyO62pa5eRmXn8jYln76GLeP2W38W+EpqdBF/bJ+b6+9I0BtS3ySFzavp0kTKe/tocKpA==}
 
+  '@napuketto/media@0.1.3':
+    resolution: {integrity: sha512-XB5kxHetfFOZcAMu+akQgx42pcZ6BbeYUJ4JYdPJeXFB7gVRhyToLs/x7f9FD/OuMQcvJtr5R506DSoBBW563g==}
+    engines: {node: '>=22.12.0'}
+
   '@napuketto/network@0.0.2':
     resolution: {integrity: sha512-C0J5zwlZi0A4Ne9x6J8k8PMAgelJxthvKAwOSEu1NArey/JM80o32YyadkTmx9AjTV0DEXcQEb8oxqe8+DVg9w==}
 
@@ -1398,6 +1405,10 @@ packages:
 
   '@tokenizer/inflate@0.5.1':
     resolution: {integrity: sha512-56U2O6fDLFtqokwWh597IdeUgtM7j+TT9tb1soybhgA6cy163gAcVmoQr8H4Ud/CkgCkViwcuLyqtn6wYqw59Q==}
+    engines: {node: '>=18'}
+
+  '@tokenizer/inflate@0.6.1':
+    resolution: {integrity: sha512-EuqSyHdOXN61cc5/rsW6uUn1TJZJGZr56jlkUbsLwVJ6uHgvwQyFkYfOCf+zzPFAYjftPk1WeJnEhpLVvzbm1A==}
     engines: {node: '>=18'}
 
   '@tokenizer/token@0.3.0':
@@ -2373,6 +2384,10 @@ packages:
     resolution: {integrity: sha512-yJAC9ulsE6fU0K6wzJBIH+wI+KAtMeu6Ck8rs23OVzvEhqXjGADdI6K+YNIDAjcQQ6AwXTD96cKExJo6xFJXyg==}
     engines: {node: '>=22'}
 
+  execa@10.2.1:
+    resolution: {integrity: sha512-/Bofl3ZBh2Q4/PG0W63qFzP5vDAypi8Zc90UWTBzaDNIYiX7apPOd0N6L8hG8CojUdq4V51adu8BObP+iVsSTw==}
+    engines: {node: '>=22'}
+
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
@@ -2421,6 +2436,10 @@ packages:
 
   file-type@22.2.0:
     resolution: {integrity: sha512-XmEVJsRpQMVYC+sWFW+FKAVo2P7/lPctDdWH4UQ1r6oxhdrTobnowdM3z+ZJ93a4J8D3yDpxX0bEvRuFev0vUQ==}
+    engines: {node: '>=22'}
+
+  file-type@22.3.0:
+    resolution: {integrity: sha512-PrPedgnnWl5bWz3JHgar0QSzRvzeyFh7dZ9JpYOgcPZu4KALS9zw4MMa6qXRYyjeBsAlpaWB2boLuG991+0HIQ==}
     engines: {node: '>=22'}
 
   fill-range@7.1.1:
@@ -2565,6 +2584,11 @@ packages:
 
   image-size@2.0.4:
     resolution: {integrity: sha512-QRUkFFsRV/6fuESxb9Vkq+a0LkSrgKXuc2NEqfikiXxxN/G3tjWt5EVUlMaImRBZRZK/jRBEbYvpPYZL8t08Zw==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  image-size@2.1.0:
+    resolution: {integrity: sha512-6Dbisa46RsgeAh3TMSFL2i8+uIFG+/LRmz6Q2oscSJJvXo1sOw3EgNO4M8jPl1P+gR1atJLDPrpclX4IHz63sA==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -3258,6 +3282,10 @@ packages:
     resolution: {integrity: sha512-PgAsgIuizbZN/r4+g4UNvbVCTpJWdoIdI71kIWwKmdIH0vJ0q7ylMVGU8PWj2s9O98y4MtFWiDTIrtNukZMMgQ==}
     engines: {node: '>=18'}
 
+  strtok3@10.8.0:
+    resolution: {integrity: sha512-e6bW3fD6V01DPmcbLfNtn0cjsiHvTKS/hivgbzqYMfHb/nLes4QQ0H5QBxlkPQayF4xv08AvlSgptGwN86Eemw==}
+    engines: {node: '>=18'}
+
   strtok3@6.3.0:
     resolution: {integrity: sha512-fZtbhtvI9I48xDSywd/somNqgUHl2L2cstmXCCif0itOf96jeW18MBSyrLuNicYQVkvpOxkZtkzujiTJ9LW5Jw==}
     engines: {node: '>=10'}
@@ -3299,6 +3327,10 @@ packages:
 
   token-types@6.1.2:
     resolution: {integrity: sha512-dRXchy+C0IgK8WPC6xvCHFRIWYUbqqdEIKPaKo/AcTUNzwLTK6AH7RjdLWsEZcAN/TBdtfUw3PYEgPr5VPr6ww==}
+    engines: {node: '>=14.16'}
+
+  token-types@6.2.0:
+    resolution: {integrity: sha512-s9euYHM//T3loJtbNUYdbAzsMlvKBeRS+XCLFy+UGosMQH19Hwjap5k19i4PPAEJJBsVIpMpVTxl4fIqCuNfUg==}
     engines: {node: '>=14.16'}
 
   tosource@2.0.0-alpha.3:
@@ -3724,6 +3756,8 @@ snapshots:
     optional: true
 
   '@borewit/text-codec@0.2.2': {}
+
+  '@borewit/text-codec@0.2.3': {}
 
   '@cacheable/memory@2.2.0':
     dependencies:
@@ -4322,6 +4356,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@napuketto/media@0.1.3(supports-color@8.1.1)':
+    dependencies:
+      execa: 10.2.1
+      file-type: 22.3.0(supports-color@8.1.1)
+      image-size: 2.1.0
+      silk-wasm: 3.7.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@napuketto/network@0.0.2':
     dependencies:
       '@hono/node-server': 2.1.5(hono@4.13.19)
@@ -4575,6 +4618,14 @@ snapshots:
     dependencies:
       debug: 4.4.3(supports-color@8.1.1)
       token-types: 6.1.2
+    transitivePeerDependencies:
+      - supports-color
+
+  '@tokenizer/inflate@0.6.1(supports-color@8.1.1)':
+    dependencies:
+      debug: 4.4.3(supports-color@8.1.1)
+      strtok3: 10.8.0
+      token-types: 6.2.0
     transitivePeerDependencies:
       - supports-color
 
@@ -5637,6 +5688,21 @@ snapshots:
       which-command: 0.1.0
       yoctocolors: 2.2.0
 
+  execa@10.2.1:
+    dependencies:
+      '@sindresorhus/merge-streams': 4.0.0
+      figures: 6.1.0
+      get-stream: 9.0.1
+      human-signals: 8.0.1
+      is-plain-obj: 4.1.0
+      is-stream: 4.0.1
+      npm-run-path: 6.0.0
+      pretty-ms: 9.3.1
+      signal-exit: 4.1.0
+      strip-final-newline: 4.0.0
+      which-command: 0.1.0
+      yoctocolors: 2.2.0
+
   expect-type@1.4.0: {}
 
   exsolve@1.1.3: {}
@@ -5675,6 +5741,15 @@ snapshots:
     dependencies:
       '@tokenizer/inflate': 0.5.1(supports-color@8.1.1)
       strtok3: 10.5.0
+      token-types: 6.1.2
+      uint8array-extras: 1.6.0
+    transitivePeerDependencies:
+      - supports-color
+
+  file-type@22.3.0(supports-color@8.1.1):
+    dependencies:
+      '@tokenizer/inflate': 0.6.1(supports-color@8.1.1)
+      strtok3: 10.8.0
       token-types: 6.1.2
       uint8array-extras: 1.6.0
     transitivePeerDependencies:
@@ -5828,6 +5903,8 @@ snapshots:
   ignore@5.3.2: {}
 
   image-size@2.0.4: {}
+
+  image-size@2.1.0: {}
 
   immutable@5.1.9: {}
 
@@ -6540,6 +6617,10 @@ snapshots:
     dependencies:
       '@tokenizer/token': 0.3.0
 
+  strtok3@10.8.0:
+    dependencies:
+      '@tokenizer/token': 0.3.0
+
   strtok3@6.3.0:
     dependencies:
       '@tokenizer/token': 0.3.0
@@ -6578,6 +6659,12 @@ snapshots:
   token-types@6.1.2:
     dependencies:
       '@borewit/text-codec': 0.2.2
+      '@tokenizer/token': 0.3.0
+      ieee754: 1.2.1
+
+  token-types@6.2.0:
+    dependencies:
+      '@borewit/text-codec': 0.2.3
       '@tokenizer/token': 0.3.0
       ieee754: 1.2.1
 
