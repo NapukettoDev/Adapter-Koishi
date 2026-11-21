@@ -12,6 +12,19 @@ const { encode, frame, videoInfo, publicDownload, compatibleDownload } = vi.hois
     publicDownload: vi.fn(),
     compatibleDownload: vi.fn(),
 }));
+const workspaceCreated = vi.hoisted(() => vi.fn<(path: string) => void>());
+
+vi.mock("node:fs/promises", async (original) => {
+    const fs = await original<typeof import("node:fs/promises")>();
+    return {
+        ...fs,
+        async mkdtemp(prefix: string) {
+            const path = await fs.mkdtemp(prefix);
+            workspaceCreated(path);
+            return path;
+        },
+    };
+});
 
 vi.mock("@napuketto/media", async (original) => ({
     ...(await original<typeof import("@napuketto/media")>()),
@@ -124,6 +137,25 @@ describe("prepareOutboundMedia", () => {
         expect(files.some(existsSync)).toBe(false);
     });
 
+    it("白名单复制期间发现源文件变化时拒绝发送并清理工作目录", async () => {
+        const source = join(dir, "changing.png");
+        writeFileSync(source, "image");
+        let stage = "";
+        workspaceCreated.mockImplementationOnce((path) => {
+            stage = path;
+            writeFileSync(source, "updated image");
+        });
+        await expect(
+            prepareOutboundMedia([{ type: "image", path: source }], {
+                localFilePolicy: "allowlist",
+                localMediaRoots: [dir],
+            }),
+        ).rejects.toMatchObject({ code: "INVALID_PARAM" });
+        expect(stage).not.toBe("");
+        expect(existsSync(stage)).toBe(false);
+        expect(readFileSync(source, "utf8")).toBe("updated image");
+    });
+
     it("公网策略只调用上游公网入口，拒绝时不回退兼容下载器", async () => {
         publicDownload
             .mockImplementationOnce(async (_url: string, path: string) => {
@@ -172,20 +204,30 @@ describe("prepareOutboundMedia", () => {
         expect(existsSync(video.thumbPath)).toBe(false);
     });
 
-    it("后续 data URL 无效时清理已经生成的缩略图", async () => {
+    it("后续 data URL 无效时清理白名单副本和已经生成的缩略图", async () => {
+        const source = join(dir, "a.mp4");
+        writeFileSync(source, "video");
         videoInfo.mockResolvedValue({ width: 640, height: 360, durationMs: 3200 });
+        let staged = "";
         let thumb = "";
-        frame.mockImplementation(async (_input: string, output: string) => {
+        frame.mockImplementation(async (input: string, output: string) => {
+            staged = input;
             thumb = output;
             writeFileSync(output, "png");
         });
         await expect(
-            prepareOutboundMedia([
-                { type: "video", path: join(dir, "a.mp4") },
-                { type: "image", path: "data:audio/ogg;base64,AAAA" },
-            ]),
+            prepareOutboundMedia(
+                [
+                    { type: "video", path: source },
+                    { type: "image", path: "data:audio/ogg;base64,AAAA" },
+                ],
+                { localFilePolicy: "allowlist", localMediaRoots: [dir] },
+            ),
         ).rejects.toThrow("data URL");
         expect(thumb).not.toBe("");
+        expect(staged).not.toBe("");
+        expect(existsSync(staged)).toBe(false);
         expect(existsSync(dirname(thumb))).toBe(false);
+        expect(readFileSync(source, "utf8")).toBe("video");
     });
 });

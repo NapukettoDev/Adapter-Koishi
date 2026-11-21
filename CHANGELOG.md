@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.51
+
+### Patch Changes
+
+- 标准发送的本地媒体白名单核对文件句柄身份，并从该句柄复制到独占临时目录供转码和宿主读取。图片与语音最多 30 MiB，视频最多 100 MiB，多硬链接文件会被拒绝。准备失败或 IPC 请求结束后清理副本。
+
 ## 0.0.50
 
 ### Patch Changes

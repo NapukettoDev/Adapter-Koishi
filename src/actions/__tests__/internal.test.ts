@@ -5,9 +5,9 @@
  * （mock @napuketto/media，真实文件头判断在 media.test.ts 覆盖）。
  */
 
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ElementType } from "@napuketto/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,6 +40,8 @@ function createInternal(
 function audioElement(src: string): { type: string; attrs: { src: string }; toString(): string } {
     return { type: "audio", attrs: { src }, toString: () => "[audio]" };
 }
+
+const img = (src: string) => ({ type: "img", attrs: { src } });
 
 describe("Koishi 请求审批", () => {
     it("拒绝好友请求时不写备注，拒绝群请求时转发理由", async () => {
@@ -117,38 +119,73 @@ describe("NapukettoInternal", () => {
         expect(existsSync(source)).toBe(true);
     });
 
-    it("白名单允许 file URL，拒绝外部文件，对受信任的原始调用保留透传", async () => {
+    it.each([false, true])("白名单在 IPC 消费时提供稳定副本（IPC 失败：%s）", async (fails) => {
         const file = join(dir, "海报.png");
-        writeFileSync(file, "test");
-        const request = vi.fn<RequestFn>(async () => ({ msgId: "1" }));
+        const moved = join(dir, "已移走.png");
+        writeFileSync(file, "original");
+        let staged = "";
+        const request = vi.fn<RequestFn>(async (action, params) => {
+            expect(action).toBe("msg.sendMessage");
+            const elements = params?.["elements"] as { type: string; path: string }[];
+            expect(elements).toHaveLength(1);
+            expect(elements[0]?.type).toBe("image");
+            staged = elements[0]?.path ?? "";
+            expect(extname(staged)).toBe(".png");
+            expect(dirname(staged)).not.toBe(dir);
+            renameSync(file, moved);
+            writeFileSync(file, "replacement");
+            expect(readFileSync(staged, "utf8")).toBe("original");
+            if (fails) {
+                throw new Error("IPC failed");
+            }
+            return { msgId: "1" };
+        });
         const internal = new NapukettoInternal({
             request,
             localFilePolicy: "allowlist",
             localMediaRoots: [dir],
         });
-        const img = (src: string) => ({ type: "img", attrs: { src } });
-        await expect(
-            internal.sendMessage("123456", img(pathToFileURL(file).href)),
-        ).resolves.toEqual(["1"]);
-        expect(request).toHaveBeenLastCalledWith(
-            "msg.sendMessage",
-            expect.objectContaining({
-                elements: [
-                    { type: "image", path: realpathSync.native(file).replaceAll("\\", "/") },
-                ],
-            }),
-        );
-        await expect(
-            internal.sendMessage(
-                "123456",
-                img(pathToFileURL(join(dir, "..", "external.png")).href),
-            ),
-        ).rejects.toMatchObject({ code: "INVALID_PARAM" });
+        const send = internal.sendMessage("123456", img(pathToFileURL(file).href));
+        if (fails) {
+            await expect(send).rejects.toThrow("IPC failed");
+        } else {
+            await expect(send).resolves.toEqual(["1"]);
+        }
         expect(request).toHaveBeenCalledOnce();
-        await internal._request("download_file", { url: "http://localhost/image" });
+        expect(staged).not.toBe("");
+        expect(existsSync(dirname(staged))).toBe(false);
+        expect(readFileSync(moved, "utf8")).toBe("original");
+        expect(readFileSync(file, "utf8")).toBe("replacement");
+    });
+
+    it("媒体策略仅约束标准发送，原始 OB11 请求保留参数与响应", async () => {
+        const response = { status: "ok", retcode: 0, data: {} };
+        const request = vi.fn<RequestFn>(async () => response);
+        const internal = new NapukettoInternal({
+            request,
+            localFilePolicy: "allowlist",
+            remoteMediaPolicy: "public-only",
+        });
+        const file = join(dir, "outside.png");
+        writeFileSync(file, "test");
+        await expect(internal.sendMessage("123456", img(file))).rejects.toMatchObject({
+            code: "INVALID_PARAM",
+        });
+        expect(request).not.toHaveBeenCalled();
+        await expect(
+            internal._request("download_file", { url: "http://localhost/image" }),
+        ).resolves.toBe(response);
         expect(request).toHaveBeenLastCalledWith("download_file", {
             url: "http://localhost/image",
         });
+    });
+
+    it("受信任的诊断请求独立于发送媒体策略", async () => {
+        const response = {};
+        const request = vi.fn<RequestFn>(async () => response);
+        const internal = new NapukettoInternal({ request, localFilePolicy: "allowlist" });
+        await expect(internal._request("diag.richMediaTmpPaths")).resolves.toBe(response);
+        expect(request).toHaveBeenCalledExactlyOnceWith("diag.richMediaTmpPaths", undefined);
     });
 
     it("sendMessage：私聊 → chatType=1", async () => {

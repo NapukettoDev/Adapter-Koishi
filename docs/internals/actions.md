@@ -14,9 +14,14 @@ bot.internal.<method>()
 
 涉及代码：`src/actions/internal.ts`、`ob11-resources.ts`、`elements.ts`、`channel.ts`、`media.ts`、`types.ts`。
 
-## 两个动作面
+## 动作入口与调用方
 
-`NapukettoInternal._request(action, params?)` 是统一入口，可调两类动作：
+| 入口 | 调用方与契约 |
+| :--- | :--- |
+| Koishi `bot.sendMessage()` 与 `session.send()` | 普通插件和会话回复走消息编码器，再经 `NapukettoInternal.sendMessage()` 处理图片、语音和视频。可由部署入口按权限委托发送，媒体按下述策略处理。 |
+| `bot.internal._request(action, params?)` | 受信任的进程内插件调用宿主动作。参数、结果和错误保留原始契约，媒体由对应的上游动作处理。 |
+
+`_request()` 可调两类动作：
 
 | 动作面 | 命名 | 返回 |
 | :--- | :--- | :--- |
@@ -29,6 +34,8 @@ const info = await bot.internal._request("get_login_info")
 ```
 
 OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见下文。
+适配器的控制台只提供登录控制。部署若向低信任调用方提供消息发送，应在该入口校验调用方和目标，
+只委托标准发送，并按 [配置指南](../guides/configuration.md#出站媒体策略) 设置文件与下载策略。
 
 ## 高层方法
 
@@ -125,8 +132,9 @@ Koishi 实时消息、历史和撤回使用原生 `msgId`。表态的原生调�
 Koishi `sendMessage()` 为图片（`img` / `image`）、语音（`audio`）和视频（`video`）
 分别处理 HTTP(S)、调用方本地路径、`file://` 和符合媒体类型的 `data:` URL。
 
-1. 处理调用方的本地路径和 `file://`。启用目录白名单时，在转码、读取或 IPC 之前校验实际路径。
-   下载、内联材料和派生文件由适配器管理，使用独立临时目录。
+1. 处理调用方的本地路径和 `file://`。启用目录白名单时，解析实际路径并核对打开句柄的普通文件身份。
+   从该句柄将内容复制到本次发送的独占临时目录，转码、探测和 IPC 都使用副本。图片和语音最多 30 MiB，视频最多 100 MiB。
+   检查失败或复制时检测到源文件变化会中止发送。`legacy` 保留原路径行为。
 2. HTTP(S) 使用 `@napuketto/media` 流式落盘，单文件上限为图片/语音 30 MiB、视频 100 MiB，
    15 秒覆盖跳转和读取。相同媒体类型及 URL 在一次发送中复用。优先按可识别的文件内容定扩展名，
    其次使用 URL 扩展名。下载失败或出站地址被拒绝会发占位文本及类别告警，其他元素继续发送。白名单拒绝的调用方本地文件会中止本次发送。
@@ -134,12 +142,10 @@ Koishi `sendMessage()` 为图片（`img` / `image`）、语音（`audio`）和�
 4. 非 SILK 语音在适配器独占目录中调用 `encodePcmToSilk`。转码失败继续使用原音频并记录告警。
    已有的 SILK（含 QQ 的前导字节变体）原样使用。
 5. 视频尝试提取缩略图、宽高和时长，再调用 `msg.sendMessage`。探测或抽帧失败会继续尝试发送。
-   IPC 完成或失败后回收适配器为本次发送创建的目录，调用方文件由调用方管理。
+   准备失败或 IPC 请求结束后回收适配器为本次发送创建的目录，调用方文件由调用方管理。
 
-原始 `bot.internal._request()` 可直接调用子进程的 kernel 与 OB11 动作。OB11 的发送消息、下载、
-头像、群公告图和闪传等根据上游动作处理媒体。向低信任调用者开放时，应只暴露 Koishi 的
-`sendMessage()`，并把原始动作接口保留给受信任插件。`ob11Actions: false` 关闭 OB11 桥，
-原始 kernel 动作仍由 `_request()` 调用。
+OB11 的发送消息、下载、头像、群公告图和闪传等根据上游动作处理媒体。
+`ob11Actions: false` 关闭 OB11 桥，原始 kernel 动作仍由 `_request()` 调用。
 
 ## 子进程侧的动作实现
 
@@ -157,7 +163,7 @@ kernel 动作面（launch 已就绪）：
 | `login.refreshQr` | 登录期即可用；调用 kernel `refreshQr()`，返回是否触发了新码 |
 
 `diag.*` 动作是原生调用诊断入口（`diag.sessionCall`、`diag.engineCall`、`diag.richMediaTmpPaths` 等），
-不属于稳定 API。
+由宿主注册，供受信任的进程内诊断使用。部署入口的诊断授权与媒体配置独立，向低信任调用方提供服务时应排除整个诊断动作空间。
 
 ## OneBot 11 动作面
 
