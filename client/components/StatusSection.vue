@@ -21,7 +21,7 @@
   </div>
 
   <!-- logged_in：登录成功 -->
-  <div v-else-if="state === 'logged_in'" class="status-block status-block--success">
+  <div v-else-if="state === 'logged_in'" class="status-block">
     <p class="status-title">{{ message || '登录成功' }}</p>
     <p v-if="self" class="account">
       <k-icon name="user" />
@@ -110,10 +110,6 @@ const emit = defineEmits<{
   }
 }
 
-.status-block--success {
-  padding-bottom: 0.5rem;
-}
-
 .relogin-button {
   margin-top: 0.5rem;
 }
@@ -121,6 +117,7 @@ const emit = defineEmits<{
 .button-row {
   display: flex;
   gap: 0.5rem;
+  padding-bottom: 0.5rem;
 
   .relogin-button {
     margin-top: 0.5rem;
