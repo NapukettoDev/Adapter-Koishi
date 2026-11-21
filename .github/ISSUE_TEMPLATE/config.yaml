@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026-present Napuketto contributors.
+
+# issue 模板选择器配置（表单本体见同目录 bug-report.yaml / feature-request.yaml）。
+#
+# 本仓没有官方社区与交流群，因此这里不提供讨论区或群聊入口：配置与排障问题先指向
+# 文档，漏洞一律走私报告渠道，不进公开 issue。
+#
+# blank_issues_enabled: false —— 关掉「空白 issue」入口，逼出结构化信息；两个表单覆盖
+# 不到的诉求由下方 contact_links 承接，不在 issue 里开自由格式的坑。
+
+blank_issues_enabled: false
+contact_links:
+    - name: 配置项与默认值（bots / selfId / dataDir / logLevel）
+      url: https://github.com/NapukettoDev/Adapter-Koishi/blob/main/docs/guides/configuration.md
+      about: 全部配置项、数据目录、登录方式与多账号
+    - name: 不上线 / 无响应 / 媒体失败 / 控制台异常
+      url: https://github.com/NapukettoDev/Adapter-Koishi/blob/main/docs/guides/troubleshooting.md
+      about: 按现象排查：boot phase、账号一致性、媒体、子进程退出、日志与诊断
+    - name: 报告安全漏洞（私密渠道）
+      url: https://github.com/NapukettoDev/Adapter-Koishi/security/advisories/new
+      about: 漏洞不要开公开 issue；渠道与响应时限见 .github/SECURITY.md

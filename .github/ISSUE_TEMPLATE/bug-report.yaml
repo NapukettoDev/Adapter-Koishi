@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026-present Napuketto contributors.
+
+name: Bug 报告
+description: 报告适配器自身的问题（子进程编排、事件/动作翻译、控制台登录面板）
+title: "Bug: "
+labels:
+    - bug
+body:
+    - type: markdown
+      attributes:
+          value: |
+              先划清边界：**QQ 客户端本体**（`wrapper.node`、QQ NT 客户端、腾讯服务端）的问题不属本仓
+              能修的范围；本仓负责子进程编排、kernel 事件/动作 ↔ Koishi session/动作 的翻译、
+              控制台登录面板。若问题出在原生层而非翻译层，也请照常提交——分诊时会转给上游
+              `@napuketto/*`。
+
+    - type: input
+      id: scope
+      attributes:
+          label: 受影响的区域
+          description: |
+              填仓库内路径或模块名，可以填多个。例如 `src/events/`（收方向映射）、
+              `src/actions/`（发方向动作）、`src/driver/`（子进程编排）、`client/`（控制台面板）。
+          placeholder: "src/... 或 client/... 或 docs/..."
+      validations:
+          required: true
+
+    - type: dropdown
+      id: platform
+      attributes:
+          label: 运行平台
+          description: 选择 Koishi（含 QQ 宿主）实际运行的平台。
+          options:
+              - Windows 10 / 11（原生 QQ NT）
+              - Linux / WSL（Wine 宿主）
+              - 其他或不确定
+      validations:
+          required: true
+
+    - type: input
+      id: version
+      attributes:
+          label: 版本
+          description: |
+              插件版本（`koishi-plugin-adapter-napuketto`）、Koishi 版本与 `@napuketto/*` 版本。
+              不确定时贴 `pnpm list --depth 0` 的相关行。
+          placeholder: "例如 koishi-plugin-adapter-napuketto@0.0.39 / koishi@4.18.11"
+      validations:
+          required: true
+
+    - type: textarea
+      id: description
+      attributes:
+          label: 问题描述
+          description: 简明描述现象：预期发生什么、实际发生了什么。有报错原文请贴原文。
+      validations:
+          required: true
+
+    - type: textarea
+      id: reproduction
+      attributes:
+          label: 复现步骤
+          description: 越具体越好；能让维护者在本机复现是修得快的前提。
+          placeholder: |
+              1. Bot 配置 `selfId` / 登录方式 …（脱敏后贴关键段）
+              2. 启动 Koishi，观察 boot phase 停在哪一步 …
+              3. 在群里发 …（或在调试控制台执行 …）
+              4. 观察到 …
+      validations:
+          required: true
+
+    - type: textarea
+      id: expected
+      attributes:
+          label: 期望行为
+          description: 你认为正确的结果是什么；有参考实现（Koishi 其他 adapter、OneBot 11 事件样例）可点名。
+      validations:
+          required: true
+
+    - type: textarea
+      id: logs
+      attributes:
+          label: 相关日志与截图
+          description: |
+              请附：boot phase 日志（`booting → dlopening → logging → sessioning → ready` 停在哪一步）、
+              子进程 stderr（`[napuketto 子进程]` 前缀）、`[napuketto] dispatch:` 相关行。
+              账号目录下 kernel 写的日志（`<dataRoot>/<selfId>`）只留关键片段，不要贴整个文件。
+              **必须隐去 uin、ticket、token、cookie 与二维码 base64。**
+
+    - type: textarea
+      id: environment
+      attributes:
+          label: 运行环境
+          description: 请把下面各项填掉（不确定的写「不确定」）。
+          value: |
+              - 操作系统 / 平台（Windows / WSL / Wine）:
+              - Node.js 版本（`node -v`，CI 口径为 24）:
+              - Koishi 版本:
+              - QQ NT 版本与 `qqPath`（若显式配置）:
+              - 登录方式（历史票据快速登录 / 二维码扫码）与 `selfId` 位数特征（不要贴完整号）:
+              - `dataDir` 与 `logLevel`:
+      validations:
+          required: true
+
+    - type: dropdown
+      id: upstream
+      attributes:
+          label: 原生 QQ 客户端是否同样异常
+          description: |
+              用于分诊：原生 QQ 也出问题 → 更像 `wrapper.node` 或腾讯服务端侧；只有本插件启动的
+              宿主进程出问题 → 在适配层或子进程编排范围内。判定依据写在问题描述里。
+          options:
+              - 不确定
+              - 是，原生 QQ 客户端同样异常
+              - 否，仅通过本插件运行时出现
+      validations:
+          required: true
+
+    - type: checkboxes
+      id: confirm
+      attributes:
+          label: 提交前确认
+          options:
+              - label: 我已检索过既有 issue（含已关闭），没有重复报告
+                required: true
+              - label: 我已隐去 uin、ticket、token、cookie、二维码等敏感信息
+                required: true
+              - label: 我确认这不是安全漏洞（漏洞走 SECURITY.md 的私密渠道）
+                required: true
