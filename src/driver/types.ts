@@ -88,6 +88,8 @@ export interface DriverEvents {
     onQr?(qr: QrCodeData): void;
     /** kernel 事件转发（翻译层消费）。 */
     onEvent?(payload: IpcEventPayload): void;
+    /** 新子进程开始订阅，或已就绪子进程开始软重登重装配。 */
+    onEventSubscription?(): void;
     /** 结构化日志转发。 */
     onLog?(payload: IpcLogPayload): void;
     /** 就绪（每轮就绪回调，客户端实例随重启更换）。 */

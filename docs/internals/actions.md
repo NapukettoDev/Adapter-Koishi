@@ -36,14 +36,26 @@ OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见
 | :--- | :--- | :--- |
 | `sendMessage(channelId, content, guildId?)` | `msg.sendMessage` | `{ chatType, peerUin, elements }`；返回 `string[]`（0 或 1 个 msgId） |
 | `deleteMessage(channelId, messageId)` | `msg.recallMessage` | `{ chatType, peerUin, msgIds: [messageId] }` |
-| `getMessageList(channelId, before?, limit?)` | `msg.fetchMessages` | `{ chatType, peerUin, count, msgId? }`；返回 `{ data, next? }`，`next` = 末条 `msgId` |
+| `getMessageList(channelId, next?, direction?, limit?, order?)` | `msg.fetchMessages` | `{ chatType, peerUin, count, msgId? }`；返回 `Universal.BidiList<Universal.Message>` |
 | `markAsRead(channelId)` | `msg.markRead` | `{ chatType, peerUin }` |
 | `getGroupList()` | `group.getGroupList` | 群列表（子进程侧走 `groupCache.listGroupsRefreshed()`） |
 | `getFriendList()` | `friend.getFriendList` | 好友列表 |
 | `getSelf()` | `login.getSelf` | 子进程登录自身信息 |
 
-`getMessageList` 的 `count` 缺省 20；`before` 为空时不带 `msgId`。`sendMessage` 在 canonical 元素为空时
-直接返回 `[]`，不发请求。
+`sendMessage` 在 canonical 元素为空时直接返回 `[]`，不发请求。
+
+### 消息历史
+
+- 群聊使用群号，好友私聊使用 `private:<对端 QQ 号>`。接口没有临时会话所需的群上下文。
+- 每条消息使用 QQ NT 的 `msgId`。发送者来自消息本身，频道来自查询目标，因此本人发出的私聊也在对端频道里。
+  群聊带 `guild`。内容通过 [收向元素映射](events.md#元素映射canonical--koishi) 生成，引用同时以
+  `quote.id` 和引用元素返回。发送时间统一为毫秒，非法或缺失时省略时间字段。
+- `direction` 缺省为 `before`。IPC 只支持从最新消息或给定锚点向更早查找，`after` 和 `around`
+  返回 `UNSUPPORTED`。`order` 缺省为 `asc`（旧到新），也可用 `desc`（新到旧）。
+- `limit` 缺省为 20，须为正整数。适配器会额外读取一条来确认还可翻页，续页也额外留出锚点位置，
+  IPC 的请求条数限制在有符号 32 位整数范围内。
+  当前页排除锚点。还有更早消息时，`next` 和 `prev` 都是当前页最早的消息 ID，与显示顺序无关。
+- 直接构造 `NapukettoInternal` 时，调用历史查询需要传入 Koishi 元素工厂 `h`。Bot 会自动装配该选项。
 
 ## channelId 解析
 

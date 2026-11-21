@@ -13,6 +13,7 @@
 import type { CanonicalElement, RawMessage } from "@napuketto/kernel";
 import { toCanonicalElements } from "@napuketto/kernel";
 import { type HFn, toKoishiElements } from "./elements.js";
+import { normalizeMessageTime } from "./message-time.js";
 import type { NapukettoSessionFields } from "./types.js";
 
 /** 私聊 channelId 前缀（napcat 同构）。 */
@@ -48,7 +49,7 @@ export function adaptRawMessage(msg: RawMessage, options: AdaptOptions): Napuket
         subtype: isGroup ? "group" : "private",
         selfId,
         platform,
-        timestamp: Number(msg.msgTime) * 1000,
+        timestamp: normalizeMessageTime(msg.msgTime) ?? Date.now(),
         userId: senderUin,
         messageId: msg.msgId,
         // 群聊非私聊；私聊/临时会话 isDirect=true（驱动 event.channel.type）

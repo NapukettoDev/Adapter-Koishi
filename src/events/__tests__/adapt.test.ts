@@ -2,10 +2,10 @@
  * adapt.test.ts：RawMessage → koishi session 字段单测。
  */
 
-import type { RawMessage } from "@napuketto/kernel";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { adaptRawMessage } from "../adapt.js";
-import { mockH } from "../test-utils.js";
+import { normalizeMessageTime } from "../message-time.js";
+import { makeRawMessage as makeMsg, mockH } from "../test-utils.js";
 
 /** 默认适配选项（mock h）。 */
 function adaptOpts(overrides: Partial<{ selfId: string; platform: string }> = {}): {
@@ -17,25 +17,6 @@ function adaptOpts(overrides: Partial<{ selfId: string; platform: string }> = {}
         selfId: overrides.selfId ?? "10086",
         platform: overrides.platform ?? "onebot",
         h: mockH(),
-    };
-}
-
-/** 构造一条测试 RawMessage。 */
-function makeMsg(overrides: Partial<RawMessage> = {}): RawMessage {
-    return {
-        msgId: "m1",
-        msgSeq: "1",
-        msgTime: "1700000000",
-        msgType: 9,
-        chatType: 2,
-        peerUid: "u_peer",
-        peerUin: "10001",
-        senderUid: "u_sender",
-        senderUin: "20001",
-        peerName: "测试群",
-        sendNickName: "小明",
-        elements: [{ elementType: 1, textElement: { content: "你好" } }],
-        ...overrides,
     };
 }
 
@@ -82,8 +63,33 @@ describe("adaptRawMessage", () => {
         expect(session.content).toBeUndefined();
     });
 
-    it("timestamp = msgTime × 1000", () => {
-        const session = adaptRawMessage(makeMsg(), adaptOpts());
-        expect(session.timestamp).toBe(1700000000 * 1000);
+    it.each([
+        ["1700000000", 1_700_000_000_000],
+        ["1700000000123", 1_700_000_000_123],
+    ])("将实时消息时间 %s 统一为毫秒", (msgTime, expected) => {
+        expect(adaptRawMessage(makeMsg({ msgTime }), adaptOpts()).timestamp).toBe(expected);
     });
+
+    it("实时消息的非法时间回退到当前时间", () => {
+        const now = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_123);
+        try {
+            expect(adaptRawMessage(makeMsg({ msgTime: "NaN" }), adaptOpts()).timestamp).toBe(
+                1_800_000_000_123,
+            );
+        } finally {
+            now.mockRestore();
+        }
+    });
+});
+
+describe("normalizeMessageTime", () => {
+    it("接受运行时数字和字符串时间戳", () => {
+        expect(normalizeMessageTime(1_700_000_000)).toBe(1_700_000_000_000);
+        expect(normalizeMessageTime(1_700_000_000_123)).toBe(1_700_000_000_123);
+    });
+
+    it.each([undefined, null, "", " ", "NaN", "-1", "0", "1e12", 1.5, Infinity, {}, 8.65e15])(
+        "将非法时间 %j 视为缺失",
+        (raw) => expect(normalizeMessageTime(raw)).toBeUndefined(),
+    );
 });

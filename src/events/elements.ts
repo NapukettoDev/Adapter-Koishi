@@ -22,11 +22,11 @@ import type { CanonicalElement } from "@napuketto/kernel";
 import type { h } from "koishi";
 
 /** koishi h() 工厂最小面（type/attrs → 元素；单测用 mock 实现）。 */
-export type HFn = (
+export type HFn<Element = { type: string; attrs: Record<string, unknown>; toString(): string }> = (
     type: string,
     attrs?: Record<string, unknown>,
     ...children: unknown[]
-) => { type: string; attrs: Record<string, unknown>; toString(): string };
+) => Element;
 
 /**
  * koishi h() 工厂适配（apply() 层调用，绑定生产 h）。
@@ -35,18 +35,21 @@ export type HFn = (
  * 比 HFn 更复杂，cast 到最小面即可——运行时行为不变）。单测用 mockH()
  * （test-utils.ts），不 import koishi 主包（docs/guides/development.md 单测边界）。
  */
-export function bindKoishiH(koishiH: typeof h): HFn {
-    const factory = koishiH as unknown as HFn;
+export function bindKoishiH(koishiH: typeof h): HFn<ReturnType<typeof h>> {
+    const factory = koishiH as unknown as HFn<ReturnType<typeof h>>;
     return (type, attrs, ...children) => factory(type, attrs, ...children);
 }
 
 /** canonical 元素 → koishi 元素（数组）。 */
-export function toKoishiElements(elements: CanonicalElement[], h: HFn): unknown[] {
+export function toKoishiElements<Element>(
+    elements: CanonicalElement[],
+    h: HFn<Element>,
+): Element[] {
     return elements.map((element) => toKoishiElement(element, h));
 }
 
 /** 单个 canonical 元素 → koishi 元素。 */
-function toKoishiElement(element: CanonicalElement, h: HFn): unknown {
+function toKoishiElement<Element>(element: CanonicalElement, h: HFn<Element>): Element {
     switch (element.type) {
         case "text":
             // ⚠️ 标准 text 元素 = h("text", { content })（satorijs element 实证，

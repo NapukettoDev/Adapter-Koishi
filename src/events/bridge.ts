@@ -10,6 +10,7 @@
  */
 import type { RawMessage } from "@napuketto/kernel";
 import { adaptRawMessageWithMedia } from "./adapt.js";
+import { normalizeMessageTime } from "./message-time.js";
 import type { EventBridge, EventBridgeOptions, Ob11EventPayload } from "./types.js";
 
 /** 消息事件名。 */
@@ -18,13 +19,22 @@ const MSG_RECV_EVENT = "onRecvMsg";
 /** QQ 系统占位消息的发送者 uin（无业务内容，群通知走专门事件）。 */
 const SYSTEM_SENDER_UIN = "0";
 
+/** 兼容 QQ 服务端与宿主时钟偏差（NapukettoQQ #122）。 */
+const STARTUP_GRACE_SECONDS = 5;
+
 /** 事件桥（driver 事件源 → koishi dispatch）。 */
 export class NapukettoEventBridge implements EventBridge {
     private readonly options: EventBridgeOptions;
     private readonly ob11Listeners = new Set<(event: Ob11EventPayload) => void>();
+    private minMessageTime = 0;
 
     constructor(options: EventBridgeOptions) {
         this.options = options;
+    }
+
+    /** 在订阅或重新装配时记录基准，ready 回放沿用同一个值。 */
+    resetMessageBaseline(): void {
+        this.minMessageTime = (Math.floor(Date.now() / 1000) - STARTUP_GRACE_SECONDS) * 1000;
     }
 
     /** 处理一条 kernel 事件（apply() 层作为 DriverEvents.onEvent 注入）。 */
@@ -53,7 +63,11 @@ export class NapukettoEventBridge implements EventBridge {
             // failed: channel.id, channel.platform`（记录本身创建成功后续不复发，
             // 纯日志噪音，但无意义；框架侧根因见 koishijs/koishi#1545，真实消息
             // 批量到达的场景由 database 模块预热规避）。
-            if (raw.senderUin === SYSTEM_SENDER_UIN) {
+            const timestamp = normalizeMessageTime(raw.msgTime);
+            if (
+                raw.senderUin === SYSTEM_SENDER_UIN ||
+                (timestamp !== undefined && timestamp < this.minMessageTime)
+            ) {
                 continue;
             }
             this.dispatchMessage(raw);

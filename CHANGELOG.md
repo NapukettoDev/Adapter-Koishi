@@ -1,5 +1,12 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.39
+
+### Patch Changes
+
+- 将 QQ 历史消息转换成 Koishi 消息，支持向更早翻页及升序或降序显示。
+- 统一实时消息和历史消息的时间单位，并过滤登录及重连时推送的旧消息。握手期的新消息仍在就绪后派发。
+
 ## 0.0.38
 
 ### Patch Changes

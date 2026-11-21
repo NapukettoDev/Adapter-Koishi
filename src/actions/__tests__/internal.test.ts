@@ -8,7 +8,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ElementType } from "@napuketto/kernel";
+import { h } from "@satorijs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeRawMessage } from "../../events/test-utils.js";
 import { NapukettoInternal } from "../internal.js";
 import type { RequestFn } from "../types.js";
 
@@ -23,7 +26,7 @@ function createInternal(
     request: ReturnType<typeof vi.fn<RequestFn>>;
 } {
     const request = vi.fn<RequestFn>(impl ?? (async () => ({})));
-    const internal = new NapukettoInternal({ request });
+    const internal = new NapukettoInternal({ request, h });
     return { internal, request };
 }
 
@@ -103,34 +106,6 @@ describe("NapukettoInternal", () => {
         });
     });
 
-    it("getMessageList → msg.fetchMessages（before → msgId，next=末条）", async () => {
-        const { internal, request } = createInternal(async () => [{ msgId: "a" }, { msgId: "b" }]);
-        const list = await internal.getMessageList("123", "a", 10);
-        expect(request).toHaveBeenCalledWith("msg.fetchMessages", {
-            chatType: 2,
-            peerUin: "123",
-            count: 10,
-            msgId: "a",
-        });
-        expect(list).toEqual({ data: [{ msgId: "a" }, { msgId: "b" }], next: "b" });
-    });
-
-    it("getMessageList：无 before → 不带 msgId，count 默认 20", async () => {
-        const { internal, request } = createInternal(async () => []);
-        await internal.getMessageList("123");
-        expect(request).toHaveBeenCalledWith("msg.fetchMessages", {
-            chatType: 2,
-            peerUin: "123",
-            count: 20,
-        });
-    });
-
-    it("getMessageList：末条无 msgId → 不带 next", async () => {
-        const { internal } = createInternal(async () => [{ text: "x" }]);
-        const list = await internal.getMessageList("123");
-        expect(list).toEqual({ data: [{ text: "x" }] });
-    });
-
     it("markAsRead → msg.markRead", async () => {
         const { internal, request } = createInternal();
         await internal.markAsRead("123");
@@ -155,5 +130,142 @@ describe("NapukettoInternal", () => {
         const value = await internal._request("msg.sendMessage", { chatType: 2 });
         expect(value).toEqual({ ok: 1 });
         expect(request).toHaveBeenCalledWith("msg.sendMessage", { chatType: 2 });
+    });
+});
+
+describe("getMessageList", () => {
+    it("将群聊历史转为 Koishi 消息，保留原始 ID、文本、引用和毫秒精度", async () => {
+        const raw = makeRawMessage({
+            msgId: "7483933495418198130",
+            msgTime: "1700000000123",
+            elements: [
+                { elementType: ElementType.REPLY, replyElement: { replayMsgId: "original" } },
+                { elementType: ElementType.TEXT, textElement: { content: "你好" } },
+            ],
+        });
+        const { internal, request } = createInternal(async () => [raw]);
+        const result = await internal.getMessageList("10001");
+        expect(request).toHaveBeenCalledWith("msg.fetchMessages", {
+            chatType: 2,
+            peerUin: "10001",
+            count: 21,
+        });
+        expect(result).toEqual({
+            data: [
+                {
+                    id: "7483933495418198130",
+                    user: { id: "20001", name: "小明" },
+                    channel: { id: "10001", type: 0 },
+                    guild: { id: "10001" },
+                    elements: [h("quote", { id: "original" }), h.text("你好")],
+                    content: '<quote id="original"/>你好',
+                    quote: { id: "original" },
+                    timestamp: 1_700_000_000_123,
+                    createdAt: 1_700_000_000_123,
+                },
+            ],
+        });
+    });
+
+    it("私聊频道固定为查询对端，发送者取自各条记录，非法时间省略", async () => {
+        const received = makeRawMessage({
+            chatType: 1,
+            msgId: "received",
+            msgTime: "0",
+            sendNickName: "",
+            sendMemberName: "对方",
+        });
+        const sent = makeRawMessage({
+            chatType: 1,
+            msgId: "sent",
+            msgTime: "1600000000",
+            senderUin: "10086",
+            sendNickName: "本人",
+        });
+        const { internal, request } = createInternal(async () => [received, sent, { msgId: "" }]);
+        const { data } = await internal.getMessageList("private:20001");
+        expect(request).toHaveBeenCalledWith("msg.fetchMessages", {
+            chatType: 1,
+            peerUin: "20001",
+            count: 21,
+        });
+        expect(data).toMatchObject([
+            {
+                id: "sent",
+                user: { id: "10086", name: "本人" },
+                channel: { id: "private:20001", type: 1 },
+                timestamp: 1_600_000_000_000,
+            },
+            {
+                id: "received",
+                user: { id: "20001", name: "对方" },
+                channel: { id: "private:20001" },
+            },
+        ]);
+        expect(data[1]).not.toHaveProperty("timestamp");
+        expect(data[1]).not.toHaveProperty("createdAt");
+        expect(data[0]).not.toHaveProperty("guild");
+    });
+
+    it.each([true, false])(
+        "翻页不重复锚点且顺序不影响游标（服务端含锚点=%s）",
+        async (inclusive) => {
+            const history = ["newest", "newer", "older", "oldest"].map((msgId) =>
+                makeRawMessage({ msgId }),
+            );
+            const { internal, request } = createInternal(async (_action, params) => {
+                const anchor = params?.["msgId"];
+                const index = history.findIndex((message) => message.msgId === anchor);
+                const start = index < 0 ? 0 : index + (inclusive ? 0 : 1);
+                return history.slice(start, start + Number(params?.["count"]));
+            });
+
+            const first = await internal.getMessageList("123", undefined, 2);
+            expect(first.data.map((message) => message.id)).toEqual(["newer", "newest"]);
+            expect(first).toMatchObject({ next: "newer", prev: "newer" });
+            expect(request).toHaveBeenNthCalledWith(1, "msg.fetchMessages", {
+                chatType: 2,
+                peerUin: "123",
+                count: 3,
+            });
+
+            const second = await internal.getMessageList("123", first.next, 1, "before", "desc");
+            expect(second.data.map((message) => message.id)).toEqual(["older"]);
+            expect(second).toMatchObject({ next: "older", prev: "older" });
+            expect(request).toHaveBeenNthCalledWith(2, "msg.fetchMessages", {
+                chatType: 2,
+                peerUin: "123",
+                count: 3,
+                msgId: "newer",
+            });
+
+            const last = await internal.getMessageList("123", second.next, 1);
+            expect(last.data.map((message) => message.id)).toEqual(["oldest"]);
+            expect(last).not.toHaveProperty("next");
+            expect(last).not.toHaveProperty("prev");
+            await expect(internal.getMessageList("123", "oldest", 1)).resolves.toEqual({
+                data: [],
+            });
+
+            const descending = await internal.getMessageList("123", undefined, 2, "before", "desc");
+            expect(descending.data.map((message) => message.id)).toEqual(["newest", "newer"]);
+            expect(descending.next).toBe(first.next);
+        },
+    );
+
+    it.each(["after", "around"] as const)("明确拒绝 %s 分页", async (direction) => {
+        const { internal, request } = createInternal();
+        await expect(internal.getMessageList("123", "a", 1, direction)).rejects.toMatchObject({
+            code: "UNSUPPORTED",
+        });
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    it.each([0, -1, 1.5, NaN, Infinity, 2 ** 31])("拒绝非法 limit %s", async (limit) => {
+        const { internal, request } = createInternal();
+        await expect(internal.getMessageList("123", undefined, limit)).rejects.toMatchObject({
+            code: "INVALID_PARAM",
+        });
+        expect(request).not.toHaveBeenCalled();
     });
 });

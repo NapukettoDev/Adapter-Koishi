@@ -5,6 +5,7 @@
  * 对应 napcat 的 `internal._request`（§9.1）——把 HTTP 换成 IPC 请求即可。
  * koishi 主包不 import（单测崩溃，docs/guides/development.md 单测边界），类型用宽松结构 + 依赖注入。
  */
+import type { h, Universal } from "koishi";
 
 /** 传输抽象：IPC 动作请求（apply() 层注入 client.request 绑定）。 */
 export type RequestFn = (action: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -13,6 +14,8 @@ export type RequestFn = (action: string, params?: Record<string, unknown>) => Pr
 export interface NapukettoInternalOptions {
     /** 传输抽象（IPC 动作请求）。 */
     request: RequestFn;
+    /** Koishi 元素工厂，历史查询时使用。 */
+    h?: typeof h;
     /** 远程媒体下载失败等告警日志（缺省静默）。 */
     logger?: { warn(message: string): void };
 }
@@ -23,8 +26,5 @@ export interface PeerTarget {
     peerUin: string;
 }
 
-/** 消息列表响应（koishi MessageList 宽松形状）。 */
-export interface MessageListResponse<T> {
-    data: T[];
-    next?: string;
-}
+/** Koishi 双向分页列表。 */
+export type MessageListResponse<T> = Universal.BidiList<T>;
