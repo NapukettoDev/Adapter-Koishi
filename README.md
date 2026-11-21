@@ -66,28 +66,21 @@ bots:
 
 ---
 
-## 参与开发
+## 开发
 
 本仓库独立维护，依赖NPM上已发布的 `@napuketto/*` 包
 
 ```bash
 pnpm install
-pnpm check       # Biome + tsc
-pnpm test        # Vitest
-pnpm build       # tsdown → lib/index.cjs
+pnpm check
+pnpm test
+pnpm build
 pnpm build:client
 ```
 
-* **发布形态**：`lib/index.cjs`（CJS 入口）；`@napuketto/*` 与 koishi 生态按 external 处理，由 npm 安装提供；控制台前端单独构建到 `dist/`。
-* **源码开发**：`exports.development` 指向 `src/index.ts`（仅仓库内有效，发布包不含 `src`）；Koishi 以 `require()` 加载时通常走 `lib/index.cjs`，联调前先 `pnpm build`。
-* **本地联调**：`pnpm pack` 出 tarball 后 `pnpm add file:<tarball>`，验证完切回 registry 版本；不要用 workspace link。
-
-> [!NOTE]
-> `pnpm lint:client`（ESLint 检查 `.vue`）暂不可用：`@typescript-eslint/parser` 尚不支持 TypeScript 7；它不在 `pnpm check` 内。
-
 ---
 
-## 生态与导航
+## 文档
 
 * **文档**：[文档索引](./docs/README.md) ｜ [架构总览](./docs/architecture/overview.md) ｜ [配置](./docs/guides/configuration.md) ｜ [排障](./docs/guides/troubleshooting.md) ｜ [发布流程](./docs/operations/release.md) ｜ [更新日志](./CHANGELOG.md)
 * **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
