@@ -50,6 +50,20 @@ describe("NapukettoDriver 启动", () => {
 });
 
 describe("NapukettoDriver 停止", () => {
+    it("launch 返回前停止 → 回收随后返回的子进程", async () => {
+        const onReady = vi.fn();
+        const { driver, peers, spawns } = createHarness({ onReady });
+        driver.start();
+        driver.stop();
+        await flush();
+
+        expect(spawns[0]?.killed).toBe(true);
+        expect(peers).toHaveLength(0);
+        expect(driver.currentClient).toBeNull();
+        expect(driver.currentState).toBe("stopped");
+        expect(onReady).not.toHaveBeenCalled();
+    });
+
     it("stop → 发 control stop → 子进程退出 → stopped", async () => {
         const onExit = vi.fn();
         const { driver, spawns, peers } = createHarness({ onExit });

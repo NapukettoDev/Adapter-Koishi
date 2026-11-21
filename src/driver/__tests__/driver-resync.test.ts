@@ -2,7 +2,7 @@
  * driver-resync.test.ts：状态重同步单测（2026-09-06「能收不能发」事故自愈链路）。
  *
  * 场景：ready 等关键 status 消息被子进程 stdout 并发写撕裂丢失——事件照常
- * 派发（不依赖 ready）但发送请求因 clientRef 未就绪全数抛错。自愈链路：
+ * 到达时需等客户端就绪才能派发。自愈链路：
  * 事件触发 / booting 定期（20s）→ control status 查询 → 子进程重播最近
  * status → 幂等守卫防重复 onReady。
  */
@@ -26,7 +26,7 @@ function emitEvent(harness: DriverHarness): void {
 
 /** 捕获 client → 子进程 的 control status 查询（监听传输对端；stop 也会发
  * control，此处只统计 status 查询）。 */
-function captureControls(harness: DriverHarness): IpcMessage[] {
+function captureControls(harness: DriverHarness, onQuery?: () => void): IpcMessage[] {
     const controls: IpcMessage[] = [];
     const pair = harness.peers.at(-1);
     if (pair === undefined) {
@@ -36,21 +36,28 @@ function captureControls(harness: DriverHarness): IpcMessage[] {
         const msg = JSON.parse(line) as IpcMessage;
         if (msg.type === "control" && msg.payload.command === "status") {
             controls.push(msg);
+            onQuery?.();
         }
     });
     return controls;
 }
 
 describe("NapukettoDriver 状态重同步", () => {
-    it("booting 中收到 event → 发 control status 查询", async () => {
-        const harness = createHarness();
+    it("sessioning 中收到 event → 查询到 sessioning → 仍等待 ready", async () => {
+        const onEvent = vi.fn();
+        const harness = createHarness({ onEvent });
         harness.driver.start();
         await flush();
-        const controls = captureControls(harness);
+        harness.emit("sessioning");
+        const controls = captureControls(harness, () => harness.emit("sessioning"));
         emitEvent(harness);
         expect(controls).toEqual([
             { v: IPC_VERSION, type: "control", payload: { command: "status" } },
         ]);
+        expect(harness.driver.currentState).toBe("booting");
+        expect(onEvent).not.toHaveBeenCalled();
+        harness.emit("ready");
+        expect(onEvent).toHaveBeenCalledOnce();
         harness.driver.stop();
     });
 
@@ -101,40 +108,40 @@ describe("NapukettoDriver 状态重同步", () => {
 
     it("ready 丢失自愈：event 触发查询 → 子进程重播 ready → onReady 一次", async () => {
         const onReady = vi.fn();
-        const harness = createHarness({ onReady });
+        const onEvent = vi.fn();
+        const harness = createHarness({ onReady, onEvent });
         harness.driver.start();
         await flush();
         // 模拟子进程：ready 已发出但被撕裂丢失，仅 event 到达；收到 status 查询
         // 后重播 ready（对齐子进程 ipc-server 的 control status 行为）
-        const pair = harness.peers[0];
-        if (pair === undefined) {
-            throw new Error("尚无 spawn");
-        }
-        pair.peer.onLine((line) => {
-            const msg = JSON.parse(line) as IpcMessage;
-            if (msg.type === "control" && msg.payload.command === "status") {
-                harness.emit("ready");
-            }
-        });
+        captureControls(harness, () => harness.emit("ready"));
         emitEvent(harness);
         await flush();
         expect(harness.driver.currentState).toBe("ready");
         expect(onReady).toHaveBeenCalledOnce();
+        expect(onEvent).toHaveBeenCalledOnce();
+        expect(onReady).toHaveBeenCalledBefore(onEvent);
         harness.driver.stop();
     });
 
-    it("ready 重播幂等：重复 status ready 只触发一次 onReady", async () => {
+    it("软重登重播 ready：不重复 onReady，仍转发 logged_in 供上层校验账号", async () => {
         const onReady = vi.fn();
-        const harness = createHarness({ onReady });
-        harness.driver.start();
+        const onLogin = vi.fn();
+        const { driver, emit, peers, spawns } = createHarness({ onReady, onLogin });
+        driver.start();
         await flush();
-        harness.emit("ready");
-        await flush();
-        harness.emit("ready"); // control status 重播 / 重复送达
-        await flush();
-        expect(harness.driver.currentState).toBe("ready");
+        emit("ready");
+        const client = driver.currentClient;
+        emit("sessioning");
+        emit("ready");
+        const login = { state: "logged_in", selfInfo: { uin: "2", uid: "u2", nick: "n" } } as const;
+        peers[0]?.peer.write(encodeIpcMessage({ v: IPC_VERSION, type: "login", payload: login }));
+        expect(driver.currentState).toBe("ready");
+        expect(driver.currentClient).toBe(client);
         expect(onReady).toHaveBeenCalledOnce();
-        harness.driver.stop();
+        expect(onLogin).toHaveBeenCalledExactlyOnceWith(login);
+        driver.stop();
+        spawns[0]?.emitExit(0, null);
     });
 
     it("onJunkLine 透传：子进程脏行触发回调", async () => {
