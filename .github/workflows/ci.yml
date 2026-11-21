@@ -3,7 +3,7 @@
 # 验证的是**发布形态**：依赖从 npm registry 安装（不再是主仓 workspace 本地 link），
 # 所以这里的绿才真的等于「装插件的人拿到的组合能跑」。
 #
-# 顺序：install → build（tsdown + 控制台前端）→ check（biome/tsc/eslint）→ test。
+# 顺序：install → build（tsdown + 控制台前端）→ check（biome/tsc）→ test。
 # build 前置：check 的 tsc 走 NodeNext 解析 @napuketto/* 的 exports，dist 类型必须存在。
 #
 # runs-on 固定 ubuntu-24.04（与主仓一致，避免 ubuntu-latest 迁移窗口漂移）；
@@ -46,16 +46,23 @@ jobs:
                   node-version: 24
                   cache: pnpm
 
-            - name: 安装依赖（frozen-lockfile 锁死供应链）
-              run: pnpm install --frozen-lockfile
+            - name: 安装依赖并验证 peer 与发布龄
+              run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
             - name: 构建（CJS bundle + 控制台前端）
               run: pnpm build && pnpm build:client
 
-            - name: biome + tsc + eslint
+            - name: biome + tsc
               run: pnpm check
 
-            - name: 单测
+            - name: 验证 Napuketto 依赖组
+              run: node tooling/sync-napuketto-deps.mjs --verify
+
+            - name: 确认宿主依赖 PR 测试的是 npm latest
+              if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'dependabot/npm_and_yarn/koishi-host-')
+              run: node tooling/sync-napuketto-deps.mjs --verify-hosts
+
+            - name: 测试（含已发布 loader 的 IPC 契约）
               run: pnpm test
 
     windows:

@@ -54,6 +54,9 @@ bots:
 | `networkEntry` | `string` | 依赖自动解析 | OB11 动作桥 network 入口覆盖（高级项） |
 | `heartbeatTimeoutMs` | `number` | `45000` | 子进程心跳超时（毫秒），超时判定失联并重启 |
 | `ob11Actions` | `boolean` | `true` | 是否挂载 OneBot 11 动作、原始订阅和标准成员变动 / 请求事件。消息与撤回仍通过 kernel IPC 提供 |
+| `remoteMediaPolicy` | `compatible` \| `public-only` | `compatible` | 出站 HTTP(S) 媒体下载策略 |
+| `localFilePolicy` | `legacy` \| `allowlist` | `legacy` | 出站本地媒体路径策略 |
+| `localMediaRoots` | `string[]` | `[]` | 本地媒体白名单目录，供 `allowlist` 使用 |
 | `logLevel` | `debug` \| `info` \| `error` \| `silent` | `debug` | 插件日志等级 |
 | `restart.maxRetries` | `number` | `3` | 子进程崩溃/失联最大重启次数；`0` = 不重启 |
 | `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒） |
@@ -82,7 +85,7 @@ bots:
 
 - **Windows**：缺省 `resolveQqInstall()` 自动探测本机 QQ NT；显式 `qqPath` 时直接使用。
 - **Linux / WSL**：使用标准 Linux Node 和 ELF stub。loader 探测 `/opt/QQ`，也可通过 `NAPUTO_QQ_DIR` 指定官方 deb 的其他安装目录。缺失时复用数据根缓存或下载并解包，阶段日志显示进度。
-- Wine 已退役。WSL 需要使用 Linux 版 QQ 文件和 Linux 文件系统上的数据目录，Windows PE 版 `wrapper.node` 无法加载。
+- Linux / WSL 直接运行原生 ELF 宿主，无需 Wine。WSL 使用 Linux 版 QQ 文件及 Linux 文件系统上的数据目录。
 
 ## 登录
 

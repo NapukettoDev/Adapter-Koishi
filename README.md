@@ -68,6 +68,18 @@ bots:
 
 完整配置项、默认值与多账号说明见 [配置文档](./docs/guides/configuration.md)。
 
+### 功能覆盖
+
+| 功能 | Koishi 适配器 |
+| :--- | :--- |
+| 消息收发、历史与撤回 | kernel IPC。收发支持文字、@、图片、表情、语音和引用，发送另支持视频 |
+| 好友、群组与频道查询 | kernel IPC 提供好友、群列表和群文本频道 |
+| 用户和群成员查询、踢人和禁言 | 默认启用的 OneBot 11 动作桥 |
+| 群成员变动、好友与入群申请 | OneBot 11 事件映射为 Koishi session，支持标准申请审批方法 |
+| 其它 OneBot 11 动作和事件 | 通过 `bot.internal._request()` 与 `bot.onOb11()` |
+
+详细的字段、动作和降级规则见 [事件桥](./docs/internals/events.md) 与 [动作桥](./docs/internals/actions.md)。
+
 ---
 
 ## 文档
