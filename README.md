@@ -41,7 +41,7 @@ npm install koishi-plugin-adapter-napuketto
 
 
 <details>
-<summary><b>或通过编辑`koishi.yml`</b></summary>
+<summary><b>或通过编辑 koishi.yml</b></summary>
 
 插件本身留空，账号配置挂在 `bots` 下（平台名为 `onebot`）：
 
@@ -68,7 +68,7 @@ bots:
 
 ## 文档
 
-* **文档**：[文档索引](./docs/README.md) ｜ [架构总览](./docs/architecture/overview.md) ｜ [配置](./docs/guides/configuration.md) ｜ [排障](./docs/guides/troubleshooting.md) ｜ [发布流程](./docs/operations/release.md) ｜ [更新日志](./CHANGELOG.md)
+* **文档**：[文档索引](./docs/README.md) ｜ [架构总览](./docs/architecture/overview.md) ｜ [配置](./docs/guides/configuration.md) ｜ [排障](./docs/guides/troubleshooting.md)
 * **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
 
 ---
