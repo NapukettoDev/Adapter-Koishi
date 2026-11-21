@@ -12,7 +12,7 @@ bot.internal.<method>()
        └─ request("msg.sendMessage", params)  → IPC action → 子进程
 ```
 
-涉及代码：`src/actions/internal.ts`、`elements.ts`、`channel.ts`、`media.ts`、`types.ts`。
+涉及代码：`src/actions/internal.ts`、`ob11-resources.ts`、`elements.ts`、`channel.ts`、`media.ts`、`types.ts`。
 
 ## 两个动作面
 
@@ -46,6 +46,25 @@ OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见
 
 私聊目标是当前已登录账号时，消息动作使用登录返回的 `peerUid`，避开 Linux 自聊缺少 UIN 查找记录的情况。其他频道仍按 `peerUin` 交给 loader。
 
+### Koishi 用户、群成员与频道
+
+| Bot 方法 | IPC 动作 | 契约 |
+| :--- | :--- | :--- |
+| `getUser(userId, guildId?)` | `get_stranger_info` / `get_group_member_info` | 无群上下文时查 QQ 资料，传入群号时使用该群的成员资料。返回 `Universal.User`，昵称缺失时使用 QQ 号。 |
+| `getGuildMember(guildId, userId)` | `get_group_member_info` | 返回 `Universal.GuildMember`，包含用户以及可用的群名片、头衔、角色和入群时间（毫秒）。 |
+| `getGuildMemberList(guildId, next?)` | `get_group_member_list` | 一次返回 `{ data }`。上游无法解析 QQ 号的成员不会出现在结果里。 |
+| `kickGuildMember(guildId, userId, permanent?)` | `set_group_kick` | 返回 `void`。仅 `permanent: true` 请求拒绝该成员再次入群。 |
+| `muteGuildMember(guildId, userId, duration, reason?)` | `set_group_ban` | 返回 `void`。非负整数毫秒向上取整为秒，`0` 解除禁言。QQ 动作没有说明字段，`reason` 不传给宿主。 |
+| `getChannelList(guildId, next?)` | `group.getGroupList` | 验证 Bot 所在群，返回 `{ data: [channel] }`。普通 QQ 群只有一个文本频道，频道 ID 和名称沿用群号和群名。群不存在时返回 `NOT_FOUND`。 |
+
+成员列表和频道列表均无下一页，非空 `next` 返回 `INVALID_PARAM`。OB11 用户和群管理方法接受正整数形式的 QQ 号字符串，
+IPC 参数使用 OB11 要求的安全整数。查询响应的数据或标识不匹配时返回 `INVALID_RESPONSE`。
+
+用户、成员查询和群管理依赖默认启用的 OB11 动作桥。QQ 根据已登录机器人的群权限和目标成员角色决定是否允许踢人、禁言或审批，
+适配器不会预先假定权限或把失败当成成功。OB11 业务失败时 `IpcError.code` 保留数字 `retcode` 的字符串，
+例如 `"101"` 表示上游明确报告权限不足，`"102"` 表示上游报告资源或请求不存在。原生群管理也可能以通用错误 `"999"` 报告拒绝。
+动作桥关闭或降级时由 IPC 返回动作不可用错误，频道查询继续使用 kernel。
+
 ### 消息历史
 
 - 群聊使用群号，好友私聊使用 `private:<对端 QQ 号>`。接口没有临时会话所需的群上下文。
@@ -58,6 +77,12 @@ OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见
   IPC 的请求条数限制在有符号 32 位整数范围内。
   当前页排除锚点。还有更早消息时，`next` 和 `prev` 都是当前页最早的消息 ID，与显示顺序无关。
 - 直接构造 `NapukettoInternal` 时，调用历史查询需要传入 Koishi 元素工厂 `h`。Bot 会自动装配该选项。
+
+当前 IPC 未提供 Koishi `getMessage` 和 `createReaction` 所需的原生 ID 动作。`msg.fetchMessages` 按锚点读历史，
+没有按 ID 精确取回锚点消息的契约。OB11 `get_msg` 和 `set_msg_emoji_like` 使用子进程分配的 `message_id`；
+Koishi 实时消息、历史和撤回使用原生 `msgId`。表态的原生调用还需要该消息的 `msgSeq` 和 QQ 表情 ID。
+上游分别跟进[按原生 ID 查消息](https://github.com/NapukettoDev/NapukettoQQ/issues/172)
+和[按原生 ID 添加表态](https://github.com/NapukettoDev/NapukettoQQ/issues/173)。
 
 ## channelId 解析
 
@@ -159,6 +184,7 @@ kernel 动作面（launch 已就绪）：
 `bot.handleGuildMemberRequest(messageId, approve, comment?)` 消费对应请求 Session 的 `messageId`。
 适配器将它作为 OB11 `flag` 原样传给 `set_friend_add_request` 或 `set_group_add_request`。
 同意好友请求时，`comment` 用作好友备注，拒绝时省略备注。群申请的 `comment` 作为审批说明传递。
-这两个方法依赖 OB11 动作桥，子进程返回失败时方法会拒绝 Promise。
+好友请求的标识来自 QQ 的 `reqTime`，入群申请来自群通知 `seq`。标识也可能超出 JavaScript 安全整数范围，
+审批时保持字符串。过期、权限不足及其他 OB11 失败会拒绝 Promise。
 
 **明确不支持**：Satori 动作面、`session.onebot.*` 驼峰兼容糖、网络传输与心跳/生命周期广播。

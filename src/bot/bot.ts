@@ -22,6 +22,7 @@
 import { join } from "node:path";
 import { resolveDataRoot } from "@napuketto/kernel";
 import { Bot, type Context as KoishiContext, type MessageEncoder, type Universal } from "koishi";
+import { requireFirstPage } from "../actions/ob11-resources.js";
 import { type LogLevel, type NapukettoBotConfig, napukettoConfigSchema } from "../config.js";
 import { BOT_STATUS, PRIVATE_PREFIX } from "../constants.js";
 import { NapukettoDatabase } from "../database/index.js";
@@ -31,6 +32,7 @@ import type {
     NapukettoSessionFields,
     Ob11EventPayload,
 } from "../events/index.js";
+import { IpcError } from "../ipc/errors.js";
 import type { IpcLoginPayload, NapukettoIpcClient } from "../ipc/index.js";
 import type { NapukettoLoginState } from "../login/index.js";
 import { buildLaunch } from "./launch.js";
@@ -230,6 +232,38 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         await this.internal.handleGuildMemberRequest(messageId, approve, comment);
     }
 
+    override async getUser(userId: string, guildId?: string): Promise<Universal.User> {
+        return this.internal.getUser(userId, guildId);
+    }
+
+    override async getGuildMember(guildId: string, userId: string): Promise<Universal.GuildMember> {
+        return this.internal.getGuildMember(guildId, userId);
+    }
+
+    override async getGuildMemberList(
+        guildId: string,
+        next?: string,
+    ): Promise<Universal.List<Universal.GuildMember>> {
+        return this.internal.getGuildMemberList(guildId, next);
+    }
+
+    override async kickGuildMember(
+        guildId: string,
+        userId: string,
+        permanent?: boolean,
+    ): Promise<void> {
+        await this.internal.kickGuildMember(guildId, userId, permanent);
+    }
+
+    override async muteGuildMember(
+        guildId: string,
+        userId: string,
+        duration: number,
+        _reason?: string,
+    ): Promise<void> {
+        await this.internal.muteGuildMember(guildId, userId, duration);
+    }
+
     /** 登录信息（优先本地登录快照 self；缺省走 IPC login.getSelf 兜底）。 */
     override async getLogin(): Promise<Universal.Login> {
         // 登录成功时 kernel 已推送 selfInfo（sendLogin logged_in → snapshot.self），
@@ -284,7 +318,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         const guilds = await this.getGuildList();
         const guild = guilds.data.find((item) => item.id === guildId);
         if (guild === undefined) {
-            throw new Error(`群不存在: ${guildId}`);
+            throw new IpcError(`群不存在: ${guildId}`, "NOT_FOUND");
         }
         return guild;
     }
@@ -297,6 +331,15 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         }
         const guild = await this.getGuild(channelId);
         return toTextChannel(channelId, guild.name);
+    }
+
+    override async getChannelList(
+        guildId: string,
+        next?: string,
+    ): Promise<Universal.List<Universal.Channel>> {
+        requireFirstPage(next);
+        const guild = await this.getGuild(guildId);
+        return { data: [toTextChannel(guild.id, guild.name)] };
     }
 
     // ── 内部 ──

@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.44
+
+### Patch Changes
+
+- 接入 Koishi 用户查询、群成员查询与列表、踢人、禁言和群频道列表。普通 QQ 群返回单一文本频道，禁言把毫秒换算为 QQ 所需的秒。
+
 ## 0.0.43
 
 ### Patch Changes
