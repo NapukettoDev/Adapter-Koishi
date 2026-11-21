@@ -168,7 +168,7 @@ kernel 动作面（launch 已就绪）：
    `NAPUTO_ADAPTER_ENTRY` / `NAPUTO_NETWORK_ENTRY`。任一入口解析失败 → 记录降级，子进程不挂载。
 2. 子进程登录成功后，loader 动态 import adapter 的 `onebot11` / `core` 子路径与 network 入口，
    实例化 `NapukettoOneBot11Adapter`，只调用 `subscribeOnly()`：接收链路生效，**不启动 HTTP/WS**。
-3. loader 将已安装的 OneBot 11 注册表整表挂到 IPC。随 `@napuketto/adapter@0.18.20` 安装时有 81 个注册名，
+3. loader 将已安装的 OneBot 11 注册表整表挂到 IPC。随 `@napuketto/adapter@0.18.22` 安装时有 81 个注册名，
    含别名变体。`OB11 动作名` 与 kernel 点分名空间分开。
 4. OB11 事件经桥适配器 → `event { service: "ob11", name: post_type, args: [event] }`。
 5. 动态 import / 构造 / 挂载失败只打日志，保留纯 kernel 动作面，登录链路不受影响。
