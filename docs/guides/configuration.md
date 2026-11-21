@@ -58,7 +58,7 @@ bots:
 | `remoteMediaPolicy` | `compatible` \| `public-only` | `compatible` | 出站 HTTP(S) 媒体下载策略 |
 | `localFilePolicy` | `legacy` \| `allowlist` | `legacy` | 出站本地媒体路径策略 |
 | `localMediaRoots` | `string[]` | `[]` | 本地媒体白名单目录，供 `allowlist` 使用 |
-| `logLevel` | `debug` \| `info` \| `error` \| `silent` | `debug` | 插件日志等级 |
+| `logLevel` | `debug` \| `info` \| `error` \| `silent` | `debug` | 当前账号的 Bot 日志等级 |
 | `restart.maxRetries` | `number` | `3` | 子进程崩溃/失联最大重启次数；`0` = 不重启 |
 | `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒） |
 | `restart.backoffFactor` | `number` | `2` | 退避乘数（1s / 2s / 4s） |
@@ -101,12 +101,12 @@ YAML 中请给 QQ 号加引号以保留字符串原值。登录成其他 QQ 号�
 
 ## 日志等级
 
-`logLevel` 通过 reggol 设置 bot logger 的等级（debug=3 / info=2 / error=1 / silent=0）：
+`logLevel` 按 `selfId` 设置对应的 Koishi/reggol logger `onebot-<selfId>`，不同账号可独立设置。
+等级为 debug=3 / info=2 / error=1 / silent=0。
 
 - 子进程 `log` 转发、driver 状态、事件转发等都是 debug 级；默认 `debug` 便于排查。
 - 消息派发日志是 info 级；调成 `info` 可保留消息日志但关闭高频事件日志。
-- 控制台 provider 的 `get()` / `update()` 诊断也是 debug 级，使用同一个 bot logger，因此 `logLevel`
-  对它同样生效。
+- 登录面板、控制台 provider 和收发媒体都通过对应账号的 Bot logger 将日志交给 Koishi。
 
 ## 多账号
 

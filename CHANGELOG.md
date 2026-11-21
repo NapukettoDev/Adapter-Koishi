@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.52
+
+### Patch Changes
+
+- 各账号独立设置 Bot、登录面板、驱动和收发媒体的日志等级。Koishi 日志名称为 `onebot-<selfId>`，默认等级仍为 `debug`。
+
 ## 0.0.51
 
 ### Patch Changes

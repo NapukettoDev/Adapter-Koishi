@@ -43,8 +43,8 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 `constructor(ctx, config)` 顺序：
 
 1. `super(ctx, config, "onebot")`。
-2. `logger.level = LOG_LEVEL_MAP[config.logLevel ?? "debug"]`（reggol：debug=3 / info=2 /
-   error=1 / silent=0）。
+2. 通过 `ctx.logger` 创建账号 logger `onebot-<selfId>` 并设置 `logLevel`。
+   reggol 按名称存储等级，独立名称保留 Koishi 的日志输出渠道和 `onebot` 的等级配置。
 3. `selfId = config.selfId`（satorijs accessor 写入 `user.id`）；`user.avatar` 指向
    `q.qlogo.cn` 头像。
 4. `login = createLoginState(...)`：状态变化时同步 user 的 id/name 并推送控制台面板。

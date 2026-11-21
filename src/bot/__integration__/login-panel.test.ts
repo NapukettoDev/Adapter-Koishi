@@ -1,12 +1,14 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { ElementType } from "@napuketto/kernel";
 import { launchSelfHost } from "@napuketto/loader";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LogLevel } from "../../config.js";
 import type { LoginPanelPayload } from "../../console/types.js";
 import { BOT_STATUS } from "../../constants.js";
 import type { DriverEvents } from "../../driver/types.js";
@@ -50,10 +52,10 @@ vi.mock("koishi", () => {
         dispatch = vi.fn();
         session = (event: object) => ({ ...event });
 
-        constructor(ctx: { logger: unknown }, config: unknown) {
+        constructor(ctx: { logger(name: string): unknown }, config: unknown, adapterName: string) {
             this.ctx = ctx;
             this.config = config;
-            this.logger = ctx.logger;
+            this.logger = ctx.logger(adapterName);
         }
     }
     class MessageEncoder {}
@@ -106,6 +108,13 @@ vi.mock("@napuketto/loader", async (importOriginal) => ({
 const SELF_ID = "10001";
 const RESTART_DELAY_MS = 100;
 const selfInfo = { uin: SELF_ID, uid: "u1", nick: "测试账号" };
+
+// 复用 Satori 的实际 Logger，实现名称共享等级的回归测试，同时保持 Koishi 运行时为 mock。
+const requireKoishi = createRequire(import.meta.resolve("koishi"));
+const requireSatori = createRequire(requireKoishi.resolve("@satorijs/core"));
+const { Logger } = requireSatori("cordis") as Pick<typeof import("koishi"), "Logger">;
+const originalLogLevels = Logger.levels;
+const originalLogTargets = Logger.targets;
 
 class IpcChild extends EventEmitter {
     readonly pid = 1000;
@@ -321,8 +330,7 @@ interface TestConsoleListener {
     readonly options: { authority?: number } | undefined;
 }
 
-function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), level: 0 };
+function setupPanel(selfId = SELF_ID, consoleHost = createConsole(), logLevel?: LogLevel) {
     const effects = new Set<() => void>();
     const ctx = {
         ...consoleHost.createScope(effects),
@@ -332,17 +340,22 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
             setup(this);
         },
         root: consoleHost.root,
-        logger,
+        logger: Object.assign((name: string) => new Logger(name), {
+            info: new Logger("napuketto").info,
+        }),
     };
     const bot = new NapukettoBot(ctx as unknown as ConstructorParameters<typeof NapukettoBot>[0], {
         selfId,
         qqPath: "test-qq/QQ.exe",
         restart: { backoffMs: RESTART_DELAY_MS },
+        ...(logLevel === undefined ? {} : { logLevel }),
     });
+    vi.spyOn(bot.logger, "info");
+    vi.spyOn(bot.logger, "warn");
     const serviceName = `console.services.napuketto-login-${selfId}`;
     return {
         bot,
-        logger,
+        logger: bot.logger,
         serviceName,
         provider: consoleHost.services.get(serviceName),
         listener(action: "refresh-qr" | "relogin" | "qr-login"): TestConsoleListener | undefined {
@@ -368,10 +381,16 @@ function setupPanel(selfId = SELF_ID, consoleHost = createConsole()) {
 const launch = vi.mocked(launchSelfHost);
 let children: IpcChild[];
 let baseDir: string;
+let logRecords: { name: string; type: string; content: string }[];
 
 beforeEach(() => {
     vi.useFakeTimers();
     children = [];
+    logRecords = [];
+    Logger.levels = { base: Logger.INFO, onebot: Logger.ERROR };
+    Logger.targets = [
+        { record: ({ name, type, content }) => logRecords.push({ name, type, content }) },
+    ];
     baseDir = mkdtempSync(join(tmpdir(), "napuketto-console-test-"));
     launch.mockReset().mockImplementation(async () => {
         const child = new IpcChild();
@@ -387,6 +406,9 @@ afterEach(() => {
     }
     vi.clearAllTimers();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
+    Logger.levels = originalLogLevels;
+    Logger.targets = originalLogTargets;
     rmSync(baseDir, { recursive: true, force: true });
 });
 
@@ -405,6 +427,70 @@ function latestChild(): IpcChild {
 }
 
 describe("控制台事件到子进程 IPC 的接线", () => {
+    it.each([
+        ["默认 debug", SELF_ID, undefined, "10002", "silent"],
+        ["silent", "10002", "silent", SELF_ID, undefined],
+    ] as const)(
+        "先启动 %s 时，两个账号的日志等级仍独立",
+        async (_, firstId, firstLevel, secondId, secondLevel) => {
+            const shared = createConsole();
+            const first = setupPanel(firstId, shared, firstLevel);
+            const firstChild = await startBot(first.bot);
+            const second = setupPanel(secondId, shared, secondLevel);
+            const secondChild = await startBot(second.bot);
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(async () => new Response(null, { status: 404 })),
+            );
+
+            for (const [account, child, selfId] of [
+                [first, firstChild, firstId],
+                [second, secondChild, secondId],
+            ] as const) {
+                child.qr("https://example.com/qr?ticket=qr-ticket", "cWgtc2VjcmV0");
+                child.ready(selfId);
+                child.send({
+                    v: IPC_VERSION,
+                    type: "log",
+                    payload: { level: "info", message: "宿主就绪" },
+                });
+                child.receiveMessage();
+                await vi.advanceTimersByTimeAsync(0);
+                expect(account.bot.dispatch).toHaveBeenCalledOnce();
+                expect(
+                    await account.provider?.get(false, {
+                        auth: { authority: 2, expiredAt: Date.now() + 60_000 },
+                    }),
+                ).toMatchObject({ selfId, state: "idle" });
+                await account.bot.internal.sendMessage("private:20001", [
+                    {
+                        type: "img",
+                        attrs: { src: "https://example.com/image.png?token=media-token" },
+                    },
+                ]);
+            }
+
+            expect(new Logger("onebot").level).toBe(Logger.ERROR);
+            const botLogs = logRecords.filter(({ name }) => name.startsWith("onebot"));
+            expect(new Set(botLogs.map(({ name }) => name))).toEqual(
+                new Set([`onebot-${SELF_ID}`]),
+            );
+            expect(botLogs.map(({ type, content }) => `${type}: ${content}`)).toEqual(
+                expect.arrayContaining([
+                    "debug: [napuketto] 二维码更新",
+                    "debug: [napuketto] 引导阶段: ready",
+                    "debug: [napuketto 子进程] 宿主就绪",
+                    "debug: [napuketto] 控制台客户端权限不足，返回脱敏登录快照",
+                    expect.stringContaining("info: [napuketto] dispatch:"),
+                    expect.stringContaining("warn: [napuketto] 远程媒体下载失败"),
+                ]),
+            );
+            expect(logRecords.map(({ content }) => content).join("\n")).not.toMatch(
+                /qr-ticket|cWgtc2VjcmV0|media-token/,
+            );
+        },
+    );
+
     it("同账号顺序卸载后，重建服务、控制监听和连接回放", async () => {
         const shared = createConsole();
         const first = setupPanel(SELF_ID, shared);
