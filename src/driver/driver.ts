@@ -123,9 +123,12 @@ export class NapukettoDriver {
         return this.state;
     }
 
-    /** 当前 IPC 客户端（重启后实例会换；ready 时经 onReady 重新获取）。 */
+    /** 引导期和就绪期均可取得当前打开的 IPC 连接。 */
     get currentClient(): NapukettoIpcClient | null {
-        return this.client;
+        if (this.state !== "booting" && this.state !== "ready") {
+            return null;
+        }
+        return this.client?.alive === true ? this.client : null;
     }
 
     /** 已重启次数（诊断用）。 */

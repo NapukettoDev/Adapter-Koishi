@@ -80,6 +80,7 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 
 不适合放进单测的：`bot.ts`、`message.ts`、`login-panel.ts`、`assembly.ts`、`config.ts`、
 `console/provider.ts`、`index.ts`——它们运行时 import koishi/console。
+登录面板接线集成测试替换 Koishi/控制台运行时和真实子进程，经实际注册的控制台事件验证 driver 发出的 IPC。
 
 ## 代码约定
 
