@@ -95,7 +95,9 @@ export interface DriverEvents {
     onLog?(payload: IpcLogPayload): void;
     /** 就绪（每轮就绪回调，客户端实例随重启更换）。 */
     onReady?(): void;
-    /** 子进程退出（code/signal/原因：crash/stale/stop）。 */
+    /** 手动重启登录开始（旧宿主退出前）。 */
+    onLoginRestart?(): void;
+    /** 子进程退出（带退出码、信号和原因）。 */
     onExit?(info: { code: number | null; signal: string | null; reason: ExitReason }): void;
     /** 驱动错误（spawn 失败、重启达上限等）。 */
     onError?(error: unknown): void;
@@ -104,4 +106,4 @@ export interface DriverEvents {
 }
 
 /** 退出原因。 */
-export type ExitReason = "crash" | "stale" | "stop" | "spawn-error";
+export type ExitReason = "crash" | "stale" | "stop" | "restart" | "spawn-error";

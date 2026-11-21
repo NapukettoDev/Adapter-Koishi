@@ -166,6 +166,16 @@ export class NapukettoDriver {
         void this.spawnProcess("start");
     }
 
+    /** 结束当前宿主，确认退出后启动新一轮登录。 */
+    restartLogin(): boolean {
+        const host = this.host;
+        if (host === null || this.currentClient === null) {
+            return false;
+        }
+        this.beginTermination(host, "restart");
+        return true;
+    }
+
     /** 主动停止，等待确认退出或终止超时；期间取消重启。 */
     stop(): Promise<void> {
         if (this.stopCompletion !== null) {
@@ -384,7 +394,7 @@ export class NapukettoDriver {
         }
     }
 
-    private beginTermination(host: HostProcess, reason: "stop" | "stale" | "spawn-error"): void {
+    private beginTermination(host: HostProcess, reason: Exclude<ExitReason, "crash">): void {
         host.reason = reason;
         if (host.timer !== undefined) {
             return; // 主动停止可以接管当前终止流程，沿用已安排的升级期限。
@@ -394,11 +404,14 @@ export class NapukettoDriver {
         }
         this.heartbeat.stop();
         const client = this.client;
-        if (reason === "stop" && client?.alive === true) {
-            // 先设期限，发送 stop 时子进程可能已经退出。
+        if ((reason === "stop" || reason === "restart") && client?.alive === true) {
+            // 先设期限，控制指令可能导致子进程立即退出。
             host.timer = setTimeout(() => this.signalHost(host, "SIGTERM"), EXIT_TIMEOUT_MS);
             try {
-                client.sendControl({ command: "stop" });
+                if (reason === "restart") {
+                    this.events.onLoginRestart?.();
+                }
+                client.sendControl({ command: host.reason === "stop" ? "stop" : "restart" });
             } catch (err) {
                 this.events.onError?.(err);
             } finally {
@@ -484,7 +497,7 @@ export class NapukettoDriver {
         this.heartbeat.stop();
         this.closeClient();
         this.releaseAccount();
-        if (host.reason === "spawn-error" || host.reason === "stop") {
+        if (host.reason === "spawn-error" || host.reason === "stop" || host.reason === "restart") {
             host.cleanup?.();
         }
 
@@ -497,6 +510,8 @@ export class NapukettoDriver {
         const failure = this.getExitError(host, code);
         if (host.reason === "stop") {
             this.finishStop();
+        } else if (host.reason === "restart") {
+            this.scheduleRestart(0); // 手动重启从新的崩溃重试配额开始。
         } else if (host.reason === "spawn-error" || failure !== null) {
             this.setState("failed");
         } else {
@@ -509,7 +524,7 @@ export class NapukettoDriver {
     }
 
     private getExitError(host: HostProcess, code: number | null): IpcError | null {
-        if (host.reason === "stop" || host.reason === "spawn-error") {
+        if (host.reason === "stop" || host.reason === "restart" || host.reason === "spawn-error") {
             return null;
         }
         if (code === EXIT_CONFIG_INVALID || host.configInvalid === true) {
@@ -534,9 +549,12 @@ export class NapukettoDriver {
         this.events.onError?.(err);
     }
 
-    private scheduleRestart(): void {
-        const attempt = this.restartCount + 1;
-        const delay = backoffDelay(attempt, this.restart.backoffMs, this.restart.backoffFactor);
+    private scheduleRestart(attempt = this.restartCount + 1): void {
+        const delay = backoffDelay(
+            Math.max(1, attempt),
+            this.restart.backoffMs,
+            this.restart.backoffFactor,
+        );
         this.setState("restarting");
         this.restartTimer = setTimeout(() => {
             this.restartTimer = null;

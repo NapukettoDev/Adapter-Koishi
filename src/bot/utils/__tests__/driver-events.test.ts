@@ -27,6 +27,7 @@ function createHost(overrides: { isDisconnected?: () => boolean; isCurrent?: () 
         bridge: bridge as unknown as DriverEventsHost["bridge"],
         isDisconnected: overrides.isDisconnected ?? (() => false),
         handleReady,
+        handleLoginRestart: vi.fn(),
         clearClient,
         offline,
         onLoggedIn,

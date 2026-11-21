@@ -113,7 +113,9 @@ spawn 流程：
 
 ## 重启与停止
 
-- 子进程退出且非主动停止：`restartCount >= maxRetries` → `failed` + `onError`；否则
+- 控制台请求重启时，driver 发送 `control restart`，立即关闭旧 IPC，复用停止流程的分级终止期限。
+  确认旧宿主退出后启动新宿主。手动重启独立于崩溃重试配额，停用 Bot 会取消尚未执行的重启。
+- 子进程崩溃或失联退出：`restartCount >= maxRetries` → `failed` + `onError`；否则
   `restarting`，等待 `backoffDelay(attempt)` 后再次 spawn。
 - `restartCount` 在每次进入 ready 时清零。
 - 主动停止清除重启计时器并停止心跳，先给可用 IPC 发送 `control stop`，等待 5s 后发送 `SIGTERM`。

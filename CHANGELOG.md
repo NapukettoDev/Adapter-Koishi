@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.54
+
+### Patch Changes
+
+- 在线时重新登录或扫码登录会立即显示连接中，并在旧宿主确认退出后启动新宿主。扫码登录由新宿主直接出码，新会话就绪后机器人恢复在线。
+
 ## 0.0.53
 
 ### Patch Changes

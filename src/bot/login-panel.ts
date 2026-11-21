@@ -15,8 +15,8 @@ export interface LoginPanelDeps {
     sendControl: (payload: IpcControlPayload) => boolean;
     /** IPC 动作请求（刷新二维码；client 未就绪时 reject 由调用方处理）。 */
     request: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
-    /** 置一次性扫码标记，有连接时发 control restart；无连接时返回 false。 */
-    forceQrRestart: () => boolean;
+    /** 请求重启宿主，需要时为下次启动标记强制扫码。 */
+    restart: (forceQr: boolean) => boolean;
     /** 对应账号的 Bot logger。 */
     logger: Logger;
 }
@@ -54,7 +54,7 @@ export class NapukettoLoginPanel {
         this.publish?.();
     }
 
-    /** 重新登录（引导期原地重登，已登录时软重登）。 */
+    /** 重新登录（引导期原地重登，已登录时重启宿主）。 */
     requestRelogin(): void {
         this.relogin(false);
     }

@@ -9,6 +9,57 @@ import { createHarness, FakeChild, flush } from "../test-utils.js";
 import type { DriverLauncher } from "../types.js";
 
 describe("NapukettoDriver 重启", () => {
+    it("手动重启不消耗崩溃重试配额，并等待旧宿主退出", async () => {
+        vi.useFakeTimers();
+        try {
+            const onExit = vi.fn();
+            const { driver, spawns } = createHarness(
+                { onExit },
+                { restart: { maxRetries: 0, backoffMs: 100 } },
+            );
+            driver.start();
+            await flush();
+            expect(driver.restartLogin()).toBe(true);
+            expect(driver.restartLogin()).toBe(false);
+            expect(driver.currentClient).toBeNull();
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(spawns[0]?.signals).toEqual(["SIGTERM"]);
+            expect(spawns).toHaveLength(1);
+
+            spawns[0]?.emitExit(null, "SIGTERM");
+            await vi.advanceTimersByTimeAsync(100);
+            expect(onExit).toHaveBeenCalledExactlyOnceWith({
+                code: null,
+                signal: "SIGTERM",
+                reason: "restart",
+            });
+            expect(spawns).toHaveLength(2);
+            expect(driver.restartAttempts).toBe(0);
+            spawns[1]?.emitExit(1, null);
+            expect(driver.currentState).toBe("failed");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("等待手动重启期间停用 Bot 会取消重启", async () => {
+        vi.useFakeTimers();
+        try {
+            const { driver, spawns } = createHarness({});
+            driver.start();
+            await flush();
+            expect(driver.restartLogin()).toBe(true);
+            const stopping = driver.stop();
+            spawns[0]?.emitExit(0, null);
+            await stopping;
+            await vi.advanceTimersByTimeAsync(100);
+            expect(driver.currentState).toBe("stopped");
+            expect(spawns).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("stdin 写入失败后关闭客户端，宿主真实退出后才释放账号并安排重启", async () => {
         vi.useFakeTimers();
         try {
