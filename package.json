@@ -1,6 +1,6 @@
 {
     "name": "koishi-plugin-adapter-napuketto",
-    "version": "0.0.36",
+    "version": "0.0.37",
     "description": "NapukettoQQ内嵌到Koishi的适配器：让Koishi直接驱动NapukettoQQ",
     "contributors": [
         "Oppenheymu <oppenheymu@gmail.com>"
