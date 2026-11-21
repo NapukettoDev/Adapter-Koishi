@@ -99,15 +99,19 @@ koishi 运行时。
 
 ## 收向语音解码
 
-`enrichReceiveVoice(elements, dataRoot)` 在 canonical → koishi 之前异步执行：
+`enrichReceiveVoice(elements, dataRoot)` 在 canonical → koishi 之前异步执行。语音路径来自
+`RawMessage.elements[].pttElement.filePath`，kernel 转成 canonical 时保留该值。Windows 和 Linux
+均可能收到绝对路径，相对路径以宿主的 QQ `nt_qq/global` 目录为基准。
 
 1. 只处理本地路径的 `voice` 元素（跳过 `http(s)://` 与 `data:`）。
-2. `resolveNtFile` 直接使用存在的绝对路径。相对路径统一分隔符后，Linux 从子进程使用的
-   `<dataRoot>/nt_qq/global` 解析，Windows 默认沿用 `<home>/Documents/Tencent Files/nt_qq/global`，上游调试沙箱则使用传给子进程的数据根。
-3. 每次解码使用独占临时目录，避免并发时同名 QQ 文件覆盖彼此。WAV 供 Koishi 消费 10 分钟，
+2. Linux 自建宿主和调试沙箱复用传给子进程的数据根，经 kernel 的 `resolveQqGlobalPath` 得到基准。
+   普通 Windows 宿主通过 QQ 获取实际目录（可由用户自定义），当前 loader IPC 不传递该值，适配器原样派发语音元素。
+3. `resolveQqVoiceFile` 统一相对路径的分隔符，拒绝父目录跳转，并解析基准和候选文件的真实路径。
+   解析符号链接或 Windows 目录联接后，只有基准目录内的普通文件才会交给解码器。
+4. 每次解码使用独占临时目录，避免并发时同名 QQ 文件覆盖彼此。WAV 供 Koishi 消费 10 分钟，
    期满后清理。进程最多保留 64 个解码中或等待消费的 WAV，达到上限时新语音原样透传。
-   进程非正常退出留下的目录由系统临时目录策略清理。
-4. 任何一步失败都原样返回原路径（fail-soft，不阻塞消息）。
+   Bot 停止后，已派发的 WAV 仍可能被 Koishi 消费，继续由 TTL 清理。进程非正常退出留下的目录由系统临时目录策略清理。
+5. 目录未知、路径校验失败或解码失败时原样返回原路径，消息继续派发。
 
 事件桥对富化做了异步化：`adaptRawMessageWithMedia()` 失败时回退到普通 `adaptRawMessage()`；
 `dispatch()` 回调不等待 Promise。

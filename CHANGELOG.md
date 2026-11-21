@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.50
+
+### Patch Changes
+
+- 入站语音只解码已知 QQ 数据目录内的普通文件，检查符号链接与 Windows 目录联接的真实目标。当前 loader 无法提供普通 Windows 宿主的实际语音目录，语音原样派发。保留进程级 64 槽位与 10 分钟消费窗口。
+
 ## 0.0.49
 
 ### Patch Changes

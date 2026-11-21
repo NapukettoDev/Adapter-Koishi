@@ -1,8 +1,8 @@
 /** 将 QQ 原生语音文件解码为 Koishi 可播放的 WAV。 */
-import { existsSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { type CanonicalElement, resolveDataRoot, resolveQqGlobalPath } from "@napuketto/kernel";
 import { decodeSilkToWav } from "@napuketto/media";
 
@@ -10,26 +10,73 @@ const VOICE_TTL_MS = 10 * 60 * 1000;
 const MAX_VOICE_ENTRIES = 64;
 const CLEANUP_RETRY_MS = 60_000;
 const REMOTE_PATH = /^(?:https?:\/\/|data:)/i;
+const WINDOWS_DRIVE = /^[a-z]:[\\/]/i;
+const NETWORK_OR_DEVICE_PATH = /^[\\/]{2}/;
+const PARENT_COMPONENT = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
 
-/** 解析 QQ 语音路径。Windows 默认沿用桌面 QQ 数据目录。 */
+/** 只有 Linux 和调试沙箱能从启动参数确定 QQ 目录。 */
+function resolveHostQqGlobalPath(
+    dataRoot?: string,
+    platform: NodeJS.Platform = process.platform,
+): string | undefined {
+    return platform === "linux" || process.env["NAPUKETTO_SANDBOX_ROOT"]
+        ? resolveQqGlobalPath(dataRoot ?? resolveDataRoot())
+        : undefined;
+}
+
+function isLocalPath(path: string): boolean {
+    const withoutDrive = process.platform === "win32" ? path.replace(WINDOWS_DRIVE, "") : path;
+    return (
+        !NETWORK_OR_DEVICE_PATH.test(path) && !withoutDrive.includes(":") && !path.includes("\0")
+    );
+}
+
+function isFullyQualified(path: string): boolean {
+    return process.platform === "win32" ? WINDOWS_DRIVE.test(path) : isAbsolute(path);
+}
+
+/** 仅接受真实路径位于已知 QQ 目录内的普通文件。 */
+export function resolveQqVoiceFile(path: string, qqGlobalPath?: string): string | null {
+    if (
+        !qqGlobalPath ||
+        !isFullyQualified(qqGlobalPath) ||
+        !isLocalPath(qqGlobalPath) ||
+        path === "" ||
+        !isLocalPath(path) ||
+        PARENT_COMPONENT.test(path)
+    ) {
+        return null;
+    }
+    const absolute = isFullyQualified(path);
+    const relativePath = path.replaceAll("\\", "/");
+    if (!absolute && relativePath.startsWith("/")) {
+        return null; // Windows 单反斜杠开头的路径依赖当前盘符。
+    }
+    try {
+        const root = realpathSync.native(qqGlobalPath);
+        if (!isLocalPath(root)) {
+            return null;
+        }
+        const candidate = absolute ? path : resolve(qqGlobalPath, relativePath);
+        const target = realpathSync.native(candidate);
+        // realpath 展开 Windows 短文件名，保留实际大小写以兼容大小写敏感的 NTFS 目录。
+        const prefix = root.endsWith(sep) ? root : root + sep;
+        return isLocalPath(target) && target.startsWith(prefix) && statSync(target).isFile()
+            ? target
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+/** 解析宿主数据根中的语音。`home` 参数为旧调用方保留。 */
 export function resolveNtFile(
     path: string,
     dataRoot?: string,
     platform: NodeJS.Platform = process.platform,
-    home: string = homedir(),
+    _home?: string,
 ): string | null {
-    if (path === "") {
-        return null;
-    }
-    if (isAbsolute(path)) {
-        return existsSync(path) ? path : null;
-    }
-    const root =
-        platform === "linux" || process.env["NAPUKETTO_SANDBOX_ROOT"]
-            ? (dataRoot ?? resolveDataRoot())
-            : join(home, "Documents", "Tencent Files");
-    const file = join(resolveQqGlobalPath(root), path.replaceAll("\\", "/"));
-    return existsSync(file) ? file : null;
+    return resolveQqVoiceFile(path, resolveHostQqGlobalPath(dataRoot, platform));
 }
 
 export function createVoiceEnricher(ttlMs = VOICE_TTL_MS, maxEntries = MAX_VOICE_ENTRIES) {
@@ -49,11 +96,14 @@ export function createVoiceEnricher(ttlMs = VOICE_TTL_MS, maxEntries = MAX_VOICE
 
     async function toPlayableVoice(
         path: string,
-        dataRoot?: string,
+        qqGlobalPath?: string,
         warn?: (message: string) => void,
     ): Promise<string> {
-        const silk = resolveNtFile(path, dataRoot);
-        if (silk === null || entries >= maxEntries) {
+        if (entries >= maxEntries) {
+            return path;
+        }
+        const silk = resolveQqVoiceFile(path, qqGlobalPath);
+        if (silk === null) {
             return path;
         }
         // 解码中也占容量，防止并发事件超出上限。
@@ -79,13 +129,13 @@ export function createVoiceEnricher(ttlMs = VOICE_TTL_MS, maxEntries = MAX_VOICE
 
     return async (
         elements: CanonicalElement[],
-        dataRoot?: string,
+        qqGlobalPath?: string,
         warn?: (message: string) => void,
     ): Promise<CanonicalElement[]> => {
         const out: CanonicalElement[] = [];
         for (const el of elements) {
             if (el.type === "voice" && el.path !== "" && !REMOTE_PATH.test(el.path)) {
-                out.push({ ...el, path: await toPlayableVoice(el.path, dataRoot, warn) });
+                out.push({ ...el, path: await toPlayableVoice(el.path, qqGlobalPath, warn) });
             } else {
                 out.push(el);
             }
@@ -94,5 +144,13 @@ export function createVoiceEnricher(ttlMs = VOICE_TTL_MS, maxEntries = MAX_VOICE
     };
 }
 
+const enrichVoiceWithDirectory = createVoiceEnricher();
+
 /** 在派发前将 NT SILK 转为限时可消费的 WAV。 */
-export const enrichReceiveVoice: ReturnType<typeof createVoiceEnricher> = createVoiceEnricher();
+export function enrichReceiveVoice(
+    elements: CanonicalElement[],
+    dataRoot?: string,
+    warn?: (message: string) => void,
+): Promise<CanonicalElement[]> {
+    return enrichVoiceWithDirectory(elements, resolveHostQqGlobalPath(dataRoot), warn);
+}
