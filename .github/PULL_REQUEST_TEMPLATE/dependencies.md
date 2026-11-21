@@ -7,7 +7,7 @@
 - [ ] 依赖升版（minor / patch）
 - [ ] 依赖升版（major，已读过上游 breaking change）
 - [ ] 依赖新增 / 移除 / 替换
-- [ ] `@napuketto/*` 上游版本范围调整（`~` 范围，见 [发布流程](../../docs/operations/release.md)「与其他仓的关系」）
+- [ ] `@napuketto/*` 上游版本范围调整（`~` 范围；上游发版后按需在本仓 bump，走正常 PR）
 - [ ] 工程配置调整（`packageManager` / `pnpm-workspace.yaml` 的 `allowBuilds` / `minimumReleaseAgeExclude`）
 
 涉及依赖（名 → 旧版本 → 新版本）：
