@@ -117,6 +117,7 @@ const emit = defineEmits<{
 .button-row {
   display: flex;
   gap: 0.5rem;
+  padding-bottom: 0.5rem;
 
   .relogin-button {
     margin-top: 0.5rem;

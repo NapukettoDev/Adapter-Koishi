@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.53
+
+### Patch Changes
+
+- 控制台登录成功和失败面板在重新登录和扫码登录按钮下方增加留白。
+
 ## 0.0.52
 
 ### Patch Changes
