@@ -9,7 +9,7 @@ import {
     DEFAULT_LOCAL_FILE_POLICY,
     DEFAULT_REMOTE_MEDIA_POLICY,
     type OutboundMediaPolicy,
-    resolveAllowedMedia,
+    stageAllowedMedia,
 } from "./media-policy.js";
 
 const MEDIA_TYPES = {
@@ -244,9 +244,18 @@ async function prepareElement(
     } else if (DATA_URL.test(element.path)) {
         prepared = { ...element, path: await materializeInline(element, workspace) };
     } else if ((options.localFilePolicy ?? DEFAULT_LOCAL_FILE_POLICY) === "allowlist") {
+        const staged = await stageAllowedMedia(
+            element.path,
+            options.localMediaRoots ?? [],
+            MEDIA_TYPES[element.type].maxBytes,
+            (target) => {
+                const suffix = extname(target);
+                return workspace.file(SAFE_EXTENSION.test(suffix) ? suffix : ".bin");
+            },
+        );
         prepared = {
             ...element,
-            path: await resolveAllowedMedia(element.path, options.localMediaRoots ?? []),
+            path: process.platform === "win32" ? staged.replaceAll("\\", "/") : staged,
         };
     }
     switch (prepared.type) {

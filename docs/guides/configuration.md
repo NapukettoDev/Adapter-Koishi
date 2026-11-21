@@ -26,15 +26,16 @@ bots:
 - `remoteMediaPolicy: compatible`（默认）允许本机和 LAN 媒体服务，逐跳拒绝链路本地等特殊字面地址。
   保持这项配置的部署通常使用受信任的媒体 URL，并可用网络出口规则约束域名、代理及内网访问。
 - `remoteMediaPolicy: public-only` 逐跳只允许公网目标，验证实际连接使用的地址，
-  并保留 HTTPS 证书验证。使用支持该策略的 `@napuketto/media`，缺少能力时 URL 下载直接降级为占位文本。
+  并保留 HTTPS 证书验证。`@napuketto/media` 从 0.2.3 起提供该下载入口，远程下载失败时回退为占位文本。
 - `localFilePolicy: legacy`（默认）保留部署现有的本地媒体路径和 `file://` 用法。
-  向低信任调用者提供发送功能时，设为 `allowlist`。空 `localMediaRoots` 拒绝所有调用方本地路径，
-  仍可使用有效的 HTTP(S) 和 data URL。
+  向低信任调用者提供标准发送时，使用 `allowlist` 和 `public-only`。空 `localMediaRoots` 拒绝所有调用方本地路径，
+  仍可使用有效的 HTTP(S) 和 data URL。动作入口的授权见 [动作桥](../internals/actions.md#动作入口与调用方)。
 - 受信任本地媒体用 `localMediaRoots` 显式列出专用导出目录，例如 Windows 的
   `D:/koishi/media` 或 Linux 的 `/srv/koishi/media`。相对根和相对媒体路径以 Koishi 工作目录解析。
-  白名单检查会解析符号链接和 junction，目录本身也须是本地绝对路径解析出的实际目录。
-  将这些目录及上级目录的写权限留给受信任进程，避免文件交给 QQ 后由低信任调用者替换。
-  迁移时先核对插件实际使用的目录（例如海报导出目录），再打开白名单。
+  白名单解析链接后核对文件身份，再从已打开的句柄复制到 Koishi 的临时目录。多硬链接的文件会被拒绝。
+  临时目录须由运行 Koishi 的账户控制。将配置根及其上级目录的重命名和重定向权限留给受信任进程。
+  Linux 还通过 `/proc/self/fd` 核对已打开句柄的路径。Windows 使用路径复核和文件身份比对，须通过 ACL
+  防止低信任主体重定向白名单中的子目录。迁移时核对导出目录、文件权限与媒体大小上限。
 
 
 ## 配置项
