@@ -73,8 +73,8 @@ export interface PanelHost {
     getLogin: () => NapukettoLoginState;
     /** 取 driver 当前可用的 IPC 连接，含引导期。 */
     getClient: () => NapukettoIpcClient | null;
-    /** 与启动工厂共享的一次性扫码标记。 */
-    forceQr: { current: boolean };
+    /** 请求重启宿主，需要时为下次启动标记强制扫码。 */
+    restart: LoginPanelDeps["restart"];
 }
 
 /** 装配控制台登录面板（login-panel.ts：装配/reload 去重/连接回放/指令上行）。 */
@@ -98,10 +98,7 @@ export function createPanel(host: PanelHost): NapukettoLoginPanel {
             }
             return client.request(action, params);
         },
-        forceQrRestart: () => {
-            host.forceQr.current = true;
-            return sendControl({ command: "restart" });
-        },
+        restart: host.restart,
         logger: host.logger,
     });
 }

@@ -695,34 +695,61 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(launch.mock.lastCall?.[0]).not.toHaveProperty("qrOnly");
     });
 
-    it("ready 后普通重登与扫码都走软重登，重启后切换到新连接", async () => {
-        const { bot, click } = setupPanel();
-        const first = await startBot(bot);
-        first.ready();
-        expect(bot.online).toHaveBeenCalledOnce();
+    it.each(["relogin", "qr-login"] as const)(
+        "在线时 %s 立即显示连接中，由新宿主接收扫码状态",
+        async (action) => {
+            const consoleHost = createConsole();
+            const { bot, click } = setupPanel(SELF_ID, consoleHost);
+            await consoleHost.connect();
+            const first = await startBot(bot);
+            first.ready();
+            expect(bot.online).toHaveBeenCalledOnce();
 
-        click("relogin");
-        click("qr-login");
-        expect(
-            first.received.map((message) => ("payload" in message ? message.payload : undefined)),
-        ).toEqual([
-            { command: "login", uin: SELF_ID, qr: false },
-            { command: "login", uin: SELF_ID, qr: true },
-        ]);
+            click(action);
+            expect(first.received).toEqual([
+                { v: IPC_VERSION, type: "control", payload: { command: "restart" } },
+            ]);
+            expect(bot.status).toBe(BOT_STATUS.CONNECT);
+            await expect(bot.deleteMessage("private:20001", "1")).rejects.toThrow("子进程未就绪");
+            first.ready(); // 旧宿主在退出前迟到的 ready 不得恢复在线。
+            await vi.advanceTimersByTimeAsync(RESTART_DELAY_MS);
+            expect(consoleHost.pushed.at(-1)).toMatchObject({ state: "idle" });
+            expect(launch).toHaveBeenCalledOnce();
+            expect(bot.online).toHaveBeenCalledOnce();
 
-        first.emit("exit", 1, null);
-        click("relogin");
-        await vi.advanceTimersByTimeAsync(RESTART_DELAY_MS);
-        const second = latestChild();
-        second.login({ state: "scanned" });
-        click("refresh-qr");
-        click("relogin");
-        expect(
-            second.received.map((message) => ("payload" in message ? message.payload : undefined)),
-        ).toEqual([{ action: "login.refreshQr" }, { command: "login", uin: SELF_ID, qr: false }]);
-        expect(first.received).toHaveLength(2);
-        expect(launch.mock.lastCall?.[0]).not.toHaveProperty("qrOnly");
-    });
+            first.emit("exit", 0, null);
+            await vi.advanceTimersByTimeAsync(RESTART_DELAY_MS);
+            const second = latestChild();
+            expect(second).not.toBe(first);
+            expect(bot.status).toBe(BOT_STATUS.CONNECT);
+            expect(launch.mock.lastCall?.[0]?.qrOnly ?? false).toBe(action === "qr-login");
+
+            second.qr();
+            second.login({ state: "waiting_scan" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(consoleHost.pushed.at(-1)).toMatchObject({
+                state: "waiting_scan",
+                image: "data:image/png;base64,aGVsbG8=",
+            });
+            second.login({ state: "scanned" });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(consoleHost.pushed.at(-1)).toMatchObject({
+                state: "scanned",
+                message: "已扫码，请在手机上确认登录",
+            });
+            expect(bot.status).toBe(BOT_STATUS.CONNECT);
+
+            second.ready();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(consoleHost.pushed.at(-1)).toMatchObject({ state: "logged_in" });
+            expect(bot.online).toHaveBeenCalledTimes(2);
+            await bot.deleteMessage("private:20001", "1");
+            expect(second.received.at(-1)).toMatchObject({
+                type: "action",
+                payload: { action: "msg.recallMessage" },
+            });
+        },
+    );
 
     it("连接关闭后各入口反馈失败，扫码保留给下次启动", async () => {
         const { bot, click, logger } = setupPanel();
@@ -750,7 +777,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(launch).toHaveBeenLastCalledWith(expect.objectContaining({ qrOnly: true }));
     });
 
-    it("消息和业务动作等待 ready，软重登换账号后中止业务和面板连接", async () => {
+    it("消息和业务动作等待 ready，重新扫码换账号后中止业务和面板连接", async () => {
         const { bot, click } = setupPanel();
         const child = await startBot(bot);
         child.receiveMessage("old", Date.now() - 60_000);
@@ -770,19 +797,22 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         });
 
         click("qr-login");
-        child.login({ state: "logged_in", selfInfo: { ...selfInfo, uin: "20002" } });
-        const sent = child.received.length;
-        expect(child.received.at(-1)).toMatchObject({
+        child.emit("exit", 0, null);
+        await vi.advanceTimersByTimeAsync(RESTART_DELAY_MS);
+        const replacement = latestChild();
+        replacement.login({ state: "logged_in", selfInfo: { ...selfInfo, uin: "20002" } });
+        const sent = replacement.received.length;
+        expect(replacement.received.at(-1)).toMatchObject({
             type: "control",
             payload: { command: "stop" },
         });
 
         await expect(bot.deleteMessage("private:20001", "1")).rejects.toThrow("子进程未就绪");
         click("relogin");
-        child.receiveMessage();
+        replacement.receiveMessage();
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.dispatch).toHaveBeenCalledTimes(1);
-        expect(child.received).toHaveLength(sent);
+        expect(replacement.received).toHaveLength(sent);
     });
 
     it.each([new Map([[0, "thumb.jpg"]]), { "0": "thumb.jpg" }])(

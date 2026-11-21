@@ -147,7 +147,12 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
             getLogin: () => this.login,
             // 登录指令在业务就绪前就要发给正在引导的子进程。
             getClient: () => this.driver?.currentClient ?? null,
-            forceQr: this.qrOnlyRef,
+            restart: (forceQr) => {
+                if (forceQr) {
+                    this.qrOnlyRef.current = true;
+                }
+                return this.driver?.restartLogin() ?? false;
+            },
         });
         // satorijs Context → koishi Context cast——运行时同一实例，仅类型收窄
         this.panel.setup(this.ctx as unknown as KoishiContext);
@@ -452,10 +457,13 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
                 isDisconnected: () =>
                     this.status === BOT_STATUS.DISCONNECT || this.identityMismatch,
                 handleReady: () => this.handleReady(),
+                handleLoginRestart: () => {
+                    this.status = BOT_STATUS.CONNECT;
+                    this.login.reset();
+                },
                 clearClient: () => {
                     this.clientRef.current = null;
                 },
-                // 软重登换账号检测（2026-09-08）：logged_in 登录消息补位校验
                 onLoggedIn: (self) => this.handleLoggedIn(self),
                 offline: (error) => {
                     this.offline(error);
@@ -538,12 +546,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         return false;
     }
 
-    /**
-     * logged_in 登录消息补位校验（2026-09-08 软重登）：driver 的 ready 幂等
-     * 守卫下软重登完成后 onReady 不会重触发，账号一致性校验需在登录消息面
-     * 补位——软重登换账号在此拒绝上线（期望行为）；同账号通过则同步 user
-     * 信息（昵称可能刷新）。初次引导也经此先于 ready 校验一次（幂等）。
-     */
+    /** 账号信息和 ready 可能以不同顺序到达，收到账号信息时立即校验。 */
     private handleLoggedIn(self: NonNullable<IpcLoginPayload["selfInfo"]>): void {
         if (!this.checkIdentity()) {
             return;
