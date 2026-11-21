@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDriverEvents, type DriverEventsHost } from "../driver-events.js";
 
 /** 构造 mock host，返回 host + 可断言的 mock 引用。 */
-function createHost(overrides: { isDisconnected?: () => boolean } = {}) {
+function createHost(overrides: { isDisconnected?: () => boolean; isCurrent?: () => boolean } = {}) {
     const logger = { debug: vi.fn(), warn: vi.fn() };
     const login = { onLogin: vi.fn(), onQr: vi.fn(), onExit: vi.fn() };
     const bridge = { handle: vi.fn(), resetMessageBaseline: vi.fn() };
@@ -30,6 +30,7 @@ function createHost(overrides: { isDisconnected?: () => boolean } = {}) {
         clearClient,
         offline,
         onLoggedIn,
+        ...(overrides.isCurrent !== undefined ? { isCurrent: overrides.isCurrent } : {}),
     };
     return { host, logger, login, bridge, handleReady, clearClient, offline, onLoggedIn };
 }
@@ -155,5 +156,31 @@ describe("buildDriverEvents", () => {
         const events = buildDriverEvents(host);
         events.onLog?.({ level: "debug", message: "kernel ready" });
         expect(logger.debug).toHaveBeenCalledWith("[napuketto 子进程] %s", "kernel ready");
+    });
+
+    it("isCurrent=false 时丢弃旧 driver 的全部迟到回调", () => {
+        const { host, logger, login, bridge, handleReady, clearClient, offline, onLoggedIn } =
+            createHost({ isCurrent: () => false });
+        const events = buildDriverEvents(host);
+        events.onStatus?.({ phase: "ready" });
+        events.onLogin?.({ state: "logged_in", selfInfo: { uin: "2", uid: "u", nick: "n" } });
+        events.onQr?.({ pngBase64: "aGk=", qrcodeUrl: "https://x" });
+        events.onEventSubscription?.();
+        events.onEvent?.({ service: "Msg", name: "onRecvMsg", args: [] });
+        events.onReady?.();
+        events.onExit?.({ code: 1, signal: null, reason: "crash" });
+        events.onError?.(new Error("late"));
+        events.onLog?.({ level: "debug", message: "late" });
+
+        expect(logger.debug).not.toHaveBeenCalled();
+        expect(login.onLogin).not.toHaveBeenCalled();
+        expect(login.onQr).not.toHaveBeenCalled();
+        expect(login.onExit).not.toHaveBeenCalled();
+        expect(bridge.resetMessageBaseline).not.toHaveBeenCalled();
+        expect(bridge.handle).not.toHaveBeenCalled();
+        expect(handleReady).not.toHaveBeenCalled();
+        expect(clearClient).not.toHaveBeenCalled();
+        expect(offline).not.toHaveBeenCalled();
+        expect(onLoggedIn).not.toHaveBeenCalled();
     });
 });

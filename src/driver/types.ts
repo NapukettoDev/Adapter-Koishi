@@ -22,7 +22,7 @@ export type DriverState =
     | "restarting" // 崩溃/失联，退避等待重启
     | "terminating" // 异常进程终止中，仍持有旧实例
     | "stopping" // 主动停止中
-    | "stopped" // 已停止
+    | "stopped" // 已停止（可再次 start 开始新一轮）
     | "failed"; // 停止自动重启
 
 /** 宽松子进程面（driver 只用到这些成员；测试可伪造）。 */

@@ -223,6 +223,44 @@ describe("NapukettoDriver 停止", () => {
         }
     });
 
+    it("确认停止后可再次启动，重启计数复位并重新占用账号目录", async () => {
+        const options = { accountDir: "restart-after-stop" };
+        const { driver, spawns, emit } = createHarness({}, options);
+        driver.start();
+        await flush();
+        const stopping = driver.stop();
+        spawns[0]?.emitExit(0, null);
+        await stopping;
+        expect(driver.currentState).toBe("stopped");
+
+        driver.start();
+        await flush();
+        expect(spawns).toHaveLength(2);
+        expect(driver.currentState).toBe("booting");
+        emit("ready");
+        await flush();
+        expect(driver.currentState).toBe("ready");
+        expect(driver.restartAttempts).toBe(0);
+
+        const stopAgain = driver.stop();
+        spawns[1]?.emitExit(0, null);
+        await stopAgain;
+    });
+
+    it("停止尚未确认退出时再次 start 被忽略", async () => {
+        const { driver, spawns } = createHarness();
+        driver.start();
+        await flush();
+        const stopping = driver.stop();
+        driver.start();
+        await flush();
+        expect(spawns).toHaveLength(1);
+        expect(driver.currentState).toBe("stopping");
+        spawns[0]?.emitExit(0, null);
+        await stopping;
+        expect(driver.currentState).toBe("stopped");
+    });
+
     it("插件重载时同一数据目录等待旧宿主退出", async () => {
         const options = { accountDir: "reload-account" };
         const previous = createHarness({}, options);

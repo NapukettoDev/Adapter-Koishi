@@ -92,6 +92,16 @@ describe("NapukettoLoginState", () => {
         expect(machine.snapshot.self).toBeUndefined();
     });
 
+    it("reset 清空二维码、账号和错误（新一轮启动前复位）", () => {
+        const machine = new NapukettoLoginState();
+        machine.onQr(QR);
+        machine.onLogin("logged_in", { uin: "10001", uid: "u1", nick: "n" });
+        machine.onLogin("failed", undefined, "旧错误");
+        machine.reset();
+        expect(machine.currentState).toBe("idle");
+        expect(machine.snapshot).toEqual({ state: "idle" });
+    });
+
     it("相同状态不重复通知", () => {
         const onStateChange = vi.fn();
         const machine = new NapukettoLoginState({ onStateChange });

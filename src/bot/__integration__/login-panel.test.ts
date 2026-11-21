@@ -8,6 +8,8 @@ import { ElementType } from "@napuketto/kernel";
 import { launchSelfHost } from "@napuketto/loader";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoginPanelPayload } from "../../console/types.js";
+import { BOT_STATUS } from "../../constants.js";
+import type { DriverEvents } from "../../driver/types.js";
 import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import {
     decodeIpcMessage,
@@ -23,9 +25,27 @@ vi.mock("koishi", () => {
         config: unknown;
         logger: unknown;
         user = {};
-        online = vi.fn();
-        offline = vi.fn();
-        async stop(): Promise<void> {}
+        /** 与 satorijs Status 对齐：OFFLINE=0 / ONLINE=1 / CONNECT=2 / DISCONNECT=3。 */
+        status = 0;
+        error: unknown;
+        get isActive(): boolean {
+            return this.status !== 0 && this.status !== 3;
+        }
+        online = vi.fn(() => {
+            this.status = 1;
+            this.error = undefined;
+        });
+        offline = vi.fn((error?: Error) => {
+            this.status = 0;
+            this.error = error;
+        });
+        async stop(): Promise<void> {
+            if (!this.isActive) {
+                return;
+            }
+            this.status = 3;
+            this.status = 0;
+        }
         toJSON = vi.fn();
         dispatch = vi.fn();
         session = (event: object) => ({ ...event });
@@ -553,6 +573,193 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         ]);
         expect(page.next).toBe("older");
         expect(bot.dispatch).not.toHaveBeenCalled();
+    });
+});
+
+describe("Bot 启停生命周期", () => {
+    it("同一对象正常 stop 后再次 start，使用新 driver 并重新上线", async () => {
+        const { bot } = setupPanel();
+        const first = await startBot(bot);
+        first.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledOnce();
+        expect(bot["driver"]?.currentState).toBe("ready");
+
+        const stopping = bot.stop();
+        first.emit("exit", 0, null);
+        await stopping;
+        expect(bot["driver"]).toBeNull();
+
+        const second = await startBot(bot);
+        expect(second).not.toBe(first);
+        expect(launch).toHaveBeenCalledTimes(2);
+        expect(bot["identityMismatch"]).toBe(false);
+        second.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledTimes(2);
+        expect(bot.status).toBe(1);
+    });
+
+    it("错误账号拒绝上线后，再次 start 恢复正确账号", async () => {
+        const { bot } = setupPanel();
+        const first = await startBot(bot);
+        first.ready("20002");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).not.toHaveBeenCalled();
+        expect(bot["identityMismatch"]).toBe(true);
+        expect(bot.status).toBe(0);
+
+        // 账号校验已同步停 driver；此时再次 start 要等旧宿主确认退出。
+        const restarting = bot.start();
+        first.emit("exit", 0, null);
+        await restarting;
+        await vi.advanceTimersByTimeAsync(0);
+
+        const second = latestChild();
+        expect(second).not.toBe(first);
+        expect(bot["identityMismatch"]).toBe(false);
+        second.ready(SELF_ID);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledOnce();
+        expect(bot["clientRef"].current).not.toBeNull();
+    });
+
+    it("重复 start 只创建一个宿主，重复 stop 只停止一次", async () => {
+        const { bot } = setupPanel();
+        await Promise.all([bot.start(), bot.start()]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(launch).toHaveBeenCalledTimes(1);
+
+        const child = latestChild();
+        const firstStop = bot.stop();
+        const secondStop = bot.stop();
+        child.emit("exit", 0, null);
+        await Promise.all([firstStop, secondStop]);
+        expect(bot.status).toBe(0);
+        expect(bot["driver"]).toBeNull();
+    });
+
+    it("旧宿主退出造成短暂离线时，重叠 start 只创建一个新宿主", async () => {
+        const { bot } = setupPanel();
+        const first = await startBot(bot);
+        first.ready();
+        await vi.advanceTimersByTimeAsync(0);
+
+        // 驱动仍在终止旧宿主时 Bot 已 offline：两个 start 可能同时看到非 active。
+        first.emit("error", new Error("宿主崩溃"));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.status).toBe(0);
+
+        const starting = bot.start();
+        first.emit("exit", 1, null);
+        const overlapping = bot.start();
+        await Promise.all([starting, overlapping]);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(launch).toHaveBeenCalledTimes(2);
+        const second = latestChild();
+        second.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.status).toBe(1);
+        expect(bot.online).toHaveBeenCalledTimes(2);
+    });
+
+    it("stop 与 start 重叠时等待旧宿主退出，新一轮正常上线", async () => {
+        const { bot } = setupPanel();
+        const first = await startBot(bot);
+        first.ready();
+        await vi.advanceTimersByTimeAsync(0);
+
+        const stopping = bot.stop();
+        const starting = bot.start();
+        expect(bot.status).toBe(BOT_STATUS.CONNECT);
+        first.emit("exit", 0, null);
+        await Promise.all([stopping, starting]);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(launch).toHaveBeenCalledTimes(2);
+        const second = latestChild();
+        expect(second).not.toBe(first);
+        second.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledTimes(2);
+        expect(bot.status).toBe(1);
+    });
+
+    it("启动尚未完成时 stop 会等待子进程退出，不留半启动状态", async () => {
+        const { bot } = setupPanel();
+        const starting = bot.start();
+        const stopping = bot.stop();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(launch).toHaveBeenCalledTimes(1);
+
+        latestChild().emit("exit", null, "SIGTERM");
+        await Promise.all([starting, stopping]);
+        expect(bot.status).toBe(0);
+        expect(bot["driver"]).toBeNull();
+    });
+
+    it("停止超时仍上报 EXIT_TIMEOUT，旧宿主退出后可再次 start", async () => {
+        const { bot } = setupPanel();
+        const first = await startBot(bot);
+        first.ready();
+        await vi.advanceTimersByTimeAsync(0);
+
+        const stopping = bot.stop();
+        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(5_000);
+        await stopping;
+        expect(first.kill).toHaveBeenCalledWith("SIGTERM");
+        expect(first.kill).toHaveBeenCalledWith("SIGKILL");
+        expect(bot.status).toBe(0);
+        expect(bot.error).toMatchObject({ code: "EXIT_TIMEOUT" });
+
+        // 强制终止仍未确认退出时账号目录保持占用；迟到退出释放后才允许新一轮。
+        first.emit("exit", null, "SIGKILL");
+        await vi.advanceTimersByTimeAsync(0);
+        const second = await startBot(bot);
+        expect(second).not.toBe(first);
+        second.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.status).toBe(1);
+    });
+
+    it("旧 driver 的迟到回调不会改写新一轮状态", async () => {
+        const { bot } = setupPanel();
+        const first = await startBot(bot);
+        first.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        const oldDriver = bot["driver"];
+        if (oldDriver === null) {
+            throw new Error("旧 driver 未创建");
+        }
+
+        const stopping = bot.stop();
+        first.emit("exit", 0, null);
+        await stopping;
+
+        const second = await startBot(bot);
+        second.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledTimes(2);
+
+        const lateEvents = (oldDriver as unknown as { events: DriverEvents }).events;
+        lateEvents.onExit?.({ code: 1, signal: null, reason: "crash" });
+        lateEvents.onError?.(new Error("旧 driver 的迟到错误"));
+        lateEvents.onReady?.();
+        lateEvents.onLogin?.({
+            state: "logged_in",
+            selfInfo: { uin: "20002", uid: "u2", nick: "迟到账号" },
+        });
+        lateEvents.onQr?.({ pngBase64: "aGk=", qrcodeUrl: "https://late.example" });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(bot.status).toBe(1);
+        expect(bot.online).toHaveBeenCalledTimes(2);
+        expect(bot["clientRef"].current).not.toBeNull();
+        expect(bot["login"].snapshot.self?.uin).toBe(SELF_ID);
+        expect(bot["login"].snapshot.qr).toBeUndefined();
     });
 });
 

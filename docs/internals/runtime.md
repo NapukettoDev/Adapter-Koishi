@@ -52,6 +52,8 @@
 ## driver：状态与事件
 
 `NapukettoDriver` 只依赖注入的 `DriverLauncher` 与传输工厂，不 import loader。
+Bot 每次 `start()` 创建新的 driver 实例；driver 自身也允许在 `stopped`（已确认退出）后再次
+`start()`，复位重启计数并开始新一轮。
 
 ```ts
 interface DriverOptions {
@@ -120,10 +122,17 @@ spawn 流程：
   `failed`，禁用自动重启。迟到的退出事件只回收旧实例。启动失败但尚未创建进程时可直接释放所有权。
 - 同一 Koishi 进程内，插件重载时，新 driver 等待正在停止的同账号宿主退出。停止期限内未确认退出时，
   该账号保持占用，直到旧进程发出退出事件。
+- Bot 的 `stop()` 在发起停止时立即解除 driver 引用并递增停止序号；重复 `stop()` 串联等待停止任务，
+  `start()` 与 `stop()` 重叠时先等待停止任务与旧 driver 结束，再创建新一轮 driver。停止期间本轮
+  driver 的 `onExit` / `onError` 仍会处理；新 `start()` 递增轮次后，旧 driver 的迟到回调才失效。
 - 上游退出码 `78` 停止重试，检查当前账号的加载配置和 `napuketto-boot.log` 后重新启用。loader 的
   `status.phase = failed` 中，`error.code = INVALID_PARAM` 表示配置校验失败。其余状态错误仍按实际
   退出和重试策略处理，包括 `NOT_LOGIN`、`UNKNOWN` 及数据目录暂时被占用时的 `INVALID_STATE`。
-- `start()` 只在 `idle` 生效；重复调用被忽略。
+- `start()` 在 `idle` 生效；`stopped` 会复位重启计数后开始新一轮。`spawning` / `booting` /
+  `ready` / `restarting` / `stopping` / `failed` 下的调用被忽略，避免与自动重启或未确认退出的
+  旧宿主竞争。重复 `start()` 不会产生第二个宿主。
+- Bot 层每次 `start()` 使用新的 driver；旧 driver 的迟到回调按轮次号丢弃（见
+  [生命周期](../architecture/lifecycle.md)）。
 
 ## IPC 协议
 

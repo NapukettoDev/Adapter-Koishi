@@ -14,7 +14,9 @@ Koishi 加载插件
             ├─ 登录状态机、控制台面板、数据库预热器、事件桥、动作桥装配
             └─ Koishi ready → Bot.start()
                  ├─ status = CONNECT
-                 └─ NapukettoDriver.start()
+                 ├─ 复位上一轮登录快照、账号闸门与 clientRef
+                 ├─ 等待进行中的 stop 与旧 driver 确认退出（如有）
+                 └─ 创建本轮 driver → NapukettoDriver.start()
                       └─ launch() → spawn self-host.cjs
                            ├─ status: booting → dlopening → logging → sessioning
                            ├─ login: 快速登录 / QR 登录
@@ -27,8 +29,12 @@ Koishi 加载插件
                                 └─ getLogin()（同步昵称/头像等 user 字段）
 ```
 
-`Bot.start()` 用 `this.isActive` 防重复；`setupDriver()` 只在第一次创建 driver。子进程启动是
-fire-and-forget，失败通过 driver 事件回到 `offline()`。
+`Bot.start()` 用 `this.isActive` 防重复。每次 `start()` 都是独立轮次：即使上一轮是正常 `stop()`，
+也创建新的 driver，而不是复用停在 `stopped` 的旧实例。真正创建 driver 时递增轮次号，旧 driver 的迟到
+回调（`onExit` / `onError` / `onReady` / 登录消息等）因轮次不匹配被丢弃，不会把新一轮置为
+offline 或写入旧账号。stop 递增独立的停止序号，让尚未完成的 start 放弃创建 driver，同时保留
+本轮 driver 在停止期间的 `onExit` / `onError` 语义。子进程启动是 fire-and-forget，失败通过
+driver 事件回到 `offline()`。
 
 ## driver 状态机
 
@@ -38,21 +44,23 @@ idle ──start()──▶ spawning ──launch 成功──▶ booting ──
                      │ launch/spawn 失败       └─ 心跳超时 / 子进程退出
                      ▼                        ▼
                   failed ◀──重试达上限── restarting ──退避──▶ booting
-stop() ──▶ stopping ──退出或 5s 超时──▶ stopped
+stop() ──▶ stopping ──退出或 5s 超时──▶ stopped ──start()──▶ spawning（新一轮）
 ```
 
 | 状态 | 含义 |
 | :--- | :--- |
-| `idle` | 未启动；`start()` 只在此状态生效 |
+| `idle` | 未启动；`start()` 直接开始本轮 |
 | `spawning` | 首次启动，正在执行 launch |
 | `booting` | 子进程已 spawn，等待 `status.ready`（期间收到任意 boot 阶段 status 仍保持） |
 | `ready` | session 与 kernel services 就绪 |
 | `restarting` | 崩溃/失联后等待退避计时 |
-| `stopping` / `stopped` | 主动停止中 / 已停止 |
-| `failed` | 启动失败或重启次数达到上限 |
+| `stopping` / `stopped` | 主动停止中 / 已确认退出；`stopped` 可再次 `start()` 开始新一轮 |
+| `failed` | 启动失败或重启次数达到上限（含停止超时未确认退出） |
 
 要点：
 
+- **stopped 可重启**：确认退出后 client、host、账号目录所有权与计时器都已释放；
+  `start()` 复位重启计数并重新 spawn。`failed`、`stopping` 等状态不会被 `start()` 抢占。
 - **ready 幂等**：`control status` 会重播最近一条 status；已经 ready 时不会重复触发
   `onReady()`（避免重复 `online()` / `getLogin()`）。
 - **重启计数**：每次进入 ready 清零；达到 `restart.maxRetries`（默认 3）后置 `failed` 并
@@ -96,6 +104,10 @@ idle ──onLogin(waiting_scan)──▶ waiting_scan ──onLogin(scanned)─
 - 输出可操作错误（把 `selfId` 改成实际 uin，或换回配置账号重新扫码）。
 - 停止 driver 并 `offline()`。
 
+再次 `start()` 会先复位 `identityMismatch`、登录快照与 clientRef，因此换回正确账号后可以
+恢复上线；若旧宿主尚未确认退出，`start()` 会等待其停止完成，不会在账号目录仍被占用时
+启动第二个宿主。
+
 为什么必须拒绝上线，而不是"将就用实际 uin"：数据目录按配置 `selfId` 命名，另一个账号的数据会
 写进同一目录；同时 koishi 的 `channel.assignee` / `binding` 会按实际 uin 落库。事后换回正确账号时，
 koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 return）会把这些频道的群消息
@@ -123,10 +135,15 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 
 `Bot.stop()`：
 
-1. `driver.stop()`：置 `stopping`、清重试计时器、停心跳。
-2. client 存活时发 `control stop`；等待子进程退出，最多 5s，超时 `kill()`。
-3. `finishStop()`：清计时器、关 client（pending 全部 reject）、状态置 `stopped`。
-4. `super.stop()`：把 Bot 置为 offline。
+1. 递增停止序号、清 `clientRef`、立即解除 `driver` 引用：进行中的 `start()` 会放弃创建。
+2. `driver.stop()`：置 `stopping`、清重试计时器、停心跳。
+3. client 存活时发 `control stop`；等待子进程退出，最多 5s，超时 `kill()`。
+4. `finishStop()`：清计时器、关 client（pending 全部 reject）、状态置 `stopped`。
+5. `super.stop()`：把 Bot 置为 offline。
+
+重复 `stop()` 会等待同一批停止任务；停止超时仍按 `failed` + `EXIT_TIMEOUT` 处理，不确认退出
+前不会释放账号目录所有权。与 `start()` 重叠时，新一轮会等待停止任务和旧 driver 结束，
+再创建自己的 driver。
 
 ## 重新登录与强制扫码
 

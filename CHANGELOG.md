@@ -1,5 +1,13 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.46
+
+### Patch Changes
+
+- 修复同一 Bot 实例正常 `stop()` 后再次 `start()` 停在 `CONNECT` 的问题。每次启动创建独立 driver，并复位上一轮的登录快照、账号不一致闸门与动作客户端；旧 driver 的迟到回调按轮次丢弃。
+- 账号不一致被拒绝上线后，再次启动可以恢复正确账号。与停止重叠的启动会等待旧宿主确认退出，沿用同账号数据目录的宿主退出保护与停止超时语义。
+- driver 在 `stopped` 后再次 `start()` 会复位重启计数并开始新一轮；重复或重叠的启停不会产生第二个宿主。
+
 ## 0.0.45
 
 ### Patch Changes
