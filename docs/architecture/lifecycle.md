@@ -137,13 +137,12 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 | :--- | :--- | :--- |
 | `idle` / `waiting_scan` / `scanned` | 重新登录 | `control login { uin }`，原地重登，不重启子进程 |
 | `logged_in` | 重新登录 | `control login { uin }`，**软重登**：清理旧装配面后用新登录结果重跑装配链 |
-| `failed` 或 IPC client 不可用 | 重新登录 | 回落 `control restart`（整进程重启，可靠路径） |
+| `failed` | 重新登录 | 有连接时发 `control restart`（整进程重启） |
 | `idle` / `waiting_scan` / `scanned` / `logged_in` | 扫码登录 | `control login { uin, qr: true }`，原地出码 / 切扫码流 |
-| `failed` | 扫码登录 | 置一次性 `qrOnly` 标记 + `control restart`；下次 spawn 读 `NAPUTO_QR_ONLY=1` 跳过快速登录 |
+| `failed` | 扫码登录 | 置一次性 `qrOnly` 标记并在有连接时发 `control restart`；下次 spawn 跳过快速登录 |
+| IPC 不可用 | 重新登录 / 刷新二维码 | 记录告警 |
+| IPC 不可用 | 扫码登录 | 记录告警并留下一次性 `qrOnly` 标记，由下次 spawn 消费 |
 | 任意（`waiting_scan` 时有效） | 刷新二维码 | IPC 动作 `login.refreshQr`，由 kernel 重新出码，不重启子进程 |
-
-其余状态下若 IPC client 实际不可用，控制指令发送失败会回落到普通 `control restart`；这条回落路径
-不置 `qrOnly` 标记，不保证重启后直接出码。
 
 `qrOnly` 是一次性标记：launch 解析时消费并清零，因此崩溃退避重启不会重复强制扫码。
 `control login` 的 `uin` 取配置 `selfId`；若登录成了其他账号，由账号一致性校验拒绝上线。

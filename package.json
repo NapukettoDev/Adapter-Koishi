@@ -1,6 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "koishi-plugin-adapter-napuketto",
+    "version": "0.0.38",
     "description": "NapukettoQQ内嵌到Koishi的适配器：让Koishi直接驱动NapukettoQQ",
     "version": "0.0.37",
     "keywords": [

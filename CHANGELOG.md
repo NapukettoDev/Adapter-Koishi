@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.38
+
+### Patch Changes
+
+- 修复控制台在首次登录期间刷新二维码、重新登录和强制扫码时无法向子进程发送 IPC 的问题。面板始终使用驱动当前可用的连接，强制扫码重启标记只在下次启动时消费。
+
 ## 0.0.37
 
 ### Patch Changes

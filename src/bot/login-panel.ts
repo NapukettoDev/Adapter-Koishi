@@ -30,12 +30,7 @@ export interface LoginPanelDeps {
     sendControl: (payload: IpcControlPayload) => boolean;
     /** IPC 动作请求（刷新二维码；client 未就绪时 reject 由调用方处理）。 */
     request: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
-    /**
-     * 强制扫码重启（2026-09-08）：置一次性 qrOnly 标记 + control restart——
-     * 子进程重启后跳过快速登录直接出码（登录期外的「扫码登录」走这条；
-     * 登录期内走 control login qr=true 原地出码，不经本回调）。
-     * client 未就绪返回 false（driver 崩溃退避重启会消费标记）。
-     */
+    /** 置一次性扫码标记，有连接时发 control restart；无连接时返回 false。 */
     forceQrRestart: () => boolean;
     /** 日志对象（bot 的 logger，namespace 已含 napuketto）。 */
     logger: Logger;
@@ -111,49 +106,23 @@ export class NapukettoLoginPanel {
         provider.update(payload);
     }
 
-    /**
-     * 重新登录（2026-09-08 接 control login，login-actions.ts 决策+执行）：
-     *  - 登录期（idle/waiting_scan/scanned）→ control login 原地重登（不重启
-     *    子进程；loader 端成功结果抢占初始登录竞速，装配链用新结果继续）
-     *  - ready/failed/client 不可用 → control restart 整进程重启（可靠路径：
-     *    ready 态软重登需装配链重跑，见 docs/architecture/lifecycle.md）
-     */
+    /** 重新登录（引导期原地重登，已登录时软重登）。 */
     requestRelogin(): void {
-        const plan = planRelogin({
-            state: this.deps.getSnapshot().state,
-            uin: this.deps.selfId,
-            clientReady: true, // sendControl 内部判 client 可用性，失败回落 restart
-            qrOnly: false,
-        });
-        executeRelogin(plan, {
-            sendControl: (payload) => this.deps.sendControl(payload as IpcControlPayload),
-            forceQrRestart: () => this.deps.forceQrRestart(),
-            logger: {
-                info: (message) => this.deps.logger.info(message),
-                warn: (message) => this.deps.logger.warn(message),
-            },
-        });
+        this.relogin(false);
     }
 
-    /**
-     * 强制扫码登录（2026-09-08）：登录期 control login qr=true 原地出码；
-     * 其余状态置一次性 qrOnly 标记 + control restart（重启后直接扫码）。
-     */
+    /** 强制扫码登录，必要时留下一次性扫码标记。 */
     requestQrLogin(): void {
+        this.relogin(true);
+    }
+
+    private relogin(qrOnly: boolean): void {
         const plan = planRelogin({
             state: this.deps.getSnapshot().state,
             uin: this.deps.selfId,
-            clientReady: true,
-            qrOnly: true,
+            qrOnly,
         });
-        executeRelogin(plan, {
-            sendControl: (payload) => this.deps.sendControl(payload as IpcControlPayload),
-            forceQrRestart: () => this.deps.forceQrRestart(),
-            logger: {
-                info: (message) => this.deps.logger.info(message),
-                warn: (message) => this.deps.logger.warn(message),
-            },
-        });
+        executeRelogin(plan, this.deps);
     }
 
     /** 刷新二维码：IPC 直达子进程内 kernel 的 QrLoginSession.refresh()（不重启子进程）。 */

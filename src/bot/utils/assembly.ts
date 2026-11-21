@@ -21,9 +21,10 @@ import {
     NapukettoEventBridge,
     type NapukettoSessionFields,
 } from "../../events/index.js";
+import { IpcError } from "../../ipc/errors.js";
 import type { NapukettoIpcClient } from "../../ipc/index.js";
 import { NapukettoLoginState } from "../../login/index.js";
-import { NapukettoLoginPanel } from "../login-panel.js";
+import { type LoginPanelDeps, NapukettoLoginPanel } from "../login-panel.js";
 import { toUserFields } from "./transform.js";
 
 // ── 登录状态机 ──
@@ -69,33 +70,37 @@ export interface PanelHost {
     logger: Logger;
     /** 登录状态机引用（快照 getter 运行时求值——panel 晚于 login 创建）。 */
     getLogin: () => NapukettoLoginState;
-    /** 当前 IPC 客户端（null = 子进程未就绪）。 */
+    /** 取 driver 当前可用的 IPC 连接，含引导期。 */
     getClient: () => NapukettoIpcClient | null;
-    /** 强制扫码重启（登录期外「扫码登录」：置 qrOnly 标记 + control restart）。 */
-    forceQrRestart: () => boolean;
+    /** 与启动工厂共享的一次性扫码标记。 */
+    forceQr: { current: boolean };
 }
 
 /** 装配控制台登录面板（login-panel.ts：装配/reload 去重/连接回放/指令上行）。 */
 export function createPanel(host: PanelHost): NapukettoLoginPanel {
+    const sendControl: LoginPanelDeps["sendControl"] = (payload) => {
+        const client = host.getClient();
+        if (client === null) {
+            return false;
+        }
+        client.sendControl(payload);
+        return true;
+    };
     return new NapukettoLoginPanel({
         selfId: host.selfId,
         getSnapshot: () => host.getLogin().snapshot,
-        sendControl: (payload) => {
-            const client = host.getClient();
-            if (client === null) {
-                return false;
-            }
-            client.sendControl(payload);
-            return true;
-        },
+        sendControl,
         request: async (action, params) => {
             const client = host.getClient();
             if (client === null) {
-                throw new Error("Napuketto 子进程未就绪（等待驱动连接）");
+                throw new IpcError("Napuketto 子进程未就绪（等待驱动连接）", "CLOSED");
             }
             return client.request(action, params);
         },
-        forceQrRestart: host.forceQrRestart,
+        forceQrRestart: () => {
+            host.forceQr.current = true;
+            return sendControl({ command: "restart" });
+        },
         logger: host.logger,
     });
 }

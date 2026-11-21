@@ -2,26 +2,26 @@
  * login-actions.test.ts：重新登录/强制扫码决策与执行单测（2026-09-08 T2；
  * 2026-09-08 A2 扩展 ready 态软重登）。
  *
- * planRelogin：登录期 + logged_in（ready 态软重登）+ client 可用 → control
- * login（soft 标记区分重装配语义）；failed / client 不可用 → restart。
+ * planRelogin：登录期或 logged_in 走 control login，failed 走 restart。
  * executeRelogin：指令发出（mock IPC executor）、control-login 失败回落
  * restart、forceQr 走 qrOnly+restart。
  */
 import type { LoginState } from "@napuketto/kernel";
+import type { IpcControlPayload } from "@napuketto/loader";
 import { describe, expect, it, vi } from "vitest";
 import { executeRelogin, planRelogin, type ReloginExecutor } from "../login-actions.js";
 
 describe("planRelogin", () => {
     it.each(["idle", "waiting_scan", "scanned"] as LoginState[])(
-        "登录期（%s）+ client 可用 → control login（qrOnly 决定 qr，soft=false）",
+        "登录期（%s）→ control login（qrOnly 决定 qr，soft=false）",
         (state) => {
-            expect(planRelogin({ state, uin: "10001", clientReady: true, qrOnly: false })).toEqual({
+            expect(planRelogin({ state, uin: "10001", qrOnly: false })).toEqual({
                 kind: "control-login",
                 uin: "10001",
                 qr: false,
                 soft: false,
             });
-            expect(planRelogin({ state, uin: "10001", clientReady: true, qrOnly: true })).toEqual({
+            expect(planRelogin({ state, uin: "10001", qrOnly: true })).toEqual({
                 kind: "control-login",
                 uin: "10001",
                 qr: true,
@@ -31,30 +31,26 @@ describe("planRelogin", () => {
     );
 
     it.each([false, true])(
-        "logged_in（ready 态）+ client 可用 → control login 软重登（soft=true，qr=%s）",
+        "logged_in（ready 态）→ control login 软重登（soft=true，qr=%s）",
         (qrOnly) => {
-            expect(
-                planRelogin({ state: "logged_in", uin: "10001", clientReady: true, qrOnly }),
-            ).toEqual({ kind: "control-login", uin: "10001", qr: qrOnly, soft: true });
+            expect(planRelogin({ state: "logged_in", uin: "10001", qrOnly })).toEqual({
+                kind: "control-login",
+                uin: "10001",
+                qr: qrOnly,
+                soft: true,
+            });
         },
     );
 
     it("failed（引导失败/进程退出路径）→ restart（qrOnly 决定 forceQr）", () => {
-        expect(
-            planRelogin({ state: "failed", uin: "10001", clientReady: true, qrOnly: false }),
-        ).toEqual({ kind: "restart", forceQr: false });
-        expect(
-            planRelogin({ state: "failed", uin: "10001", clientReady: true, qrOnly: true }),
-        ).toEqual({ kind: "restart", forceQr: true });
-    });
-
-    it("client 不可用（任何状态）→ restart", () => {
-        expect(planRelogin({ state: "idle", uin: "1", clientReady: false, qrOnly: false })).toEqual(
-            { kind: "restart", forceQr: false },
-        );
-        expect(
-            planRelogin({ state: "logged_in", uin: "1", clientReady: false, qrOnly: false }),
-        ).toEqual({ kind: "restart", forceQr: false });
+        expect(planRelogin({ state: "failed", uin: "10001", qrOnly: false })).toEqual({
+            kind: "restart",
+            forceQr: false,
+        });
+        expect(planRelogin({ state: "failed", uin: "10001", qrOnly: true })).toEqual({
+            kind: "restart",
+            forceQr: true,
+        });
     });
 });
 
@@ -64,12 +60,12 @@ function makeExecutor(
     forceQrResult = true,
 ): {
     exec: ReloginExecutor;
-    controls: Array<{ command: string; uin?: string; qr?: boolean }>;
+    controls: IpcControlPayload[];
     forceQrCount: () => number;
     info: ReturnType<typeof vi.fn>;
     warn: ReturnType<typeof vi.fn>;
 } {
-    const controls: Array<{ command: string; uin?: string; qr?: boolean }> = [];
+    const controls: IpcControlPayload[] = [];
     let forceQrCalls = 0;
     const info = vi.fn();
     const warn = vi.fn();
