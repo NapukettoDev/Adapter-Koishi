@@ -97,11 +97,11 @@ koishi 运行时。
 
 ## 收向语音解码
 
-`enrichReceiveVoice(elements)` 在 canonical → koishi 之前异步执行：
+`enrichReceiveVoice(elements, dataRoot)` 在 canonical → koishi 之前异步执行：
 
 1. 只处理本地路径的 `voice` 元素（跳过 `http(s)://` 与 `data:`）。
-2. `resolveNtFile(path)`：绝对路径存在则直用；否则把反斜杠转正斜杠，拼到
-   `<home>/Documents/Tencent Files/nt_qq/global` 下探测。
+2. `resolveNtFile` 直接使用存在的绝对路径。相对路径统一分隔符后，Linux 从子进程使用的
+   `<dataRoot>/nt_qq/global` 解析，Windows 默认沿用 `<home>/Documents/Tencent Files/nt_qq/global`，上游调试沙箱则使用传给子进程的数据根。
 3. `decodeSilkToWav(silk, { outDir: <tmpdir>/napuketto-voice })` 输出 WAV，供 koishi 侧播放。
 4. 任何一步失败都原样返回原路径（fail-soft，不阻塞消息）。
 

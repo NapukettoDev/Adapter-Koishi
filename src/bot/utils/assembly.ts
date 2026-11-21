@@ -14,6 +14,7 @@
  */
 import { type Context as KoishiContext, h as koishiH, type Logger, type Universal } from "koishi";
 import { NapukettoInternal } from "../../actions/index.js";
+import type { NapukettoInternalOptions } from "../../actions/types.js";
 import type { NapukettoBotConfig } from "../../config.js";
 import { bindKoishiH } from "../../events/elements.js";
 import {
@@ -134,6 +135,7 @@ export interface BridgeHost {
     getLogin: () => NapukettoLoginState;
     /** 配置（selfId 兜底）。 */
     config: NapukettoBotConfig;
+    dataRoot: string;
     /** 派发（预热 + session 组装 + dispatch）。 */
     dispatchSession: (session: NapukettoSessionFields) => Promise<void>;
 }
@@ -150,8 +152,7 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
         // koishi h 可调用（Element 工厂）；绑定生产 h（elements.ts bindKoishiH）
         h: bindKoishiH(koishiH),
         platform: "onebot",
-        // 收向语音解码（voice NT silk → WAV 可播放；fail-soft，2026-09-08 T6）
-        enrichElements: (elements) => enrichReceiveVoice(elements),
+        enrichElements: (elements) => enrichReceiveVoice(elements, host.dataRoot),
     });
 }
 
@@ -161,6 +162,7 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
 export interface InternalHost {
     /** 当前 IPC 客户端（null = 子进程未就绪，request 抛错）。 */
     getClient: () => NapukettoIpcClient | null;
+    getSelfIdentity: NonNullable<NapukettoInternalOptions["getSelfIdentity"]>;
     /** 告警日志（远程媒体下载失败等；缺省静默）。 */
     logger?: { warn(message: string): void };
 }
@@ -169,6 +171,7 @@ export interface InternalHost {
 export function createInternal(host: InternalHost): NapukettoInternal {
     return new NapukettoInternal({
         h: koishiH,
+        getSelfIdentity: host.getSelfIdentity,
         request: async (action, params) => {
             const client = host.getClient();
             if (client === null) {

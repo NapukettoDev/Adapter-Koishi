@@ -5,12 +5,12 @@
  * enrichReceiveVoice：本地 silk → WAV（RIFF 头校验，silk 样本经
  * encodePcmToSilk 现场生成）；非 silk / http / 空路径原样透传。
  */
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CanonicalElement } from "@napuketto/kernel";
 import { encodePcmToSilk } from "@napuketto/media";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { enrichReceiveVoice, resolveNtFile } from "../voice-decode.js";
 
 const dirs: string[] = [];
@@ -57,6 +57,40 @@ describe("resolveNtFile", () => {
         expect(resolveNtFile(join(dir, "nope.silk"))).toBeNull();
         expect(resolveNtFile("")).toBeNull();
     });
+
+    it("Linux 从配置的数据根解析相对路径，并兼容反斜杠", () => {
+        const root = tempDir("linux-data");
+        const file = join(root, "nt_qq", "global", "nt_data", "Ptt", "a.silk");
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, "x");
+
+        expect(resolveNtFile("nt_data/Ptt/a.silk", root, "linux")).toBe(file);
+        expect(resolveNtFile("nt_data\\Ptt\\a.silk", root, "linux")).toBe(file);
+    });
+
+    it("Windows 的调试沙箱与子进程使用同一个数据根", () => {
+        const root = tempDir("windows-sandbox");
+        const file = join(root, "nt_qq", "global", "voice.silk");
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, "x");
+        vi.stubEnv("NAPUKETTO_SANDBOX_ROOT", root);
+        try {
+            expect(resolveNtFile("voice.silk", root, "win32")).toBe(file);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it("Windows 保留 QQ 桌面数据目录和绝对路径", () => {
+        const home = tempDir("windows-home");
+        const root = tempDir("windows-data");
+        const file = join(home, "Documents", "Tencent Files", "nt_qq", "global", "voice.silk");
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, "x");
+
+        expect(resolveNtFile("voice.silk", root, "win32", home)).toBe(file);
+        expect(resolveNtFile(file, root, "win32", home)).toBe(file);
+    });
 });
 
 describe("enrichReceiveVoice", () => {
@@ -72,8 +106,24 @@ describe("enrichReceiveVoice", () => {
         expect(path.toLowerCase().endsWith(".wav")).toBe(true);
         expect(existsSync(path)).toBe(true);
         // RIFF 头校验（WAV）
-        const { readFileSync } = await import("node:fs");
         expect(readFileSync(path).subarray(0, 4).toString("ascii")).toBe("RIFF");
+    });
+
+    it.runIf(process.platform === "linux")("配置根内的相对 silk 路径可解码", async () => {
+        const root = tempDir("voice-root");
+        const ptt = join(root, "nt_qq", "global", "nt_data", "Ptt");
+        mkdirSync(ptt, { recursive: true });
+        const wav = join(ptt, "relative.wav");
+        makeWav(wav);
+        await encodePcmToSilk(wav);
+
+        const [voice] = await enrichReceiveVoice(
+            [{ type: "voice", path: "nt_data/Ptt/relative.silk" }],
+            root,
+        );
+        expect(voice).toMatchObject({ type: "voice", path: expect.stringMatching(/\.wav$/) });
+        if (voice?.type !== "voice") throw new Error("语音元素丢失");
+        expect(readFileSync(voice.path).subarray(0, 4).toString("ascii")).toBe("RIFF");
     });
 
     it("非 silk 本地文件 / http / 空路径原样透传", async () => {

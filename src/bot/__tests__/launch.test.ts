@@ -6,8 +6,11 @@
  * kernelEntry 覆盖，避免探测 QQ 安装与 import.meta.resolve 环境差异。
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 import type { QqInstallInfo } from "@napuketto/loader";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { NapukettoBotConfig } from "../../config.js";
 import { resolveEntry, resolveLaunchOptions } from "../launch.js";
 
@@ -87,6 +90,30 @@ describe("resolveLaunchOptions", () => {
         // 数据根（dataDir 未配置 → 默认解析）
         expect(options.cwd).toBeTypeOf("string");
         expect(options.configPath).toBeTypeOf("string");
+        expect(options.stubDir).toBeUndefined();
+        expect(options.linuxStubPath).toBeUndefined();
+        expect(options.winNodePath).toBeUndefined();
+        expect(options.nativeMediaPatch).toBeUndefined();
+    });
+
+    it.each([true, false])("保留宿主覆盖及 nativeMediaPatch=%s", async (nativeMediaPatch) => {
+        const options = await resolveLaunchOptions(
+            makeConfig({
+                stubDir: "local/stub",
+                linuxStubPath: "local/stub.so",
+                winNodePath: "local/node.exe",
+                selfHostEntry: "local/self-host.cjs",
+                nativeMediaPatch,
+            }),
+            { resolveQq: fakeResolveQq },
+        );
+        expect(options).toMatchObject({
+            stubDir: resolve("local/stub"),
+            linuxStubPath: resolve("local/stub.so"),
+            winNodePath: resolve("local/node.exe"),
+            selfHostEntry: resolve("local/self-host.cjs"),
+            nativeMediaPatch,
+        });
     });
 
     it("quickUin = selfId（快速登录账号）", async () => {
@@ -94,6 +121,24 @@ describe("resolveLaunchOptions", () => {
             resolveQq: fakeResolveQq,
         });
         expect(options.quickUin).toBe("3567141148");
+    });
+
+    it("显式 qqPath 优先于 loader 的缓存环境设置，并在切换 cwd 前解析", async () => {
+        const root = mkdtempSync(join(tmpdir(), "napuketto-explicit-qq-"));
+        try {
+            const app = join(root, "versions", "9.9.33-52230", "resources", "app");
+            mkdirSync(app, { recursive: true });
+            const wrapperPath = join(app, "wrapper.node");
+            writeFileSync(wrapperPath, Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+            const qqPath = relative(process.cwd(), join(root, "QQ.exe"));
+            vi.stubEnv("NAPUTO_QQ_FILES", join(root, "nonexistent"));
+            vi.stubEnv("NAPUTO_QQ_PATH", join(root, "nonexistent", "QQ.exe"));
+            const options = await resolveLaunchOptions(makeConfig({ qqPath }));
+            expect(options.qq).toMatchObject({ installDir: root, wrapperPath, source: "local" });
+        } finally {
+            vi.unstubAllEnvs();
+            rmSync(root, { recursive: true, force: true });
+        }
     });
 
     it("dataDir 覆盖数据根", async () => {
@@ -105,6 +150,10 @@ describe("resolveLaunchOptions", () => {
         });
         expect(options.cwd.replaceAll("\\", "/")).toBe(dataDir);
         expect(options.cfgDir.replaceAll("\\", "/")).toBe(`${dataDir}/123456789`);
+        expect(options.extraEnv).toEqual({
+            NAPUKETTO_DATA_ROOT: options.cwd,
+            NAPUKETTO_DATA: options.cwd,
+        });
     });
 
     it("OB11 动作桥入口：缺省解析依赖（ob11Actions 默认开）", async () => {

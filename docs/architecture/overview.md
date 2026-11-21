@@ -37,7 +37,7 @@ Koishi 主进程（Node）
 
 1. **稳定性隔离**：原生层崩溃、卡死只影响子进程；driver 按策略重启，Koishi 主进程不受影响。
 2. **复用现有引导链**：`@napuketto/loader` 的 `launchSelfHost` + `self-host.cjs` 已是完整链路
-   （stub QQNT.dll、下载/解包、wine 分支、登录、session、协议装配），子进程方案直接复用。
+   （Windows DLL stub、Linux ELF stub、下载/解包、登录、session、协议装配），子进程方案直接复用。
 3. **多账号同构**：每个 bot 一个子进程，状态、数据目录、IPC 通道互不污染。
 
 代价是事件与动作要过一层 JSON 序列化，并需要心跳/状态重同步来处理子进程静默或协议行损坏。
@@ -54,7 +54,7 @@ Koishi 主进程（Node）
 | `@napuketto/adapter` / `@napuketto/network` | **不在插件源码中 import**；仅把磁盘入口路径传给子进程，由 loader 在子进程内动态装配 OneBot 11 动作面 | `src/bot/launch.ts`（`resolveEntry`） |
 
 依赖方向单向：插件 → 上游包；上游包不知道适配器存在。`@napuketto/*` 是真实 `dependencies`
-（构建时 external，不打包），因为子进程运行时要读磁盘上的 `self-host.cjs`、stub DLL 和 kernel 入口。
+（构建时 external，不打包），因为子进程运行时要读磁盘上的 `self-host.cjs`、平台 stub 和 kernel 入口。
 
 ## 目录结构
 

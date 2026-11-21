@@ -21,20 +21,23 @@
 ```ts
 {
   qq, kernelEntry, selfHostEntry?, adapterEntry?, networkEntry?, qrOnly?,
-  cfgDir, cwd, configPath, stubDir, quickUin, selfHost: true, ipc: true,
+  cfgDir, cwd, configPath, extraEnv, stubDir?, linuxStubPath?, winNodePath?,
+  nativeMediaPatch?, quickUin, selfHost: true, ipc: true,
   stdio: ["pipe", "pipe", "pipe"], onStage,
 }
 ```
 
 | 字段 | 来源/规则 |
 | :--- | :--- |
-| `qq` | 显式 `qqPath` → `resolveQqInstall(path)`；Linux → `ensureQqFiles({ dataRoot, onStage })`（必要时下载到数据根，避免 wine 读 `/mnt/c` 失败）；其他平台 → `resolveQqInstall()` |
+| `qq` | 显式 `qqPath` 优先；Linux 缺省走 `resolveQqFiles`，探测 `/opt/QQ` 等本机安装，再查缓存或下载；Windows 缺省走 `resolveQqInstall()` |
 | `kernelEntry` | `resolveEntry("@napuketto/kernel", config.kernelEntry)` |
 | `selfHostEntry` | 配置覆盖；缺省由 loader 用包内 `dist/host/self-host.cjs` |
 | `cfgDir` | `<dataRoot>/<selfId>`（按账号隔离） |
 | `cwd` | `dataRoot`（原生层在 session 就绪前可能按 cwd 落盘，不能污染 Koishi 工作目录） |
 | `configPath` | `resolveConfigPath({ dataRoot })`（项目根配置或数据根兜底） |
-| `stubDir` | 配置覆盖；缺省 `defaultStubDir()`（loader 包内 stub QQNT.dll） |
+| `extraEnv` | `NAPUKETTO_DATA_ROOT` 与 `NAPUKETTO_DATA` 使用与 `cwd` 相同的数据根，分别供宿主引导和 OB11 缓存动作使用 |
+| `stubDir` / `linuxStubPath` / `winNodePath` | 分别覆盖 Windows DLL 目录、Linux ELF stub 文件和 Windows 非 Node 宿主使用的 `node.exe`，省略时交给 loader 解析 |
+| `nativeMediaPatch` | 省略时沿用 loader 默认与环境开关，显式 `true` 或 `false` 时覆盖 |
 | `quickUin` | 配置 `selfId`（快速登录目标账号） |
 | `qrOnly` | 本次 spawn 前 `forceQr.current === true` 时置位，并立即清零 |
 | `adapterEntry` / `networkEntry` | `ob11Actions !== false` 时解析 `@napuketto/adapter` 与 `@napuketto/network`；任一失败只记录降级，子进程不挂载 OB11 面 |
@@ -44,8 +47,7 @@
 `import.meta.resolve` 不可用。显式 override 为相对路径时按 `process.cwd()` 展开。解析失败会抛出
 带“确认依赖已安装 / 手动指定入口”的提示。
 
-`launchSelfHost` 自 Linux/wine 分支起是 **async**；`buildLaunch` 必须 `await`，否则 child 为
-`undefined`，driver 在 `child.once()` 处崩溃。
+`buildLaunch` 等待 `launchSelfHost()` 完成平台预检和宿主启动，再将子进程交给 driver。
 
 ## driver：状态与事件
 
@@ -142,7 +144,7 @@ spawn 流程：
 
 - `ChildProcessIpcTransport`：stdout 用 readline 逐行读取，stdin 写行。
 - stdout/stderr 都先经过 `isNativeNoiseLine()` 过滤 wrapper 的原生噪音；stderr 其余内容以
-  `[napuketto 子进程] ` 前缀转发到父进程 stderr（保留 wine/Node 原始报错）。
+  `[napuketto 子进程] ` 前缀转发到父进程 stderr（保留原生宿主和 Node 原始报错）。
 - 子进程 `close` 事件触发 transport 关闭；`stdin`/`stdout` 不是 pipe 时构造直接抛错。
 - `BaseLineTransport` 统一订阅管理与 `close()` 幂等；`MemoryLinePair` 是测试用内存双端。
 

@@ -17,12 +17,12 @@
 1. `start()` 之后先看 boot phase。正常序列是
    `booting → dlopening → logging → sessioning → ready`；停在某一步说明卡在该阶段。
 2. 看子进程 stderr：`ChildProcessIpcTransport` 会把子进程 stderr 以
-   `[napuketto 子进程] <原始行>` 转发到父进程，wine/Node 的启动错误在这里。
-3. `failed` 且带 `重启次数达上限`：driver 已用尽 `restart.maxRetries`。先修根因（QQ 文件、wine、
+   `[napuketto 子进程] <原始行>` 转发到父进程，原生宿主和 Node 的启动错误在这里。
+3. `failed` 且带 `重启次数达上限`：driver 已用尽 `restart.maxRetries`。先修根因（QQ 文件、系统库、
    路径），再重启 Koishi；调大重试次数只会延长失败时间。
 4. Linux/WSL 常见根因：
-   - 未安装 wine → loader 预检会抛可读错误；
-   - `qqPath` 指向 `/mnt/c` → wine 读 DrvFS 失败；改用数据根下的 QQ 文件或 ext4 路径；
+   - 缺少 `libgnutls.so.30` → 按发行版安装 GnuTLS 运行库；
+   - `wrapper.node` 非 ELF → 改用 Linux 版 QQ 安装或解包产物；
    - 首次启动需要下载/解包 QQ 文件，观察 `onStage` 日志确认进度。
 5. `spawn ENOENT` / 命令缺失：检查 `qqPath`、`stubDir`、`kernelEntry`、`selfHostEntry` 覆盖值是否
    指向真实存在的文件/目录。
@@ -154,7 +154,7 @@
 - 默认 `debug`：包含引导阶段、事件转发、子进程 log、provider 诊断。调到 `info` 可只保留消息派发与
   警告；`silent` 关闭插件日志（子进程 stderr 仍会转发）。
 - 子进程自己的日志由 kernel 写在账号目录（`<dataRoot>/<selfId>`）；崩溃前的 stderr 在父进程日志里。
-- 提 issue 时请附：插件版本、Koishi 版本、`@napuketto/*` 版本、平台（Windows/WSL/wine）、
+- 提 issue 时请附：插件版本、Koishi 版本、`@napuketto/*` 版本、平台（Windows / Linux / WSL）、
   boot phase 日志、子进程 stderr、以及脱敏后的配置（至少保留 `selfId` 的位数特征）。
 
 ## 开发工具问题
