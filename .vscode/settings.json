@@ -1,11 +1,14 @@
 {
-    "js/ts.experimental.useTsgo": true,
+    // 编辑器与格式化
     "editor.defaultFormatter": "biomejs.biome",
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
         "source.fixAll.biome": "explicit",
         "source.organizeImports.biome": "explicit"
     },
+    // TypeScript
+    "js/ts.experimental.useTsgo": true,
+    // 界面与图标
     "material-icon-theme.folders.associations": {
         // docs
         "guides": "instructions",
