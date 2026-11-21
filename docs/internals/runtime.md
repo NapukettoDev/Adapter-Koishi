@@ -97,7 +97,8 @@ spawn 流程：
 
 **状态重同步**（防“能收不能发”）：
 
-- 若收到 `event` 但状态机不在 `ready`，立即 `resyncStatus()`。
+- `booting` 期间收到 `event` 时先暂存，再调用 `resyncStatus()`。每个子进程最多暂存最近 256 条事件。
+- `onReady` 完成客户端绑定和账号校验后，驱动按 IPC 到达顺序回放暂存事件。子进程退出或驱动停止时丢弃暂存事件。
 - `booting` 期间每 20s 主动查询一次；离开 booting 停表。
 - `resyncStatus()` 发 `control status`，子进程重播最近一条 status；5s 节流防止事件风暴刷屏。
 - 重播的 ready 被 ready 幂等守卫吸收，不会重复触发 `onReady`。

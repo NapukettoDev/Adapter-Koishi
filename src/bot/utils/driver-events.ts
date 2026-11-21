@@ -26,6 +26,8 @@ export interface DriverEventsHost {
     isDisconnected: () => boolean;
     /** 就绪回调（clientRef 更新 + online + 拉登录信息）。 */
     handleReady: () => void;
+    /** 退出时解除动作桥的客户端绑定。 */
+    clearClient: () => void;
     /**
      * logged_in 登录消息携带 selfInfo 时的补位校验（2026-09-08 软重登）：
      * driver 的 ready 幂等守卫下，软重登完成后 onReady 不会重触发，账号一致
@@ -66,6 +68,7 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
             host.handleReady();
         },
         onExit: () => {
+            host.clearClient();
             host.login.onExit();
             // 非主动停止的退出 → offline（driver 内部会重启；达上限 onError）
             if (!host.isDisconnected()) {

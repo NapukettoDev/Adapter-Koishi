@@ -9,13 +9,13 @@
  *
  * 状态重同步（2026-09-06「能收不能发」事故）：status 消息（尤其 ready）经子进程
  * stdout 传输，可能被并发输出撕裂丢失（原生 printf 直写 fd 等 JS 层拦不住的
- * 污染）。丢失后事件照常派发但发送请求因 clientRef 未就绪全数抛错。自愈：收到
- * event 但状态机未 ready、或 booting 阶段定期（20s）→ 发 control status 查询，
- * 子进程重播最近一条 status（幂等守卫防重复 onReady）。
+ * 污染）。booting 期间暂存 event，收到 event 或定时（20s）发 control status 查询，
+ * 子进程重播最近一条 status。收到 ready 并完成 onReady 后按序回放事件。
  */
 import type { ChildProcess } from "node:child_process";
 import {
     ChildProcessIpcTransport,
+    type IpcEventPayload,
     type IpcLineTransport,
     type IpcStatusPayload,
     NapukettoIpcClient,
@@ -46,6 +46,9 @@ const BOOT_STATUS_QUERY_INTERVAL_MS = 20_000;
 /** 状态重查节流下限（毫秒）：事件风暴下避免 control status 刷屏。 */
 const STATUS_QUERY_MIN_INTERVAL_MS = 5_000;
 
+/** 单次引导暂存的事件数上限，超限丢弃最旧事件。 */
+const MAX_STARTUP_EVENTS = 256;
+
 /** 默认重启策略。 */
 const DEFAULT_RESTART: Required<RestartPolicy> = {
     maxRetries: 3,
@@ -71,12 +74,11 @@ export class NapukettoDriver {
     private client: NapukettoIpcClient | null = null;
     private child: ChildProcessLike | null = null;
     private restartCount = 0;
-    private stopping = false;
     private spawnAt = 0;
-    /** spawn error 已处理（ENOENT 等）：伴随触发的 exit 事件跳过，防重复 onError/重启。 */
-    private spawnFailed = false;
     /** 最近一次状态重查时间（节流用）。 */
-    private lastStatusQueryAt = 0;
+    private lastStatusQueryAt: number | null = null;
+    /** 当前子进程的待回放事件，完成回放或清理后为 null。 */
+    private startupEvents: IpcEventPayload[] | null = null;
     private readonly heartbeat: HeartbeatMonitor;
     private restartTimer: NodeJS.Timeout | null = null;
     private stopTimer: NodeJS.Timeout | null = null;
@@ -106,8 +108,11 @@ export class NapukettoDriver {
                 intervalMs: HEALTH_CHECK_INTERVAL_MS,
                 timeoutMs: this.heartbeatTimeoutMs,
                 onStale: () => {
-                    this.killChild();
-                    this.handleChildExit(null, "SIGKILL", "stale");
+                    const child = this.child;
+                    if (child !== null) {
+                        child.kill();
+                        this.handleChildExit(child, null, "SIGKILL", "stale");
+                    }
                 },
             },
         );
@@ -141,7 +146,7 @@ export class NapukettoDriver {
         if (this.state === "idle" || this.state === "stopped" || this.state === "stopping") {
             return;
         }
-        this.stopping = true;
+        this.startupEvents = null;
         this.setState("stopping");
         this.clearRestartTimer();
         this.heartbeat.stop();
@@ -151,45 +156,48 @@ export class NapukettoDriver {
             this.finishStop();
             return;
         }
+        // 等待子进程退出；超时强杀
+        this.stopTimer = setTimeout(() => {
+            this.child?.kill();
+            this.finishStop();
+        }, STOP_TIMEOUT_MS);
         if (current.alive) {
             current.sendControl({ command: "stop" });
         }
-        // 等待子进程退出；超时强杀
-        this.stopTimer = setTimeout(() => {
-            this.killChild();
-            this.finishStop();
-        }, STOP_TIMEOUT_MS);
     }
 
     // ── 内部 ──
 
     private async spawnProcess(reason: "start" | "restart"): Promise<void> {
         this.setState(reason === "start" ? "spawning" : "restarting");
-        this.spawnFailed = false;
         let result: DriverLaunchResult;
         try {
             result = await this.launch();
         } catch (err) {
-            this.handleSpawnError(err);
+            if (this.state !== "stopped") {
+                this.handleSpawnError(err);
+            }
             return;
         }
         const { child, cleanup } = result;
-        this.child = child;
         // ⚠️ spawn error 兜底（2026-08-23 WSL 生产事故）：命令缺失（wine 未安装等）
         // 时 Node 异步 emit 'error'，不监听 = uncaughtException 崩掉整个 koishi。
         // launch 工厂（launcher）已预检 + 内部监听防崩溃，这里再转发 onError 走
-        // 友好错误流程（[W] 驱动错误 + offline），并置 spawnFailed 防 exit 双处理。
+        // 友好错误流程（[W] 驱动错误 + offline）；清理后忽略旧进程回调。
         child.once("error", (err) => {
-            this.spawnFailed = true;
-            this.handleSpawnError(err);
+            if (this.child === child) {
+                this.handleSpawnError(err);
+            }
         });
+        if (this.state === "stopped") {
+            child.kill();
+            cleanup?.();
+            return;
+        }
+        this.child = child;
         // 子进程退出（崩溃/正常/被 kill）→ 统一处理（stop 流程除外）
         child.once("exit", (code, signal) => {
-            // spawn error 已处理（ENOENT 无 exit 事件，但防双触发）
-            if (this.spawnFailed) {
-                return;
-            }
-            this.handleChildExit(code, signal, "crash");
+            this.handleChildExit(child, code, signal, "crash");
         });
 
         // 每次 spawn 建新 transport + 新 client（旧 client 随旧子进程 closed）
@@ -207,6 +215,8 @@ export class NapukettoDriver {
             this.onJunkLine !== undefined ? { onJunkLine: this.onJunkLine } : {},
         );
         this.client = client;
+        this.startupEvents = [];
+        this.lastStatusQueryAt = null;
         this.subscribeClient(client);
 
         this.spawnAt = Date.now();
@@ -216,8 +226,8 @@ export class NapukettoDriver {
 
     private subscribeClient(client: NapukettoIpcClient): void {
         client.on("status", (message) => {
-            this.handleStatus(message.payload);
             this.events.onStatus?.(message.payload);
+            this.handleStatus(message.payload);
         });
         client.on("login", (message) => {
             this.events.onLogin?.(message.payload);
@@ -226,12 +236,21 @@ export class NapukettoDriver {
             this.events.onQr?.(message.payload);
         });
         client.on("event", (message) => {
-            // 事件已到但状态机未 ready：ready 消息可能已被撕裂丢失，
-            // 主动查状态自愈（子进程重播最近 status，见 ipc-server control status）
-            if (this.state !== "ready") {
+            const pending = this.startupEvents;
+            if (pending === null) {
+                if (this.state === "ready") {
+                    this.events.onEvent?.(message.payload);
+                }
+                return;
+            }
+            if (pending.length === MAX_STARTUP_EVENTS) {
+                pending.shift();
+            }
+            pending.push(message.payload);
+            // 先入队，再查状态。传输层可以同步重播 ready。
+            if (this.state === "booting") {
                 this.resyncStatus();
             }
-            this.events.onEvent?.(message.payload);
         });
         client.on("log", (message) => {
             this.events.onLog?.(message.payload);
@@ -243,14 +262,11 @@ export class NapukettoDriver {
             case "ready":
                 // 幂等守卫：control status 重播会重复送达 ready，已 ready 不再触发
                 // onReady（防 online/getLogin 等重复副作用）
-                if (
-                    this.state !== "ready" &&
-                    this.state !== "stopping" &&
-                    this.state !== "stopped"
-                ) {
+                if (this.state === "booting") {
                     this.restartCount = 0; // 就绪即健康，重置重启计数
                     this.setState("ready");
                     this.events.onReady?.();
+                    this.flushStartupEvents();
                 }
                 break;
             case "failed":
@@ -262,11 +278,38 @@ export class NapukettoDriver {
         }
     }
 
-    private handleChildExit(code: number | null, signal: string | null, reason: ExitReason): void {
+    private flushStartupEvents(): void {
+        const pending = this.startupEvents;
+        if (pending === null) {
+            return; // onReady 可能因账号不一致而停止驱动
+        }
+        while (this.startupEvents === pending) {
+            const payload = pending.shift();
+            if (payload === undefined) {
+                this.startupEvents = null;
+                return;
+            }
+            this.events.onEvent?.(payload);
+        }
+    }
+
+    private handleChildExit(
+        child: ChildProcessLike,
+        code: number | null,
+        signal: string | null,
+        reason: ExitReason,
+    ): void {
+        if (this.child !== child) {
+            return;
+        }
+        this.detachChild();
         this.events.onExit?.({ code, signal, reason });
 
-        if (this.stopping) {
+        if (this.state === "stopping") {
             this.finishStop();
+            return;
+        }
+        if (this.state === "stopped") {
             return;
         }
         // 崩溃/失联 → 按策略重启
@@ -279,11 +322,12 @@ export class NapukettoDriver {
     }
 
     private handleSpawnError(err: unknown): void {
+        this.detachChild();
         this.events.onExit?.({ code: null, signal: null, reason: "spawn-error" });
         this.events.onError?.(err);
-        if (this.stopping) {
+        if (this.state === "stopping") {
             this.finishStop();
-        } else {
+        } else if (this.state !== "stopped") {
             this.setState("failed");
         }
     }
@@ -293,16 +337,10 @@ export class NapukettoDriver {
         const delay = backoffDelay(attempt, this.restart.backoffMs, this.restart.backoffFactor);
         this.setState("restarting");
         this.restartTimer = setTimeout(() => {
+            this.restartTimer = null;
             this.restartCount = attempt;
             void this.spawnProcess("restart");
         }, delay);
-    }
-
-    private killChild(): void {
-        const child = this.child;
-        if (child !== null) {
-            child.kill();
-        }
     }
 
     private clearRestartTimer(): void {
@@ -313,16 +351,21 @@ export class NapukettoDriver {
     }
 
     private finishStop(): void {
-        this.stopping = false;
         if (this.stopTimer !== null) {
             clearTimeout(this.stopTimer);
             this.stopTimer = null;
         }
+        this.detachChild();
+        this.setState("stopped");
+    }
+
+    private detachChild(): void {
         this.heartbeat.stop();
-        this.client?.close();
+        this.startupEvents = null;
+        const client = this.client;
         this.client = null;
         this.child = null;
-        this.setState("stopped");
+        client?.close();
     }
 
     private setState(next: DriverState): void {
@@ -337,7 +380,10 @@ export class NapukettoDriver {
      */
     private resyncStatus(): void {
         const now = Date.now();
-        if (now - this.lastStatusQueryAt < STATUS_QUERY_MIN_INTERVAL_MS) {
+        if (
+            this.lastStatusQueryAt !== null &&
+            now - this.lastStatusQueryAt < STATUS_QUERY_MIN_INTERVAL_MS
+        ) {
             return;
         }
         this.lastStatusQueryAt = now;

@@ -185,6 +185,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
 
     /** 停止：停 driver（子进程优雅退出）→ 基类 offline。 */
     override async stop(): Promise<void> {
+        this.clientRef.current = null;
         this.driver?.stop();
         await super.stop();
     }
@@ -310,6 +311,9 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
                 isDisconnected: () =>
                     this.status === BOT_STATUS.DISCONNECT || this.identityMismatch,
                 handleReady: () => this.handleReady(),
+                clearClient: () => {
+                    this.clientRef.current = null;
+                },
                 // 软重登换账号检测（2026-09-08）：logged_in 登录消息补位校验
                 onLoggedIn: (self) => this.handleLoggedIn(self),
                 offline: (error) => {
@@ -333,18 +337,20 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
         this.driver = driver;
     }
 
-    /** driver ready：clientRef 更新 + 登录状态就绪 + online + 拉登录信息。 */
+    /** driver ready：登录状态就绪 + 校验账号 + 绑定客户端 + online。 */
     private handleReady(): void {
-        const client = this.driver?.currentClient;
-        if (client !== null && client !== undefined) {
-            this.clientRef.current = client;
-        }
         this.login.onReady();
         // ⚠️ 账号一致性校验必须在 online 之前（见 checkIdentity）：不一致时
         // 一条消息都不能派发，否则 koishi 会按错账号落库 assignee/binding。
         if (!this.checkIdentity()) {
             return;
         }
+        const driver = this.driver;
+        const client = driver?.currentState === "ready" ? driver.currentClient : null;
+        if (client === null) {
+            return;
+        }
+        this.clientRef.current = client;
         this.online();
         void this.getLogin().catch((error) => {
             this.logger.warn("[napuketto] 拉取登录信息失败: %o", error);
@@ -378,6 +384,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
             },
             setMismatch: () => {
                 this.identityMismatch = true;
+                this.clientRef.current = null;
             },
             stopDriver: () => {
                 this.driver?.stop();
@@ -404,14 +411,18 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
 
     /** kernel 事件 session 字段 → koishi session → dispatch。 */
     private async dispatchSession(fields: NapukettoSessionFields): Promise<void> {
+        const client = this.clientRef.current;
         // 账号不一致：拒绝派发（落库会把 assignee/binding 写成错账号，见 checkIdentity）
-        if (this.identityMismatch) {
+        if (client === null || this.identityMismatch) {
             return;
         }
         // 原子预热 channel/user（docs/internals/bot.md，2026-08-09 并发竞态修复）：
         // 预热后 koishi SELECT 必命中，永远走不到 get-or-create 的并发 INSERT
         //（根因 koishijs/koishi#1545）。预热失败不阻断派发（框架兜底）。
         await this.preheat(fields);
+        if (this.clientRef.current !== client) {
+            return; // 预热期间子进程已退出或被替换
+        }
         const session = this.session({
             type: fields.type,
             // exactOptionalPropertyTypes：可选字段条件展开，不显式赋 undefined

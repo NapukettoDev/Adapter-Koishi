@@ -61,7 +61,8 @@ describe("NapukettoDriver 重启", () => {
     it("心跳失联（spawn 后 45s 无消息）→ kill + 重启", async () => {
         vi.useFakeTimers();
         try {
-            const { driver, spawns } = createHarness();
+            const onExit = vi.fn();
+            const { driver, spawns } = createHarness({ onExit });
             driver.start();
             await flush();
             expect(spawns.length).toBe(1);
@@ -72,7 +73,14 @@ describe("NapukettoDriver 重启", () => {
             // 失联 → handleChildExit(stale) → 重启调度
             await vi.advanceTimersByTimeAsync(150);
             expect(spawns.length).toBe(2);
+            // SIGTERM 后旧进程的 exit 可能晚于下一轮 spawn。
+            spawns[0]?.emitExit(null, "SIGTERM");
+            expect(onExit).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({ reason: "stale" }),
+            );
+            expect(driver.currentState).toBe("booting");
             driver.stop();
+            spawns[1]?.emitExit(0, null);
         } finally {
             vi.useRealTimers();
         }

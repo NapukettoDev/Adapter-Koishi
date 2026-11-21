@@ -18,6 +18,7 @@ function createHost(overrides: { isDisconnected?: () => boolean } = {}) {
     const login = { onLogin: vi.fn(), onQr: vi.fn(), onExit: vi.fn() };
     const bridge = { handle: vi.fn() };
     const handleReady = vi.fn();
+    const clearClient = vi.fn();
     const offline = vi.fn();
     const onLoggedIn = vi.fn();
     const host: DriverEventsHost = {
@@ -26,10 +27,11 @@ function createHost(overrides: { isDisconnected?: () => boolean } = {}) {
         bridge: bridge as unknown as DriverEventsHost["bridge"],
         isDisconnected: overrides.isDisconnected ?? (() => false),
         handleReady,
+        clearClient,
         offline,
         onLoggedIn,
     };
-    return { host, logger, login, bridge, handleReady, offline, onLoggedIn };
+    return { host, logger, login, bridge, handleReady, clearClient, offline, onLoggedIn };
 }
 
 describe("buildDriverEvents", () => {
@@ -107,19 +109,21 @@ describe("buildDriverEvents", () => {
     });
 
     it("onExit 主动断开（isDisconnected=true）→ login.onExit，不 offline", () => {
-        const { host, login, offline } = createHost({ isDisconnected: () => true });
+        const { host, login, clearClient, offline } = createHost({ isDisconnected: () => true });
         const events = buildDriverEvents(host);
         events.onExit?.({ code: 0, signal: null, reason: "stop" });
         expect(login.onExit).toHaveBeenCalledTimes(1);
+        expect(clearClient).toHaveBeenCalledBefore(login.onExit);
         expect(offline).not.toHaveBeenCalled();
     });
 
     it("onExit 非主动退出 → login.onExit + offline（驱动崩溃/失联）", () => {
-        const { host, login, offline } = createHost();
+        const { host, login, clearClient, offline } = createHost();
         const events = buildDriverEvents(host);
         events.onExit?.({ code: 1, signal: null, reason: "crash" });
         expect(login.onExit).toHaveBeenCalledTimes(1);
         expect(offline).toHaveBeenCalledTimes(1);
+        expect(clearClient).toHaveBeenCalledBefore(offline);
     });
 
     it("onError Error 实例 → 原样传给 offline + warn 日志", () => {
