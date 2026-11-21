@@ -134,6 +134,7 @@ export interface BridgeHost {
     getLogin: () => NapukettoLoginState;
     /** 配置（selfId 兜底）。 */
     config: NapukettoBotConfig;
+    dataRoot: string;
     /** 派发（预热 + session 组装 + dispatch）。 */
     dispatchSession: (session: NapukettoSessionFields) => Promise<void>;
 }
@@ -150,8 +151,7 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
         // koishi h 可调用（Element 工厂）；绑定生产 h（elements.ts bindKoishiH）
         h: bindKoishiH(koishiH),
         platform: "onebot",
-        // 收向语音解码（voice NT silk → WAV 可播放；fail-soft，2026-09-08 T6）
-        enrichElements: (elements) => enrichReceiveVoice(elements),
+        enrichElements: (elements) => enrichReceiveVoice(elements, host.dataRoot),
     });
 }
 

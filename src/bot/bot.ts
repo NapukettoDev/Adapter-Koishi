@@ -18,6 +18,7 @@
  * 只按 Bot 基类能力使用，无需 koishi 特有 API。
  */
 
+import { resolveDataRoot } from "@napuketto/kernel";
 import type { Context } from "@satorijs/core";
 import { Bot, type Context as KoishiContext, type MessageEncoder, type Universal } from "koishi";
 import { type LogLevel, type NapukettoBotConfig, napukettoConfigSchema } from "../config.js";
@@ -83,13 +84,14 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
     /** 业务 IPC 客户端引用，仅在 driver ready 且账号校验通过后绑定。 */
     private readonly clientRef: { current: NapukettoIpcClient | null } = { current: null };
     /** 一次性强制扫码标记：面板请求扫码重启时置 true → 下次 spawn
-     * 消费（launch 读后清零，NAPUTO_QR_ONLY=1 → 子进程跳过快速登录直接出码）。 */
+     * 消费（launch 读后清零，NAPUKETTO_QR_ONLY=1 → 子进程跳过快速登录直接出码）。 */
     private readonly qrOnlyRef = { current: false };
     /** 控制台登录面板（console 服务就绪后装配；自 bot.ts 拆出，login-panel.ts）。 */
     private readonly panel: NapukettoLoginPanel;
     private driver: NapukettoDriver | null = null;
     private readonly login: NapukettoLoginState;
     private readonly bridge: NapukettoEventBridge;
+    private readonly dataRoot: string;
     /** 数据库操作集中管理（docs/internals/bot.md）：dispatch 前原子预热 channel/user。 */
     private readonly database: NapukettoDatabase;
     /** autoAssign 语义（构造时解析一次；koishi 默认 true）。 */
@@ -101,6 +103,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
 
     constructor(ctx: Context, config: NapukettoBotConfig) {
         super(ctx, config, "onebot");
+        this.dataRoot = resolveDataRoot(config.dataDir);
         // 日志等级（用户可配，默认 debug——多点日志便于排查；reggol setter 按名字
         // 写全局 Logger.levels，只影响 napuketto 及其子 namespace）
         this.logger.level = LOG_LEVEL_MAP[config.logLevel ?? "debug"];
@@ -146,6 +149,7 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
             logger: this.logger,
             getLogin: () => this.login,
             config: this.config,
+            dataRoot: this.dataRoot,
             dispatchSession: (session) => this.dispatchSession(session),
         });
 
@@ -284,13 +288,16 @@ export class NapukettoBot extends Bot<Context, NapukettoBotConfig> {
         const driver = new NapukettoDriver({
             // launch 工厂：logger 接线 onStage（下载/解包/win-node/启动阶段日志，
             // 2026-08-23 起——此前首次下载 313MB 全程静默，用户以为流程没生效）
-            launch: buildLaunch(this.config, {
-                onStage: (message) => {
-                    this.logger.info("[napuketto] %s", message);
+            launch: buildLaunch(
+                { ...this.config, dataDir: this.dataRoot },
+                {
+                    onStage: (message) => {
+                        this.logger.info("[napuketto] %s", message);
+                    },
+                    // 一次性强制扫码标记（面板「扫码登录」；spawn 时消费清零）
+                    forceQr: this.qrOnlyRef,
                 },
-                // 一次性强制扫码标记（面板「扫码登录」；spawn 时消费清零）
-                forceQr: this.qrOnlyRef,
-            }),
+            ),
             // 事件接线（driver-events.ts 工厂：logger/login/bridge/offline 依赖注入）
             events: buildDriverEvents({
                 logger: this.logger,
@@ -504,8 +511,9 @@ export namespace NapukettoBot {
 <div style="border-radius: 10px; border: 1px solid #ddd; padding: 16px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
   <h2 style="margin-top: 0; color: #4a6ee0;">🖥️ NapukettoQQ 适配器</h2>
   <p>自研 QQ NT <strong>wrapper.node</strong> 协议层，无需外部协议端。</p>
-  <p>每个 <code>bots</code> 配置项启动一个自建宿主子进程（dlopen wrapper.node + stub
-  QQNT.dll），经 IPC 与 koishi 通信。配置 <code>selfId</code> 为登录 QQ 号即可；
+  <p>每个 <code>bots</code> 配置项启动一个自建宿主子进程，经 IPC 与 Koishi 通信。
+  Windows 使用 QQNT.dll stub，Linux / WSL 使用 Linux 版 QQ、ELF stub 与 libgnutls.so.30。
+  Wine 已退役。配置 <code>selfId</code> 为登录 QQ 号即可。
   登录二维码在插件详情页实时展示（控制台安装后可见）。</p>
 </div>
 `;

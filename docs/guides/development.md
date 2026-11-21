@@ -5,7 +5,7 @@
 - Node 24（CI 基线）、pnpm 12.4.1（`packageManager` 字段；corepack 可钉住）。
 - TypeScript 7（`devDependencies`）。
 - 单包工程，根包即唯一 workspace；`pnpm-workspace.yaml` 只承载 pnpm 12 的构建审批/发布龄等设置。
-- 单元测试不需要真实 QQ、真实子进程或 wine。
+- 单元测试不需要真实 QQ 或原生宿主。
 
 ## 常用命令
 
@@ -31,7 +31,7 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 
 - `tsdown.config.ts` 设置 `deps.bundle: false`：`@napuketto/*` 与 koishi 生态全部 external，
   运行时由 npm 安装的真实包提供。发布物不是自包含 bundle；子进程要读磁盘上的
-  `self-host.cjs`、stub DLL、kernel 入口，bundle 会丢资产。
+  `self-host.cjs`、平台 stub、kernel 入口，bundle 会丢资产。
 - `package.json` 的 `files` 只含 `lib`、`client`、`dist`，**`src` 不发布**。
 - `exports`：
   - `types` → `lib/index.d.cts`

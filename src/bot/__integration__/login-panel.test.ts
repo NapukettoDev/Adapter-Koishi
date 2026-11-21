@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
+import { ElementType } from "@napuketto/kernel";
 import { launchSelfHost } from "@napuketto/loader";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeRawMessage, mockH } from "../../events/test-utils.js";
@@ -344,6 +345,45 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(bot.dispatch).toHaveBeenCalledTimes(1);
         expect(child.received).toHaveLength(sent);
     });
+
+    it.each([new Map([[0, "thumb.jpg"]]), { "0": "thumb.jpg" }])(
+        "IPC JSON 往返后，含视频的整条消息仍会在 ready 后派发",
+        async (thumbPath) => {
+            const { bot } = setupPanel();
+            const child = await startBot(bot);
+            const raw = makeRawMessage({
+                msgId: "with-video",
+                msgTime: String(Date.now()),
+                elements: [
+                    { elementType: ElementType.TEXT, textElement: { content: "前缀" } },
+                    {
+                        elementType: ElementType.VIDEO,
+                        videoElement: { filePath: "video.mp4", thumbPath },
+                    },
+                    { elementType: ElementType.TEXT, textElement: { content: "后缀" } },
+                ],
+            });
+            child.send({
+                v: IPC_VERSION,
+                type: "event",
+                payload: { service: "Msg", name: "onRecvMsg", args: [[raw]] },
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(bot.dispatch).not.toHaveBeenCalled();
+
+            child.ready();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(bot.dispatch).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    messageId: "with-video",
+                    elements: ["前缀", "[video]", "后缀"].map((content) =>
+                        expect.objectContaining({ type: "text", attrs: { content } }),
+                    ),
+                }),
+            );
+        },
+    );
 
     it("Bot 的历史查询透传分页参数并返回旧消息", async () => {
         const { bot } = setupPanel();

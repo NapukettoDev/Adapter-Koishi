@@ -30,10 +30,16 @@ export interface RestartConfig {
 export interface NapukettoBotConfig {
     /** 登录账号（QQ 号，必填：数据目录账号隔离 + 快速登录账号）。 */
     selfId: string;
-    /** QQ 安装路径（缺省 loader locateQqPath 自动探测）。 */
+    /** QQ 可执行文件路径（缺省由 loader 自动探测）。 */
     qqPath?: string;
-    /** stub QQNT.dll 目录（缺省 loader 包内默认）。 */
+    /** Windows stub QQNT.dll 目录（缺省 loader 包内默认）。 */
     stubDir?: string;
+    /** Linux ELF stub 文件路径（缺省 loader 包内默认）。 */
+    linuxStubPath?: string;
+    /** Windows 上 Koishi 运行于非 Node 宿主时使用的 node.exe。 */
+    winNodePath?: string;
+    /** 入站图片自动下载补丁（省略时沿用 loader 默认及环境开关）。 */
+    nativeMediaPatch?: boolean;
     /** 数据根目录（缺省 kernel resolveDataRoot 默认）。 */
     dataDir?: string;
     /** 包入口覆盖（高级项；缺省 createRequire 按 dependencies 自动定位）。 */
@@ -63,8 +69,13 @@ export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.object({
     selfId: Schema.string()
         .description("登录账号（QQ 号，数据目录账号隔离 + 快速登录账号）")
         .required(),
-    qqPath: Schema.string().description("QQ 安装路径（缺省自动探测）"),
-    stubDir: Schema.string().description("stub QQNT.dll 目录（缺省 loader 包内默认）"),
+    qqPath: Schema.string().description("QQ 可执行文件路径（缺省自动探测）"),
+    stubDir: Schema.string().description("Windows stub QQNT.dll 目录（缺省 loader 包内默认）"),
+    linuxStubPath: Schema.string().description("Linux ELF stub 文件路径（缺省 loader 自动解析）"),
+    winNodePath: Schema.string().description("Windows 非 Node 宿主使用的 node.exe（缺省自动解析）"),
+    nativeMediaPatch: Schema.boolean().description(
+        "入站图片自动下载补丁（缺省沿用 loader 默认及环境开关）",
+    ),
     dataDir: Schema.string().description("数据根目录（缺省自动解析）"),
     kernelEntry: Schema.string().description(
         "kernel 入口路径覆盖（高级项；缺省按 dependencies 自动解析）",

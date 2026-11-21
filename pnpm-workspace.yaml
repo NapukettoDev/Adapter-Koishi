@@ -11,13 +11,13 @@ allowBuilds:
     esbuild: true
     vue-demi: true
 
-# 发版窗口内刚发布的 @napuketto/* 会被默认 1440 分钟发布龄校验拦截
-# （2026-10-17 发布的这组版本），显式豁免。
+# 同步升级的 Napuketto 发布组。仅豁免此次审核过的具体版本，以便在 24 小时发布龄窗口内验证。
 minimumReleaseAgeExclude:
-    - "@napuketto/adapter@0.3.2"
-    - "@napuketto/kernel@0.2.0"
-    - "@napuketto/loader@0.0.35"
-    - "@napuketto/media@0.0.5"
+    - "@napuketto/adapter@0.18.20"
+    - "@napuketto/kernel@0.16.3"
+    - "@napuketto/loader@0.10.8"
+    - "@napuketto/media@0.2.2"
+    - "@napuketto/network@0.4.5"
 
 # 本仓 lockfile 自产自销，视为可信基础（同主仓理由）。
 trustLockfile: true

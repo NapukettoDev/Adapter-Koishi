@@ -1,5 +1,12 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.40
+
+### Patch Changes
+
+- 同步升级五个 Napuketto 运行时包，保留 IPC v1 和 OneBot 11 桥，修复含视频缩略图的入站消息经 IPC 后无法转换的问题。
+- Linux 和 WSL 改用原生 QQ ELF 宿主，复用本机 QQ 安装并按子进程数据根解析相对语音路径。Wine 已退役。
+
 ## 0.0.39
 
 ### Patch Changes
