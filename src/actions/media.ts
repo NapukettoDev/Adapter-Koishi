@@ -7,6 +7,7 @@ import * as media from "@napuketto/media";
 import { IpcError } from "../ipc/errors.js";
 import {
     DEFAULT_LOCAL_FILE_POLICY,
+    DEFAULT_REMOTE_MEDIA_POLICY,
     type OutboundMediaPolicy,
     resolveAllowedMedia,
 } from "./media-policy.js";
@@ -83,7 +84,9 @@ async function download(
     options: PrepareMediaOptions,
 ): Promise<string> {
     const downloader =
-        options.remoteMediaPolicy === "public-only" ? publicDownloader() : media.downloadUrl;
+        (options.remoteMediaPolicy ?? DEFAULT_REMOTE_MEDIA_POLICY) === "public-only"
+            ? publicDownloader()
+            : media.downloadUrl;
     const suffix = media.inferExtension(null, url.href);
     const path = await workspace.file(suffix);
     await downloader(url.href, path, {
