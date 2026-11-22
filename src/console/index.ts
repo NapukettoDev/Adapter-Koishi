@@ -1,2 +1,1 @@
-export { toLoginPanelPayload } from "./payload.js";
-export { bindLoginProvider } from "./provider.js";
+export { type LoginPanelDeps, NapukettoLoginPanel } from "./login-panel.js";

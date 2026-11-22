@@ -5,7 +5,7 @@
  * 独立成类后 client.ts 只做线路处理（编解码/心跳/事件分发），
  * 请求生命周期可单测（注入假超时）。
  */
-import { IpcError } from "./errors.js";
+import { IpcError } from "../shared/errors.js";
 
 /** 动作请求超时（毫秒）。 */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;

@@ -4,8 +4,8 @@
 
 import type { CanonicalElement } from "@napuketto/kernel";
 import { describe, expect, it } from "vitest";
-import { toKoishiElements } from "../elements.js";
-import { mockH } from "../test-utils.js";
+import { mockH } from "../../__test-utils__/events.js";
+import { toKoishiElements } from "../../shared/protocol.js";
 
 describe("toKoishiElements", () => {
     const h = mockH();

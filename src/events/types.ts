@@ -7,7 +7,7 @@
 import type { CanonicalElement } from "@napuketto/kernel";
 import type { Universal } from "koishi";
 import type { IpcEventPayload } from "../ipc/index.js";
-import type { HFn } from "./elements.js";
+import type { HFn } from "../shared/protocol.js";
 
 /** koishi session 字段（宽松构造面——Bot.session(event) 接受的 Partial<Event>）。 */
 export interface NapukettoSessionFields {

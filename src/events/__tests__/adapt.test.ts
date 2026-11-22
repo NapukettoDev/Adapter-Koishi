@@ -3,9 +3,9 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { makeRawMessage as makeMsg, mockH } from "../../__test-utils__/events.js";
+import { normalizeMessageTime } from "../../shared/protocol.js";
 import { adaptRawMessage, adaptRawMessageWithMedia } from "../adapt.js";
-import { normalizeMessageTime } from "../message-time.js";
-import { makeRawMessage as makeMsg, mockH } from "../test-utils.js";
 import { enrichReceiveVoice } from "../voice-decode.js";
 
 /** 默认适配选项（mock h）。 */

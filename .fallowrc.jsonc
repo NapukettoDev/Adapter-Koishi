@@ -2,7 +2,7 @@
     // fallow 配置：本仓库专用。只豁免已确认的误报源、框架契约与有意设计，
     // 不放松重复与复杂度阈值。
     "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-    // 动态加载入口：client/ 是控制台前端，经 src/bot/utils/console-entry.ts 的
+    // 动态加载入口：client/ 是控制台前端，经 src/console/entry.ts 的
     // ctx.console.addEntry 动态注册，静态分析看不到引用——标记为动态入口。
     "dynamicallyLoaded": [
         "client/**"
@@ -18,8 +18,8 @@
     //    （start/stop/getMessageList/getLogin/getFriendList/getChannel/... 框架多态
     //    调用）+ MessageEncoder static（koishi 按 bot.constructor.MessageEncoder
     //    反射查找），静态分析无引用
-    //  - src/ipc/client.ts：alive/sendControl 被 driver.ts 经「null 联合类型 +
-    //    属性访问」调用（stop() 里 current.alive / current.sendControl），
+    //  - src/ipc/client.ts：alive/sendControl 被 driver.ts 和 terminator.ts 经
+    //    「null 联合类型 + 属性访问」调用，
     //    fallow 流分析漏报（实际有消费者）
     //  - src/driver/driver.ts：restartAttempts 是测试断言（driver-restart.test.ts）
     //    + 诊断用公共 getter

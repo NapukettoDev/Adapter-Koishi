@@ -3,8 +3,8 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { IpcMessageSchema } from "@napuketto/loader";
 import { describe, expect, it, vi } from "vitest";
+import { MemoryLinePair } from "../../__test-utils__/ipc.js";
 import { NapukettoIpcClient } from "../index.js";
-import { MemoryLinePair } from "../test-utils.js";
 
 describe("已发布 loader 的 IPC v1 契约", () => {
     it("随包提供 self-host 和 Windows / Linux x64 stub", async () => {

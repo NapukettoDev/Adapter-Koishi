@@ -10,11 +10,11 @@
  */
 import { isRecord } from "@napuketto/kernel";
 import type { Universal } from "koishi";
-import { IpcError } from "../ipc/errors.js";
+import { IpcError } from "../shared/errors.js";
 import { parseChannelId } from "./channel.js";
 import { toCanonicalElements } from "./elements.js";
 import { isHistoryMessage, toHistoryMessage } from "./history.js";
-import { prepareOutboundMedia } from "./media.js";
+import { prepareOutboundMedia } from "./media/prepare.js";
 import {
     readOb11Member,
     readOb11MemberList,

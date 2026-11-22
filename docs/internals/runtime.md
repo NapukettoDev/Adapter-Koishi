@@ -8,9 +8,12 @@
 | 层 | 文件 | 职责 |
 | :--- | :--- | :--- |
 | launch | `src/bot/launch.ts` | 组装 `launchSelfHost` 选项、解析包入口、每次 spawn 调用一次 |
-| driver | `src/driver/driver.ts` | 子进程生命周期、状态机、重启、停止、状态重查 |
+| driver | `src/driver/driver.ts` | 子进程生命周期与状态转换 |
 | heartbeat | `src/driver/heartbeat.ts` | 轮询最近消息时间，判定失联 |
-| backoff | `src/driver/backoff.ts` | 指数退避纯函数 |
+| account lock | `src/driver/account-lock.ts` | 按账号目录管理宿主所有权 |
+| restart | `src/driver/restart.ts` | 重启计数、指数退避和取消 |
+| resync | `src/driver/boot-resync.ts` | 引导期事件暂存、回放与状态重查 |
+| termination | `src/driver/terminator.ts` | 进程监听、分级终止和退出错误 |
 | ipc | `src/ipc/` | JSON 行编解码、传输、请求匹配、事件订阅 |
 
 ## launch：组装子进程
@@ -59,6 +62,7 @@ Bot 每次 `start()` 创建新的 driver 实例；driver 自身也允许在 `sto
 interface DriverOptions {
   launch: () => Promise<{ child: ChildProcessLike; cleanup?: () => void }>;
   accountDir?: string;
+  accountOwners?: AccountOwnerRegistry; // 可注入独立的账号锁注册表
   createTransport?: (child) => IpcLineTransport;
   events: DriverEvents;
   restart?: { maxRetries?; backoffMs?; backoffFactor? };
@@ -67,7 +71,7 @@ interface DriverOptions {
 }
 ```
 
-`DriverEvents`（均已接线到 `src/bot/utils/driver-events.ts`）：
+`DriverEvents`（均已接线到 `src/bot/driver-events.ts`）：
 
 | 回调 | 触发 |
 | :--- | :--- |
@@ -209,6 +213,6 @@ spawn 流程：
 
 ## 测试设施
 
-- `src/ipc/test-utils.ts`：`MemoryLinePair`（一端 write → 对端收到）、`captureAction`。
-- `src/driver/test-utils.ts`：`FakeChild`（可触发 exit/error）+ `createHarness`（记录 spawn 与 pair）。
+- `src/__test-utils__/ipc.ts`：`MemoryLinePair`（一端 write → 对端收到）、`captureAction`。
+- `src/__test-utils__/driver.ts`：`FakeChild`（可触发 exit/error）+ `createHarness`（记录 spawn 与 pair）。
 - driver/IPC 单测不启动真实子进程，也不需要 QQ 环境。

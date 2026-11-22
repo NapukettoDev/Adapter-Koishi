@@ -1,7 +1,7 @@
 /** raw IPC 和 OB11 事件到 Koishi Session 的分发入口。 */
 import type { RawMessage } from "@napuketto/kernel";
+import { normalizeMessageTime } from "../shared/protocol.js";
 import { adaptRawMessageWithMedia } from "./adapt.js";
-import { normalizeMessageTime } from "./message-time.js";
 import { type AdaptedEvent, adaptOb11Event, adaptRecall, findSystemTip } from "./notices.js";
 import type { EventBridge, EventBridgeOptions, Ob11EventPayload } from "./types.js";
 

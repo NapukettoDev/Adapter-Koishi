@@ -1,11 +1,11 @@
 /**
- * test-utils.ts：事件桥测试共享设施——内存 mock h() 工厂。
+ * events.ts：事件桥测试共享设施——内存 mock h() 工厂。
  *
  * koishi 主包 import 会初始化 loader（vitest 环境崩溃），因此测试用 mock h：
  * 产出 { type, attrs, children, toString } 形状，验证元素映射正确。
  */
 import type { RawMessage } from "@napuketto/kernel";
-import type { HFn } from "./elements.js";
+import type { HFn } from "../shared/protocol.js";
 
 export function makeRawMessage(overrides: Partial<RawMessage> = {}): RawMessage {
     return {

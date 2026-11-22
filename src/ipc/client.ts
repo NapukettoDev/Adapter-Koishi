@@ -15,8 +15,8 @@ import {
     type IpcMessage,
     type IpcResultMessage,
 } from "@napuketto/loader";
+import { IpcError } from "../shared/errors.js";
 import { decodeIpcMessage, encodeIpcMessage } from "./codec.js";
-import { IpcError } from "./errors.js";
 import { DEFAULT_REQUEST_TIMEOUT_MS, PendingRequests } from "./pending.js";
 import type { IpcLineTransport } from "./transport.js";
 

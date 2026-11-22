@@ -8,13 +8,13 @@
 
 import { IPC_VERSION } from "@napuketto/loader";
 import { describe, expect, it, vi } from "vitest";
+import { captureAction, MemoryLinePair } from "../../__test-utils__/ipc.js";
 import {
     decodeIpcMessage,
     encodeIpcMessage,
     type IpcMessage,
     NapukettoIpcClient,
 } from "../index.js";
-import { captureAction, MemoryLinePair } from "../test-utils.js";
 
 describe("NapukettoIpcClient 请求-响应", () => {
     it("action 请求 → result 成功响应", async () => {

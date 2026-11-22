@@ -16,8 +16,8 @@ import {
     DEFAULT_LOCAL_FILE_POLICY,
     DEFAULT_REMOTE_MEDIA_POLICY,
     type OutboundMediaPolicy,
-} from "./actions/media-policy.js";
-import { SELF_ID_PATTERN } from "./self-id.js";
+} from "./shared/media-policy.js";
+import { SELF_ID_PATTERN } from "./shared/protocol.js";
 
 /** 日志等级（reggol Logger level；默认 debug——事件/消息详细日志，可调低减少输出）。 */
 export type LogLevel = "debug" | "info" | "error" | "silent";

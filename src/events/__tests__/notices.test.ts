@@ -6,11 +6,11 @@ import {
     TipGroupElementType,
 } from "@napuketto/kernel";
 import { describe, expect, it, vi } from "vitest";
+import { createHarness, flush } from "../../__test-utils__/driver.js";
+import { makeRawMessage, mockH } from "../../__test-utils__/events.js";
 import { NapukettoInternal } from "../../actions/internal.js";
-import { createHarness, flush } from "../../driver/test-utils.js";
 import { encodeIpcMessage, IPC_VERSION, type IpcEventPayload } from "../../ipc/index.js";
 import { NapukettoEventBridge } from "../bridge.js";
-import { makeRawMessage, mockH } from "../test-utils.js";
 import type { NapukettoSessionFields, Ob11EventPayload } from "../types.js";
 
 const TIME = 1_793_540_000;

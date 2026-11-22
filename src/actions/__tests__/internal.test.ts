@@ -11,7 +11,7 @@ import { dirname, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ElementType } from "@napuketto/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeRawMessage, mockH } from "../../events/test-utils.js";
+import { makeRawMessage, mockH } from "../../__test-utils__/events.js";
 import { NapukettoInternal } from "../internal.js";
 import type { RequestFn } from "../types.js";
 

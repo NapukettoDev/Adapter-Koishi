@@ -8,7 +8,7 @@
  * 「internal 调用 + 委托本模块翻译」。
  */
 import type { Universal } from "koishi";
-import { PRIVATE_PREFIX } from "../../constants.js";
+import { PRIVATE_PREFIX } from "../shared/protocol.js";
 
 /** kernel 好友原始形状（宽松结构，来自 IPC 响应）。 */
 export interface RawFriend {

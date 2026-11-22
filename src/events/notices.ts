@@ -5,7 +5,7 @@ import {
     type RawMessage,
     TipGroupElementType,
 } from "@napuketto/kernel";
-import { normalizeMessageTime } from "./message-time.js";
+import { normalizeMessageTime, PRIVATE_PREFIX } from "../shared/protocol.js";
 import type { EventBridgeOptions, NapukettoSessionFields, Ob11EventPayload } from "./types.js";
 
 export interface AdaptedEvent {
@@ -68,7 +68,7 @@ export function adaptRecall(
         (revoke.isSelfOperate === true ? selfId : undefined) ??
         (revoke.operatorUid && revoke.operatorUid === msg.senderUid ? userId : undefined) ??
         (isDirect && revoke.operatorUid && revoke.operatorUid === msg.peerUid ? peerId : undefined);
-    const channelId = isDirect ? `private:${targetId}` : targetId;
+    const channelId = isDirect ? `${PRIVATE_PREFIX}${targetId}` : targetId;
     return {
         key: JSON.stringify(["message-deleted", channelId, messageId]),
         fields: {
@@ -132,7 +132,7 @@ function adaptRequest(
     if (!friend && (event["request_type"] !== "group" || event["sub_type"] !== "add")) {
         return undefined;
     }
-    const channelId = friend ? `private:${userId}` : guildId;
+    const channelId = friend ? `${PRIVATE_PREFIX}${userId}` : guildId;
     const flag = event["flag"];
     if (
         channelId === undefined ||

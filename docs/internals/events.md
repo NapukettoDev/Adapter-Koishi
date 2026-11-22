@@ -14,14 +14,14 @@
        │              ├─ kernel toCanonicalElements()
        │              ├─ 收向媒体富化（语音 silk → WAV，可失败透传）
        │              └─ toKoishiElements()
-       │         → bot.dispatchSession(fields)
+       │         → SessionDispatcher.dispatch(fields)
        │              → 消息预热 channel/user → Bot.session() → applySessionFields → dispatch
        └─ service === "ob11"
             └─ args[0] → 成员变动和请求转换，同时保留 bot.onOb11() 原始订阅
 ```
 
-涉及代码：`src/events/bridge.ts`、`adapt.ts`、`notices.ts`、`elements.ts`、`voice-decode.ts`、`types.ts`；
-`src/bot/bot.ts` 的 `dispatchSession()` 与 `src/bot/utils/session.ts`。
+涉及代码：`src/events/bridge.ts`、`adapt.ts`、`notices.ts`、`src/shared/protocol.ts`、`voice-decode.ts`、`types.ts`；
+`src/bot/dispatcher.ts` 的 `SessionDispatcher`。
 
 ## kernel 事件入口
 
@@ -83,7 +83,7 @@ koishi 运行时。
 
 ## session 写入规则
 
-`dispatchSession(fields)` 不是直接给 session 赋所有字段，而是：
+`SessionDispatcher.dispatch(fields)` 不是直接给 session 赋所有字段，而是：
 
 1. `bot.session({ type, subtype?, selfId, platform, timestamp, member? })` 创建 session。
 2. `applySessionFields(session, fields)`：必填字段直接赋；可选字段（`subtype` / `userId` /

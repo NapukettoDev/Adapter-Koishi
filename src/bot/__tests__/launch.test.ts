@@ -12,7 +12,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import type { QqInstallInfo } from "@napuketto/loader";
 import { describe, expect, it, vi } from "vitest";
 import type { NapukettoBotConfig } from "../../config.js";
-import { requireSelfId, SELF_ID_PATTERN } from "../../self-id.js";
+import { requireSelfId, SELF_ID_PATTERN } from "../../shared/protocol.js";
 import { resolveEntry, resolveLaunchOptions } from "../launch.js";
 
 /** 测试配置（覆盖注入，避免探测/解析环境差异）。 */

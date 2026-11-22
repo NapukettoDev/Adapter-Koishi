@@ -1,7 +1,6 @@
 import { type RawMessage, toCanonicalElements } from "@napuketto/kernel";
 import type { Universal } from "koishi";
-import { bindKoishiH, toKoishiElements } from "../events/elements.js";
-import { normalizeMessageTime } from "../events/message-time.js";
+import { bindKoishiH, normalizeMessageTime, toKoishiElements } from "../shared/protocol.js";
 import type { NapukettoInternalOptions } from "./types.js";
 
 export function isHistoryMessage(value: unknown): value is RawMessage {

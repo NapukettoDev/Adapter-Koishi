@@ -1,9 +1,10 @@
 /**
  * index.ts：事件桥出口（barrel）。
  */
+
+export { toKoishiElements } from "../shared/protocol.js";
 export { adaptRawMessage, adaptRawMessageWithMedia } from "./adapt.js";
 export { NapukettoEventBridge } from "./bridge.js";
-export { toKoishiElements } from "./elements.js";
 export type {
     EventBridge,
     EventBridgeOptions,

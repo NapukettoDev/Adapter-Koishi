@@ -1,10 +1,10 @@
 /**
- * test-utils.ts：IPC 层测试共享设施。
+ * ipc.ts：IPC 层测试共享设施。
  * MemoryLinePair（内存双端传输）+ captureAction（捕获对端发出的 action 请求）。
  */
 import { Writable } from "node:stream";
-import { decodeIpcMessage, type IpcMessage } from "./index.js";
-import { BaseLineTransport } from "./transport.js";
+import { decodeIpcMessage, type IpcMessage } from "../ipc/index.js";
+import { BaseLineTransport } from "../ipc/transport.js";
 
 /** 保留真实 Writable 的排队和 error 语义，由测试控制每次写入完成。 */
 export class ControlledWritable extends Writable {

@@ -6,12 +6,13 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 import { type CanonicalElement, resolveDataRoot, resolveQqGlobalPath } from "@napuketto/kernel";
 import { decodeSilkToWav } from "@napuketto/media";
 
+import { isLocalPath } from "../shared/path-guard.js";
+
 const VOICE_TTL_MS = 10 * 60 * 1000;
 const MAX_VOICE_ENTRIES = 64;
 const CLEANUP_RETRY_MS = 60_000;
 const REMOTE_PATH = /^(?:https?:\/\/|data:)/i;
 const WINDOWS_DRIVE = /^[a-z]:[\\/]/i;
-const NETWORK_OR_DEVICE_PATH = /^[\\/]{2}/;
 const PARENT_COMPONENT = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
 
 /** 只有 Linux 和调试沙箱能从启动参数确定 QQ 目录。 */
@@ -22,13 +23,6 @@ function resolveHostQqGlobalPath(
     return platform === "linux" || process.env["NAPUKETTO_SANDBOX_ROOT"]
         ? resolveQqGlobalPath(dataRoot ?? resolveDataRoot())
         : undefined;
-}
-
-function isLocalPath(path: string): boolean {
-    const withoutDrive = process.platform === "win32" ? path.replace(WINDOWS_DRIVE, "") : path;
-    return (
-        !NETWORK_OR_DEVICE_PATH.test(path) && !withoutDrive.includes(":") && !path.includes("\0")
-    );
 }
 
 function isFullyQualified(path: string): boolean {
@@ -49,8 +43,8 @@ export function resolveQqVoiceFile(path: string, qqGlobalPath?: string): string 
     }
     const absolute = isFullyQualified(path);
     const relativePath = path.replaceAll("\\", "/");
-    if (!absolute && relativePath.startsWith("/")) {
-        return null; // Windows 单反斜杠开头的路径依赖当前盘符。
+    if (!absolute && (relativePath.startsWith("/") || relativePath.includes(":"))) {
+        return null; // Windows 根相对和盘符相对路径依赖宿主进程的当前目录。
     }
     try {
         const root = realpathSync.native(qqGlobalPath);

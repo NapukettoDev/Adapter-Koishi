@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import type { CanonicalElement } from "@napuketto/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { prepareOutboundMedia } from "../media.js";
+import { prepareOutboundMedia } from "../media/prepare.js";
 
 const { encode, frame, videoInfo, publicDownload, compatibleDownload } = vi.hoisted(() => ({
     encode: vi.fn(),

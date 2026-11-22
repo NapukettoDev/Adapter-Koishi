@@ -1,9 +1,10 @@
 import type { IpcControlPayload } from "@napuketto/loader";
 import type { Context, Logger } from "koishi";
-import { bindLoginProvider, toLoginPanelPayload } from "../console/index.js";
 import type { LoginSnapshot } from "../login/types.js";
+import { registerConsoleEntry } from "./entry.js";
 import { executeRelogin, planRelogin } from "./login-actions.js";
-import { registerConsoleEntry } from "./utils/console-entry.js";
+import { toLoginPanelPayload } from "./payload.js";
+import { bindLoginProvider } from "./provider.js";
 
 /** 面板装配依赖（bot 层注入，职责解耦：面板不直接持有 IPC client）。 */
 export interface LoginPanelDeps {

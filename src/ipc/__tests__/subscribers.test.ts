@@ -5,7 +5,7 @@
  * 快照遍历（回调内增删订阅不影响本次通知）、clear。
  */
 import { describe, expect, it } from "vitest";
-import { SubscriberSet } from "../subscribers.js";
+import { SubscriberSet } from "../transport.js";
 
 describe("SubscriberSet", () => {
     it("add 订阅 → dispatch 通知", () => {

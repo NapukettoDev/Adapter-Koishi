@@ -1,34 +1,32 @@
-/**
- * assembly.ts：bot 构造装配工厂（自 bot.ts setupXxx 方法拆出）。
- *
- * 职责：把 NapukettoBot 构造时的各组件装配（登录状态机/控制台面板/事件桥/
- * 动作桥/数据库策略）抽成独立工厂函数——依赖经 host 接口注入（与
- * driver-events.ts 同模式），bot.ts 的 constructor 只做顺序编排。
- *
- * 实例间引用用 getter 闭包（运行时求值），解除初始化顺序耦合：
- * login 回调需要 panel、panel 需要 login.snapshot——各自 getter 在回调
- * 触发时才取值，constructor 顺序任意。
- *
- * 运行时 import koishi（类型）/NapukettoInternal 等——本文件不进单测
- * （docs/guides/development.md 单测边界）。
- */
-import { type Context as KoishiContext, h as koishiH, type Logger, type Universal } from "koishi";
-import { NapukettoInternal } from "../../actions/index.js";
-import type { NapukettoInternalOptions } from "../../actions/types.js";
-import type { NapukettoBotConfig } from "../../config.js";
-import { bindKoishiH } from "../../events/elements.js";
+/** 创建 Bot 使用的登录、控制台、驱动和消息桥组件。 */
+import { join } from "node:path";
+import {
+    type Bot,
+    type Context as KoishiContext,
+    h as koishiH,
+    type Logger,
+    type Universal,
+} from "koishi";
+import { NapukettoInternal } from "../actions/index.js";
+import type { NapukettoInternalOptions } from "../actions/types.js";
+import type { NapukettoBotConfig } from "../config.js";
+import { type LoginPanelDeps, NapukettoLoginPanel } from "../console/index.js";
+import { NapukettoDatabase } from "../database/index.js";
+import { NapukettoDriver } from "../driver/index.js";
+import type { DriverEvents } from "../driver/types.js";
 import {
     enrichReceiveVoice,
     NapukettoEventBridge,
     type NapukettoSessionFields,
-} from "../../events/index.js";
-import { IpcError } from "../../ipc/errors.js";
-import type { NapukettoIpcClient } from "../../ipc/index.js";
-import { NapukettoLoginState } from "../../login/index.js";
-import { type LoginPanelDeps, NapukettoLoginPanel } from "../login-panel.js";
+} from "../events/index.js";
+import type { NapukettoIpcClient } from "../ipc/index.js";
+import { type LoginSnapshot, NapukettoLoginState } from "../login/index.js";
+import { IpcError } from "../shared/errors.js";
+import { bindKoishiH, requireSelfId } from "../shared/protocol.js";
+import { SessionDispatcher } from "./dispatcher.js";
+import { buildLaunch } from "./launch.js";
+import { BotLifecycleController } from "./lifecycle.js";
 import { toUserFields } from "./transform.js";
-
-// ── 登录状态机 ──
 
 /** 登录状态机装配依赖。 */
 export interface LoginStateHost {
@@ -60,8 +58,6 @@ export function createLoginState(host: LoginStateHost): NapukettoLoginState {
         },
     });
 }
-
-// ── 控制台登录面板 ──
 
 /** 面板装配依赖。 */
 export interface PanelHost {
@@ -103,15 +99,13 @@ export function createPanel(host: PanelHost): NapukettoLoginPanel {
     });
 }
 
-// ── 数据库策略 ──
-
 /**
  * 解析 autoAssign/autoAuthorize 语义。
  *
  * koishi 的这两项配置支持 Computed 函数形式（per-session 计算）——构造阶段
  * 无 session 无法求值，取 Schema 默认值（autoAssign=true / autoAuthorize=1）。
  */
-export function resolveAssignPolicy(ctx: KoishiContext): {
+function resolveAssignPolicy(ctx: KoishiContext): {
     autoAssign: boolean;
     autoAuthorize: number;
 } {
@@ -121,8 +115,6 @@ export function resolveAssignPolicy(ctx: KoishiContext): {
     const autoAuthorize = typeof rawAutoAuthorize === "function" ? 1 : (rawAutoAuthorize ?? 1);
     return { autoAssign, autoAuthorize };
 }
-
-// ── 事件桥 ──
 
 /** 事件桥装配依赖。 */
 export interface BridgeHost {
@@ -140,21 +132,18 @@ export interface BridgeHost {
 /** 装配事件桥：kernel 事件 → koishi session（dispatch 异步化 + 预热不阻断）。 */
 export function createBridge(host: BridgeHost): NapukettoEventBridge {
     return new NapukettoEventBridge({
-        // dispatch 异步化（2026-08-09）：先原子预热 channel 再派发；桥回调
-        // 同步面，显式 void 丢弃 promise（预热失败不阻断派发）
+        // 事件桥同步接收事件，预热与派发由下游异步处理。
         dispatch: (session) => {
             void host.dispatchSession(session);
         },
         selfId: () => host.getLogin().snapshot.self?.uin ?? host.config.selfId,
-        // koishi h 可调用（Element 工厂）；绑定生产 h（elements.ts bindKoishiH）
+        // koishi h 可调用（Element 工厂）；绑定生产 h
         h: bindKoishiH(koishiH),
         platform: "onebot",
         enrichElements: (elements) =>
             enrichReceiveVoice(elements, host.dataRoot, (message) => host.logger.warn(message)),
     });
 }
-
-// ── 动作桥 ──
 
 /** 动作桥装配依赖。 */
 export interface InternalHost {
@@ -188,5 +177,112 @@ export function createInternal(host: InternalHost): NapukettoInternal {
             return client.request(action, params);
         },
         ...(host.logger !== undefined ? { logger: host.logger } : {}),
+    });
+}
+
+/** 每轮创建独立驱动，扫码标记由启动工厂消费。 */
+function createDriver(
+    config: NapukettoBotConfig,
+    dataRoot: string,
+    logger: Logger,
+    events: DriverEvents,
+    forceQr: { current: boolean },
+): NapukettoDriver {
+    const selfId = requireSelfId(config.selfId);
+    return new NapukettoDriver({
+        accountDir: join(dataRoot, selfId),
+        launch: buildLaunch(
+            { ...config, dataDir: dataRoot },
+            {
+                onStage: (message) => logger.info("[napuketto] %s", message),
+                forceQr,
+            },
+        ),
+        events,
+        ...(config.restart !== undefined ? { restart: config.restart } : {}),
+        ...(config.heartbeatTimeoutMs !== undefined
+            ? { heartbeatTimeoutMs: config.heartbeatTimeoutMs }
+            : {}),
+        onJunkLine: (line) => {
+            logger.debug(
+                "[napuketto] IPC 收到无法解析的行（可能被并发输出撕裂）: %s",
+                line.slice(0, 200),
+            );
+        },
+    });
+}
+
+type LoginBot = Pick<Bot, "selfId" | "user" | "toJSON"> & {
+    internal: Pick<NapukettoInternal, "getSelf">;
+};
+
+/** 登录推送已有自身信息时直接使用，缺省时才向宿主拉取。 */
+export async function resolveBotLogin(
+    bot: LoginBot,
+    self: LoginSnapshot["self"],
+): Promise<Universal.Login> {
+    if (self !== undefined) {
+        syncUser(bot, { uin: self.uin, nick: self.nick });
+        bot.selfId = self.uin;
+    } else {
+        const data = (await bot.internal.getSelf()) as
+            | { uin?: string; nickname?: string }
+            | undefined;
+        if (data != null) {
+            if (typeof data.uin === "string" && data.uin !== "") {
+                bot.selfId = data.uin;
+            }
+            syncUser(bot, { uin: data.uin, nick: data.nickname });
+        }
+    }
+    return bot.toJSON();
+}
+
+function syncUser(bot: Pick<Bot, "user">, partial: Parameters<typeof toUserFields>[0]): void {
+    bot.user ??= {} as Universal.User;
+    Object.assign(bot.user, toUserFields(partial));
+}
+
+export function createDispatcher(
+    ctx: KoishiContext,
+    bot: Pick<Bot, "session" | "dispatch" | "logger">,
+    lifecycle: BotLifecycleController,
+): SessionDispatcher {
+    return new SessionDispatcher({
+        bot,
+        logger: bot.logger,
+        ...resolveAssignPolicy(ctx),
+        database: new NapukettoDatabase(ctx),
+        getClient: () => lifecycle.dispatchClient,
+    });
+}
+
+type LifecycleBot = Pick<
+    Bot,
+    "status" | "isActive" | "online" | "offline" | "getLogin" | "user" | "logger"
+> & {
+    config: NapukettoBotConfig;
+};
+
+interface LifecycleWiring {
+    login: NapukettoLoginState;
+    getBridge(): NapukettoEventBridge;
+    stopBot(): Promise<void>;
+}
+
+export function createLifecycle(
+    bot: LifecycleBot,
+    dataRoot: string,
+    wiring: LifecycleWiring,
+): BotLifecycleController {
+    const { logger } = bot;
+    return new BotLifecycleController({
+        ...wiring,
+        bot,
+        logger,
+        getSelfId: () => bot.config.selfId,
+        syncUser: (user) => syncUser(bot, user),
+        createDriver: (events, forceQr) =>
+            createDriver(bot.config, dataRoot, logger, events, forceQr),
     });
 }

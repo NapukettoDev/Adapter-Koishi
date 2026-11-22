@@ -5,7 +5,7 @@
  * 当前任务失败返回 promise 照常 reject / 链尾完成后清理（防 Map 无限增长）。
  */
 import { describe, expect, it } from "vitest";
-import { SerialQueue } from "../serial-queue.js";
+import { SerialQueue } from "../../shared/serial-queue.js";
 
 /** 冲刷微任务队列（finally 清理链需多轮才到）。 */
 async function flushMicrotasks(rounds = 4): Promise<void> {

@@ -2,7 +2,7 @@ import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stageAllowedMedia } from "../media-policy.js";
+import { stageAllowedMedia } from "../media/policy.js";
 
 describe("本地媒体目录白名单", () => {
     let dir: string;

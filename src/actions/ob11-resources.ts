@@ -1,7 +1,7 @@
 import { isRecord } from "@napuketto/kernel";
 import type { Universal } from "koishi";
-import { normalizeMessageTime } from "../events/message-time.js";
-import { IpcError } from "../ipc/errors.js";
+import { IpcError } from "../shared/errors.js";
+import { normalizeMessageTime } from "../shared/protocol.js";
 
 export function toOb11QqNumber(id: string): number {
     const value = Number(id);

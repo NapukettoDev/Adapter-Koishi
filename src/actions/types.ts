@@ -7,7 +7,7 @@
  */
 import type { SelfInfo } from "@napuketto/kernel";
 import type { h, Universal } from "koishi";
-import type { OutboundMediaPolicy } from "./media-policy.js";
+import type { OutboundMediaPolicy } from "../shared/media-policy.js";
 
 /** 传输抽象：IPC 动作请求（apply() 层注入 client.request 绑定）。 */
 export type RequestFn = (action: string, params?: Record<string, unknown>) => Promise<unknown>;

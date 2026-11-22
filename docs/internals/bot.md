@@ -3,8 +3,7 @@
 `NapukettoBot` 是插件的默认导出，注册为 koishi 平台 `onebot`。它把 driver、IPC、登录状态、
 事件桥、动作桥、控制台面板与数据库预热装配成 koishi 能驱动的 Bot。
 
-涉及代码：`src/bot/bot.ts`、`message.ts`、`launch.ts`、`login-actions.ts`、`login-panel.ts`、
-`utils/`；`src/database/`；入口 `src/index.ts`。
+涉及代码：`src/bot/`（Bot 外壳、生命周期、派发、编码器、启动与组件装配）、`src/database/`、`src/index.ts`。
 
 ## 平台注册与类静态成员
 
@@ -48,30 +47,33 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 3. `selfId = config.selfId`（satorijs accessor 写入 `user.id`）；`user.avatar` 指向
    `q.qlogo.cn` 头像。
 4. `login = createLoginState(...)`：状态变化时同步 user 的 id/name 并推送控制台面板。
-5. `panel = createPanel(...)` + `panel.setup(ctx)`：控制台服务就绪后装配 provider（见
+5. `createLifecycle(...)`：装配启停与登录控制器，事件桥在创建驱动时读取。
+6. `panel = createPanel(...)` + `panel.setup(ctx)`：控制台服务就绪后装配 provider（见
    [控制台面板](console.md)）。
-6. `resolveAssignPolicy(ctx)` 解析 `autoAssign` / `autoAuthorize`，并创建 `NapukettoDatabase`。
-7. `bridge = createBridge(...)`：注入 `h`、平台名、selfId getter、收向语音富化、dispatch 回调。
-8. `internal = createInternal(...)`：`request` 绑定 `clientRef`，client 未就绪时抛
+7. `createDispatcher(...)` 解析 `autoAssign` / `autoAuthorize`，并装配数据库预热和会话派发。
+8. `bridge = createBridge(...)`：注入 `h`、平台名、selfId getter、收向语音富化、dispatch 回调。
+9. `internal = createInternal(...)`：`request` 绑定 `clientRef`，client 未就绪时抛
    “子进程未就绪”。
 
-实例间引用用 getter 闭包（`getLogin` / `getPanel` / `getClient`），因此构造顺序不敏感。
+实例间引用通过 getter 闭包读取，例如登录回调触发时才读取面板。
 
 ## 生命周期钩子
+
+`src/bot/lifecycle.ts` 的 `BotLifecycleController` 持有驱动与会话连接。
 
 | 时机 | 行为 |
 | :--- | :--- |
 | `start()` | `isActive` 时直接返回；`status = CONNECT`；复位登录快照/账号闸门/clientRef；等待进行中的 stop 与旧 driver 退出；创建**新 driver** → `driver.start()`；异常 `offline(error)` |
-| driver `onReady` | `clientRef = driver.currentClient` → `login.onReady()` → 账号校验 → `online()` → `getLogin()`（失败只 warn） |
+| driver `onReady` | `login.onReady()` → 账号校验 → `clientRef = driver.currentClient` → `online()` → `getLogin()`（失败只 warn） |
 | driver `onExit` | `login.onExit()`（回 idle）；非主动断开且非账号不一致时 `offline()` |
 | driver `onError` | warn 日志 + `offline(error)` |
-| `stop()` | 递增停止序号、解除 driver 引用；`driver.stop()` → `super.stop()`；重复调用串联等待停止任务 |
+| `stop()` | 递增停止序号、解除 driver 引用；等待 `driver.stop()`、`super.stop()` 和先前的停止任务 |
 | `dispose()` | 由 Bot 基类处理（从 `ctx.bots` 移除并 stop） |
 
-每次 `start()` 都创建新 driver（不在 `stopped` 实例上复用）；launch 每次 spawn 由 `buildLaunch`
+每次成功进入新轮次时创建新 driver（不在 `stopped` 实例上复用）；launch 每次 spawn 由 `buildLaunch`
 重新组装。同一实例正常 `stop()` 后再次 `start()` 会重新 spawn 并重新 `online()`。旧 driver 的
 迟到回调由 `isCurrent` 轮次校验丢弃，不会改写新一轮状态。driver 事件接线集中在
-`utils/driver-events.ts`：
+`driver-events.ts`：
 
 | driver 事件 | 接线 |
 | :--- | :--- |
@@ -85,8 +87,7 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 | `onError` | warn + `offline(error)` |
 | `onLog` | debug 日志（`[napuketto 子进程]`） |
 
-所有回调先经过 `isCurrent()` 轮次校验：Bot 在每次 start/stop 时递增轮次，旧 driver 在停止边界
-上迟到的 `onExit` / `onError` / `onReady` / 登录消息都会被丢弃。
+所有回调先经过 `isCurrent()` 轮次校验。停止期间仍处理本轮的退出或超时，创建新驱动后才丢弃旧驱动回调。
 
 ## 动作方法
 
@@ -103,14 +104,14 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 | `getGuild(guildId)` | 从群列表查找，未命中抛错 |
 | `getChannel(channelId)` | `private:` → DIRECT 频道；否则按群号查 `getGuild` → TEXT 频道 |
 
-形状转换集中在 `utils/transform.ts`（纯函数）：`toFriendList` / `toGuildList` /
+形状转换集中在 `transform.ts`（纯函数）：`toFriendList` / `toGuildList` /
 `toDirectChannel` / `toTextChannel` / `toUserFields`。
 
 `onOb11(listener)` 订阅 OB11 原始载荷并返回退订函数，独立于 [Koishi 事件转换](events.md#标准通知与请求)。
 
 ## dispatch 链路
 
-kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `dispatchSession(fields)`：
+kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDispatcher.dispatch(fields)`：
 
 1. `identityMismatch` 为真 → 直接丢弃（不得用错账号落库）。
 2. 普通消息按需调用 `preheat(fields)` 预热 channel / user（见下节），失败不阻断。
@@ -169,11 +170,11 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `dispatchS
 
 这些文件运行时 import koishi，**不在单测中加载**：
 
-`src/index.ts`、`src/bot/bot.ts`、`src/bot/message.ts`、`src/bot/login-panel.ts`、
-`src/bot/utils/assembly.ts`、`src/bot/utils/console-entry.ts`、`src/config.ts`、
+`src/index.ts`、`src/bot/bot.ts`、`src/bot/message.ts`、`src/console/login-panel.ts`、
+`src/bot/assembly.ts`、`src/console/entry.ts`、`src/config.ts`、
 `src/console/provider.ts`。
 
-`src/bot/utils/driver-events.ts` 是例外：全部为 type-only import，运行时零 koishi 依赖，可直接单测。
+`src/bot/driver-events.ts` 是例外：全部为 type-only import，运行时零 koishi 依赖，可直接单测。
 `src/bot/launch.ts` 不 import koishi，但 `buildLaunch` 会真实 spawn，单测只覆盖纯函数
 `resolveLaunchOptions`（注入假 QQ 解析）。
 
@@ -181,10 +182,11 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `dispatchS
 
 | 文件 | 测试方式 |
 | :--- | :--- |
-| `utils/identity.ts` | 纯判定 + 注入式拒绝动作 |
-| `utils/session.ts` | 宽松 session 结构，直接断言字段 |
-| `utils/transform.ts` | 仅 import type `Universal` |
-| `bot/login-actions.ts` | 纯决策表 + mock executor |
+| `identity.ts` | 纯判定 + 注入式拒绝动作 |
+| `dispatcher.ts` | 宽松 session 结构，直接断言字段 |
+| `lifecycle.ts` | 注入 driver 与 Bot 能力，验证启停重叠和旧轮次回调 |
+| `transform.ts` | 仅 import type `Universal` |
+| `console/login-actions.ts` | 纯决策表 + mock executor |
 | `bot/launch.ts` 的 `resolveLaunchOptions` | 注入假 `resolveQq`，不 spawn |
 | `actions/` / `events/` 的映射 | mock request / mock h |
 

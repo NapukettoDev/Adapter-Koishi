@@ -1,5 +1,5 @@
 /**
- * console-entry.ts：控制台前端入口注册（docs/internals/console.md）。
+ * entry.ts：控制台前端入口注册（docs/internals/console.md）。
  *
  * packageRoot 逐级上溯定位插件包根目录（bundle 与源码两种形态均正确）；
  * 同一控制台的 Bot 共用一个前端入口，最后一个 Bot 销毁时释放。
@@ -20,16 +20,7 @@ interface SharedEntry {
 // Cordis 会按调用作用域代理服务，entries 是该 console 实例共享的底层对象。
 const consoleEntries = new WeakMap<Context["console"]["entries"], SharedEntry>();
 
-/**
- * 包根目录（定位 client/ 与 dist/）。
- *
- * ⚠️ 2026-08-14 修复（二维码不显示根因）：bundle（lib/index.cjs，深 1 层）与
- * 源码（src/bot/bot.ts，深 2 层）的文件深度不同，`new URL("../..")` 只对源码
- * 形态正确；且 esbuild 转译 CJS 时把 import.meta.url shim 成可用（try 不抛错），
- * __dirname 兜底分支永远走不到——最终 dev/prod 入口被注册到 node_modules 根
- * （路径不存在），控制台面板永不挂载。改为逐级上溯找 package.json（校验包名），
- * bundle 与源码两种形态均正确。
- */
+/** 源码与 CJS 产物的目录深度不同，按包名逐级查找包根目录。 */
 function packageRoot(): string {
     let dir: string;
     try {

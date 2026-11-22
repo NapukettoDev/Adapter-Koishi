@@ -13,8 +13,8 @@ import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
+import { ControlledWritable } from "../../__test-utils__/ipc.js";
 import { NapukettoIpcClient } from "../client.js";
-import { ControlledWritable } from "../test-utils.js";
 import { BaseLineTransport, ChildProcessIpcTransport } from "../transport.js";
 
 /** 最小测试子类：暴露 dispatchLine 钩子 + 记录 onClosed 调用。 */

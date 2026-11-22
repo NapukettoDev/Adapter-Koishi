@@ -2,27 +2,9 @@ import { type BigIntStats, constants, createWriteStream } from "node:fs";
 import { lstat, open, readlink, realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { IpcError } from "../ipc/errors.js";
+import { IpcError } from "../../shared/errors.js";
 
-export const DEFAULT_REMOTE_MEDIA_POLICY = "compatible";
-export const DEFAULT_LOCAL_FILE_POLICY = "legacy";
-
-export interface OutboundMediaPolicy {
-    remoteMediaPolicy?: "compatible" | "public-only";
-    localFilePolicy?: "legacy" | "allowlist";
-    localMediaRoots?: string[];
-}
-
-// UNC、设备路径及 ADS 即使能 stat，也不属于本地普通文件白名单。
-function isLocalPath(path: string): boolean {
-    const withoutDrivePrefix = process.platform === "win32" ? path.replace(/^[a-z]:/i, "") : path;
-    return (
-        !path.startsWith("//") &&
-        !path.startsWith("\\\\") &&
-        !withoutDrivePrefix.includes(":") &&
-        !path.includes("\0")
-    );
-}
+import { isLocalPath } from "../../shared/path-guard.js";
 
 function contains(root: string, target: string): boolean {
     const prefix = root.endsWith(sep) ? root : root + sep;
