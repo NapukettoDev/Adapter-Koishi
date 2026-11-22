@@ -14,7 +14,49 @@ import {
     type IpcMessage,
     NapukettoIpcClient,
 } from "../../../../src/runtime/ipc/index.js";
+import type { IpcLineTransport } from "../../../../src/runtime/ipc/transport.js";
 import { captureAction, MemoryLinePair } from "../../../helpers/ipc.js";
+
+/** 可编排写入行为的传输：模拟同步响应、同步抛错或重入关闭。 */
+class ScriptedTransport implements IpcLineTransport {
+    readonly written: string[] = [];
+    closed = false;
+    private lineHandler: ((line: string) => void) | undefined;
+
+    constructor(private readonly onWrite?: (line: string) => void) {}
+
+    write(line: string): void {
+        this.written.push(line);
+        this.onWrite?.(line);
+    }
+
+    onLine(callback: (line: string) => void): () => void {
+        this.lineHandler = callback;
+        return () => {
+            if (this.lineHandler === callback) {
+                this.lineHandler = undefined;
+            }
+        };
+    }
+
+    onClose(_callback: () => void): () => void {
+        return () => {};
+    }
+
+    close(): void {
+        this.closed = true;
+    }
+
+    receive(line: string): void {
+        this.lineHandler?.(line);
+    }
+}
+
+class ThrowingTransport extends ScriptedTransport {
+    override write(): void {
+        throw new Error("stdin 已损坏");
+    }
+}
 
 describe("NapukettoIpcClient 请求-响应", () => {
     it("action 请求 → result 成功响应", async () => {
@@ -134,6 +176,186 @@ describe("NapukettoIpcClient 请求-响应", () => {
     });
 });
 
+describe("NapukettoIpcClient 请求原子性", () => {
+    it("编码失败 → reject IPC_ENCODE_FAILED，pending 与定时器清理，通道继续可用", async () => {
+        const pair = new MemoryLinePair();
+        const client = new NapukettoIpcClient(pair);
+        const sent: IpcMessage[] = [];
+        pair.peer.onLine((line) => {
+            const msg = decodeIpcMessage(line);
+            if (msg !== null) {
+                sent.push(msg);
+            }
+        });
+        const circular: Record<string, unknown> = {};
+        circular["self"] = circular;
+
+        await expect(client.request("bad", circular)).rejects.toMatchObject({
+            code: "IPC_ENCODE_FAILED",
+        });
+        expect(client.pendingCount).toBe(0);
+        expect(client.alive).toBe(true);
+
+        const next = client.request("ok");
+        const request = sent[0] as Extract<IpcMessage, { type: "action" }>;
+        expect(request.id).toBe(2); // 失败的请求已消费 id，但不复用、不残留
+        pair.peer.write(
+            encodeIpcMessage({
+                v: IPC_VERSION,
+                type: "result",
+                id: request.id,
+                payload: { ok: true, value: "done" },
+            }),
+        );
+        await expect(next).resolves.toBe("done");
+        client.close();
+    });
+
+    it("出站行超过上限 → reject IPC_LINE_TOO_LARGE，后续正常帧不受影响", async () => {
+        const pair = new MemoryLinePair();
+        const client = new NapukettoIpcClient(pair, { maxLineBytes: 128 });
+        const sent: IpcMessage[] = [];
+        pair.peer.onLine((line) => {
+            const msg = decodeIpcMessage(line);
+            if (msg !== null) {
+                sent.push(msg);
+            }
+        });
+
+        await expect(
+            client.request("send_message", { text: "x".repeat(256) }),
+        ).rejects.toMatchObject({ code: "IPC_LINE_TOO_LARGE" });
+        expect(client.pendingCount).toBe(0);
+        expect(client.alive).toBe(true);
+        expect(sent).toHaveLength(0);
+
+        const next = client.request("ok");
+        const request = sent[0] as Extract<IpcMessage, { type: "action" }>;
+        expect(Buffer.byteLength(encodeIpcMessage(request), "utf8") - 1).toBeLessThanOrEqual(128);
+        pair.peer.write(
+            encodeIpcMessage({
+                v: IPC_VERSION,
+                type: "result",
+                id: request.id,
+                payload: { ok: true, value: "small" },
+            }),
+        );
+        await expect(next).resolves.toBe("small");
+        client.close();
+    });
+
+    it("正常较大帧在上限内可发送并收到响应", async () => {
+        const pair = new MemoryLinePair();
+        const client = new NapukettoIpcClient(pair, { maxLineBytes: 4096 });
+        const captured = captureAction(pair);
+        const request = client.request("send_message", { text: "x".repeat(2000) });
+        const action = await captured;
+        expect(action).not.toBeNull();
+        if (action === null) {
+            return;
+        }
+        pair.peer.write(
+            encodeIpcMessage({
+                v: IPC_VERSION,
+                type: "result",
+                id: action.id,
+                payload: { ok: true, value: "large-ok" },
+            }),
+        );
+        await expect(request).resolves.toBe("large-ok");
+        client.close();
+    });
+
+    it("在途容量上限 → 超限请求立即 IPC_QUEUE_FULL，释放后可继续", async () => {
+        const pair = new MemoryLinePair();
+        const client = new NapukettoIpcClient(pair, { maxPending: 1 });
+        const sent: IpcMessage[] = [];
+        pair.peer.onLine((line) => {
+            const msg = decodeIpcMessage(line);
+            if (msg !== null) {
+                sent.push(msg);
+            }
+        });
+
+        const first = client.request("first");
+        await expect(client.request("second")).rejects.toMatchObject({
+            code: "IPC_QUEUE_FULL",
+        });
+        expect(client.pendingCount).toBe(1);
+        const request = sent[0] as Extract<IpcMessage, { type: "action" }>;
+        pair.peer.write(
+            encodeIpcMessage({
+                v: IPC_VERSION,
+                type: "result",
+                id: request.id,
+                payload: { ok: true, value: "first" },
+            }),
+        );
+        await expect(first).resolves.toBe("first");
+        expect(client.pendingCount).toBe(0);
+
+        const third = client.request("third");
+        expect(client.pendingCount).toBe(1);
+        client.close();
+        await expect(third).rejects.toMatchObject({ code: "CLOSED" });
+    });
+
+    it("同步发送失败 → reject IPC_SEND_FAILED 并关闭通道", async () => {
+        const client = new NapukettoIpcClient(new ThrowingTransport());
+        await expect(client.request("send")).rejects.toMatchObject({
+            code: "IPC_SEND_FAILED",
+        });
+        expect(client.pendingCount).toBe(0);
+        expect(client.alive).toBe(false);
+        await expect(client.request("later")).rejects.toMatchObject({ code: "CLOSED" });
+    });
+
+    it("发送期间重入关闭 → reject CLOSED，pending 清空", async () => {
+        const holder: { client: NapukettoIpcClient | undefined } = { client: undefined };
+        const transport = new ScriptedTransport(() => holder.client?.close());
+        const client = new NapukettoIpcClient(transport);
+        holder.client = client;
+
+        await expect(client.request("close-in-write")).rejects.toMatchObject({ code: "CLOSED" });
+        expect(client.pendingCount).toBe(0);
+        expect(client.alive).toBe(false);
+        expect(transport.closed).toBe(true);
+    });
+
+    it("响应在 write 内同步到达 → 仍按 id 正确 resolve", async () => {
+        let transport: ScriptedTransport;
+        transport = new ScriptedTransport((line) => {
+            const msg = decodeIpcMessage(line);
+            if (msg?.type === "action") {
+                transport.receive(
+                    encodeIpcMessage({
+                        v: IPC_VERSION,
+                        type: "result",
+                        id: msg.id,
+                        payload: { ok: true, value: "sync" },
+                    }),
+                );
+            }
+        });
+        const client = new NapukettoIpcClient(transport);
+        await expect(client.request("echo")).resolves.toBe("sync");
+        expect(client.pendingCount).toBe(0);
+        client.close();
+    });
+
+    it("控制指令同步发送失败返回 false 并关闭通道", () => {
+        const client = new NapukettoIpcClient(new ThrowingTransport());
+        expect(client.sendControl({ command: "status" })).toBe(false);
+        expect(client.alive).toBe(false);
+    });
+
+    it("关闭后发送控制指令返回 false（不抛错）", () => {
+        const client = new NapukettoIpcClient(new MemoryLinePair());
+        client.close();
+        expect(client.sendControl({ command: "status" })).toBe(false);
+    });
+});
+
 describe("NapukettoIpcClient 心跳", () => {
     it("收到 ping 自动回 pong，并记录 pingAt/seenAt", () => {
         vi.useFakeTimers();
@@ -239,6 +461,48 @@ describe("NapukettoIpcClient 事件分发", () => {
         );
         expect(junk).toEqual([torn]);
         expect(phases).toEqual(["booting"]);
+        client.close();
+    });
+
+    it("onJunkLine 自身抛错也不阻断后续消息", () => {
+        const pair = new MemoryLinePair();
+        const client = new NapukettoIpcClient(pair, {
+            onJunkLine: () => {
+                throw new Error("诊断回调爆炸");
+            },
+        });
+        const phases: string[] = [];
+        client.on("status", (message) => phases.push(message.payload.phase));
+        pair.peer.write("not json\n");
+        pair.peer.write(
+            encodeIpcMessage({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } }),
+        );
+        expect(phases).toEqual(["ready"]);
+        client.close();
+    });
+
+    it("单个消息订阅者抛错 → 隔离并诊断，其余订阅者与后续行继续", () => {
+        const pair = new MemoryLinePair();
+        const onHandlerError = vi.fn();
+        const client = new NapukettoIpcClient(pair, { onHandlerError });
+        const phases: string[] = [];
+        client.on("status", () => {
+            throw new Error("订阅者爆炸");
+        });
+        client.on("status", (message) => phases.push(message.payload.phase));
+
+        pair.peer.write(
+            encodeIpcMessage({ v: IPC_VERSION, type: "status", payload: { phase: "booting" } }),
+        );
+        pair.peer.write(
+            encodeIpcMessage({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } }),
+        );
+        expect(phases).toEqual(["booting", "ready"]);
+        expect(onHandlerError).toHaveBeenCalledTimes(2);
+        expect(onHandlerError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "订阅者爆炸" }),
+            "status",
+        );
         client.close();
     });
 

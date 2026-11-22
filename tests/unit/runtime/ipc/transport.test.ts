@@ -166,6 +166,68 @@ describe("ChildProcessIpcTransport", () => {
         transport.close();
     });
 
+    it("UTF-8 多字节字符跨 stdout chunk 仍按完整行分发", async () => {
+        const child = new FakeChildProcess();
+        const transport = new ChildProcessIpcTransport(child as unknown as ChildProcess);
+        const received: string[] = [];
+        transport.onLine((line) => {
+            received.push(line);
+        });
+        const line = '{"v":1,"type":"event","payload":{"service":"Msg","name":"表情☺"}}\n';
+        const data = Buffer.from(line, "utf8");
+        const split = data.indexOf(Buffer.from("☺", "utf8"));
+        child.stdout.write(data.subarray(0, split + 1));
+        child.stdout.write(data.subarray(split + 1));
+        await flushStreams();
+        expect(received).toEqual([line.trimEnd()]);
+        transport.close();
+    });
+
+    it("入站行超限：整行丢弃并诊断，后续行继续分发", async () => {
+        const child = new FakeChildProcess();
+        const onOversizeLine = vi.fn();
+        const transport = new ChildProcessIpcTransport(
+            child as unknown as ChildProcess,
+            undefined,
+            { maxLineBytes: 32, onOversizeLine },
+        );
+        const received: string[] = [];
+        transport.onLine((line) => {
+            received.push(line);
+        });
+        child.stdout.write('{"v":1,"type":"ping"}\n');
+        child.stdout.write(`${"x".repeat(40)}\n`);
+        child.stdout.write('{"v":1,"type":"pong"}\n');
+        await flushStreams();
+        expect(received).toEqual(['{"v":1,"type":"ping"}', '{"v":1,"type":"pong"}']);
+        expect(onOversizeLine).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ code: "IPC_LINE_TOO_LARGE" }),
+        );
+        transport.close();
+    });
+
+    it("关闭后不再分帧或诊断超限行", async () => {
+        const child = new FakeChildProcess();
+        const onOversizeLine = vi.fn();
+        const transport = new ChildProcessIpcTransport(
+            child as unknown as ChildProcess,
+            undefined,
+            { maxLineBytes: 4, onOversizeLine },
+        );
+        const received: string[] = [];
+        transport.onLine((line) => {
+            received.push(line);
+        });
+        transport.close();
+        child.stdout.write("123456789\n");
+        await flushStreams();
+        expect(received).toEqual([]);
+        expect(onOversizeLine).not.toHaveBeenCalled();
+        for (const event of ["data", "end", "error"]) {
+            expect(child.stdout.listenerCount(event)).toBe(0);
+        }
+    });
+
     it("stderr 透传：原生噪音行过滤、其余带前缀透传", async () => {
         const child = new FakeChildProcess({ stderr: true });
         const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);

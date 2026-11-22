@@ -30,10 +30,13 @@ export interface NapukettoSessionFields {
     content?: string;
 }
 
+/** 事件桥诊断回调（error 可能来自转换、富化、订阅者或会话派发）。 */
+export type EventDiagnostic = (error: unknown, context: string) => void;
+
 /** 事件桥选项（apply() 层注入）。 */
 export interface EventBridgeOptions {
-    /** dispatch 回调（koishi Bot.dispatch(session)）。 */
-    dispatch: (session: NapukettoSessionFields) => void;
+    /** dispatch 回调（koishi Bot.dispatch(session)）；可返回 Promise，异步失败会被统一收口。 */
+    dispatch: (session: NapukettoSessionFields) => void | Promise<void>;
     /** 登录账号 uin（selfId）。 */
     selfId: () => string;
     /** koishi h() 工厂（apply() 层传 bindKoishiH(h)）。 */
@@ -42,6 +45,8 @@ export interface EventBridgeOptions {
     platform?: string;
     /** 收向元素富化（voice NT silk → WAV 等，2026-09-08 T6；缺省直通）。 */
     enrichElements?: (elements: CanonicalElement[]) => Promise<CanonicalElement[]>;
+    /** 诊断回调（坏事件 / 富化失败 / 订阅者异常 / 会话派发失败）。 */
+    onError?: EventDiagnostic;
 }
 
 /** 原始 OB11 事件（宽松结构：post_type 定大类，其余字段按 OneBot 11 规范按需断言）。 */

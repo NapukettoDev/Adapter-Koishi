@@ -17,7 +17,7 @@ import {
     toCanonicalElements,
 } from "@napuketto/kernel";
 import { type HFn, normalizeMessageTime, PRIVATE_PREFIX, toKoishiElements } from "../../shared.js";
-import type { NapukettoSessionFields } from "./types.js";
+import type { EventDiagnostic, NapukettoSessionFields } from "./types.js";
 
 /** 适配选项。 */
 export interface AdaptOptions {
@@ -27,6 +27,8 @@ export interface AdaptOptions {
     h: HFn;
     /** 收向元素富化（voice NT silk → WAV 等，异步；缺省直通）。2026-09-08 T6。 */
     enrichElements?: (elements: CanonicalElement[]) => Promise<CanonicalElement[]>;
+    /** 富化失败等可降级问题的诊断回调（不改变降级结果）。 */
+    onError?: EventDiagnostic;
 }
 
 /** RawMessage → koishi session 字段。 */
@@ -84,14 +86,21 @@ export async function adaptRawMessageWithMedia(
         return adaptRawMessage(msg, options);
     }
     const { h } = options;
-    // 富化失败按无富化处理（fail-soft：消息必须派发）
-    let canonical: CanonicalElement[];
+    // 元素转换失败不是富化问题：交给调用方统一诊断，不在这里伪装成降级。
+    const canonical = toCanonicalElements(msg);
+    let enriched: CanonicalElement[];
     try {
-        canonical = await enrich(toCanonicalElements(msg));
-    } catch {
+        enriched = await enrich(canonical);
+    } catch (error) {
+        // 富化失败按无富化处理（fail-soft：消息必须派发），并留下安全诊断。
+        try {
+            options.onError?.(error, "收向元素富化失败（回退原始元素）");
+        } catch {
+            // 诊断回调自身异常不得阻断降级派发。
+        }
         return adaptRawMessage(msg, options);
     }
     const session = adaptRawMessage(msg, options);
-    session.elements = toKoishiElements(canonical, h);
+    session.elements = toKoishiElements(enriched, h);
     return session;
 }

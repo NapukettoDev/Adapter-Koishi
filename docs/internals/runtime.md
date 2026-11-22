@@ -84,6 +84,7 @@ interface DriverOptions {
 | `onExit` | 子进程确认退出或启动失败（crash / stale / stop / spawn-error） |
 | `onError` | 启动失败、引导失败、发送信号失败、无法确认退出或重试达上限 |
 | `onIpcWriteError` | 每轮首个 stdin 写入故障，记录原始错误类别 |
+| `onIpcError` | 入站行超限、客户端消息订阅者异常等 IPC 诊断（warn 日志） |
 
 spawn 流程：
 
@@ -151,6 +152,10 @@ spawn 流程：
 { "v": 1, "type": "action", "id": 12, "payload": { "action": "msg.sendMessage", "params": {} } }
 ```
 
+单条物理行另有插件侧的 UTF-8 字节上限（`DEFAULT_MAX_IPC_LINE_BYTES`，16 MiB，不含行尾 LF）。
+它是父进程的防御性准入限制，不是协议字段，也不改变 `IPC_VERSION` 或 loader 的消息 schema；
+跨版本两端仍按 JSON 行协议互通。出站超限在本地拒绝，入站超限整行丢弃后继续处理后续行。
+
 | type | 方向 | payload | 说明 |
 | :--- | :--- | :--- | :--- |
 | `status` | 子 → 父 | `{ phase, message?, error? }` | phase：`booting` / `dlopening` / `logging` / `sessioning` / `ready` / `failed` |
@@ -165,9 +170,12 @@ spawn 流程：
 
 ## 传输与客户端
 
-**传输**（`src/runtime/ipc/transport.ts`）：
+**传输**（`src/runtime/ipc/transport.ts`、`framing.ts`）：
 
-- `ChildProcessIpcTransport`：stdout 用 readline 逐行读取，stdin 写行。
+- `ChildProcessIpcTransport`：stdout 用增量字节分帧器（`LineFramer`）收行，stdin 写行。
+- 分帧器按字节块累计行长度，超过 `maxLineBytes` 时立即丢弃该行已缓冲的前缀并跳过剩余内容直到
+  换行，不会为超长行持续占用内存；随后到达的有效行继续分发。UTF-8 多字节字符跨 chunk 时只在
+  完整行解码，不会被截断。超限通过 `onOversizeLine` 上报 `IPC_LINE_TOO_LARGE`，driver 接 logger。
 - stdout/stderr 都先经过 `isNativeNoiseLine()` 过滤 wrapper 的原生噪音；stderr 其余内容以
   `[napuketto 子进程] ` 前缀转发到父进程 stderr（保留原生宿主和 Node 原始报错）。
 - 子进程 `close` 事件触发 transport 关闭；`stdin`/`stdout` 不是 pipe 时构造直接抛错。
@@ -175,17 +183,26 @@ spawn 流程：
   写入回调和 stdin 错误监听在传输提前关闭后仍处理已提交写入的错误。监听保留到 stdin 关闭，
   首个错误通过 bot logger 记录（例如 `EPIPE`，预检没有底层错误时用 `IPC_STDIN_UNAVAILABLE`）。
 - IPC 关闭后宿主仍由 driver 持有。退出、心跳失联、停止和重启沿用 driver 的进程确认流程。
-- `BaseLineTransport` 统一订阅管理与 `close()` 幂等；`MemoryLinePair` 是测试用内存双端。
+- `BaseLineTransport` 统一订阅管理与 `close()` 幂等；关闭时移除 stdout 分帧与 stderr 监听并
+  丢弃未完成行。`MemoryLinePair` 是测试用内存双端。
 
 **客户端**（`src/runtime/ipc/client.ts`）：
 
-- `request(action, params?, timeoutMs?)`：单调递增 id，`PendingRequests` 记录超时（默认 60s）。
-- 成功 `result` resolve；失败 `result` reject 为 `IpcError("动作 <name> 失败: <message>", code)`
-  （code 是协议边界的宽松 string，不伪造成 kernel 错误码）。
-- 超时 → `IpcError("动作超时", "TIMEOUT")`；通道关闭 → `IpcError("IPC 通道已关闭", "CLOSED")`。
+- `request(action, params?, timeoutMs?)` 按「登记 pending → 编码 → 写入」顺序执行。编码、
+  单行上限、在途容量或同步写入失败都会以带错误码的 `IpcError` 拒绝该请求，并清理对应定时器、
+  pending 条目与 id 簿记；不会留下悬挂请求，也不会让调用方收到同步抛错。
+- 同时在途请求上限默认 256，超限请求立即以 `IPC_QUEUE_FULL` 失败；容量按完成/超时/关闭实时回收。
+- 错误码：成功 `result` resolve；远端失败 reject 为
+  `IpcError("动作 <name> 失败: <message>", code)`（code 是协议边界的宽松 string，不伪造成
+  kernel 错误码）；超时 `TIMEOUT`；通道关闭 `CLOSED`；本地编码失败 `IPC_ENCODE_FAILED`；
+  出站单行超限 `IPC_LINE_TOO_LARGE`；在途容量满 `IPC_QUEUE_FULL`；同步写入抛错 `IPC_SEND_FAILED`。
+- 同步发送失败会关闭通道，其余在途请求以 `CLOSED` 结束；`sendControl` 返回是否已提交，
+  失败不抛错。响应在写入过程中同步到达（例如测试内存传输）仍能按 id 正确匹配。
 - stdin 故障关闭通道时，所有在途请求立即以 `CLOSED` 结束，`driver.currentClient` 返回 `null`。
 - 迟到响应直接忽略（pending 已清理）。
 - `on(type, handler)` 泛型收窄并返回退订函数；`result` 只用于 pending 匹配，不派发给事件订阅者。
+  单个订阅者抛错会被隔离，经 `onHandlerError`（driver 接 `onIpcError` logger）诊断，其余订阅者
+  和后续 IPC 行继续处理。
 - 收到 `ping` 自动回 `pong` 并记录 `pingAt` / `pongAt`；任何合法消息更新 `seenAt`。
 - 解码失败（非法 JSON / schema 不匹配 / v 不匹配 / 未知 type）不崩通道，交给 `onJunkLine`
   （driver 接 logger.debug）。
