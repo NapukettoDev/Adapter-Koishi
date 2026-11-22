@@ -86,10 +86,17 @@
         "@biomejs/biome": "^2.5.6"
     },
     "koishi": {
-        "category": "adapter",
         "description": {
-            "en": "NapukettoQQ adapter for Koishi: drive QQ via the self-developed wrapper.node protocol layer",
-            "zh": "NapukettoQQ 适配器：自研 QQ NT wrapper.node 协议层，无需外部协议端"
+            "zh": "NapukettoQQ 适配器，无需外部协议端",
+            "en": "NapukettoQQ adapter for Koishi, no external protocol required"
+        },
+        "service": {
+            "optional": [
+                "database"
+            ],
+            "implements": [
+                "adapter"
+            ]
         }
     }
 }
