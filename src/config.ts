@@ -6,7 +6,7 @@
  *  - qqPath / stubDir：loader 引导参数（缺省自动探测/包内默认）
  *  - dataDir：数据根目录（缺省 kernel resolveDataRoot 默认）
  *  - kernelEntry 等：包入口覆盖（高级项，缺省按 Node 解析规则从 dependencies 自动定位）
- *  - logLevel：日志等级（默认 debug——多点日志便于排查，用户可调低减少输出）
+ *  - logLevel：日志等级（默认 info，排障时可用 debug 查看详细日志）
  *  - restart / heartbeatTimeoutMs：driver 重启策略与心跳超时
  *
  * 运行时 import koishi（Schema）——本文件不进单测（docs/guides/development.md 单测边界）。
@@ -14,12 +14,13 @@
 import { Schema } from "koishi";
 import {
     DEFAULT_LOCAL_FILE_POLICY,
+    DEFAULT_LOG_LEVEL,
     DEFAULT_REMOTE_MEDIA_POLICY,
     type OutboundMediaPolicy,
     SELF_ID_PATTERN,
 } from "./shared.js";
 
-/** 日志等级（reggol Logger level；默认 debug——事件/消息详细日志，可调低减少输出）。 */
+/** 日志等级（reggol Logger level）。 */
 export type LogLevel = "debug" | "info" | "error" | "silent";
 
 /** 重启策略（与 driver RestartPolicy 对齐）。 */
@@ -64,72 +65,122 @@ export interface NapukettoBotConfig extends OutboundMediaPolicy {
      * 关闭 = 只保留 kernel 点分动作面（子进程也不需要 adapter/network 依赖）。
      */
     ob11Actions?: boolean;
-    /** 日志等级（默认 "debug"：事件桥/消息详细日志；"info" 只留消息与警告，"error" 只报错）。 */
+    /** 日志等级，默认 info。 */
     logLevel?: LogLevel;
     /** 子进程重启策略。 */
     restart?: RestartConfig;
 }
 
+const localMediaRootsSchema = Schema.array(Schema.string())
+    .role("table")
+    .description("允许低信任调用者发送的本地媒体白名单目录")
+    .default([]);
+
+// 表单中的「自动」对应省略字段，运行时仍只接收显式布尔值。
+const nativeMediaPatchSchema = Schema.union([
+    Schema.const(undefined).description("自动"),
+    Schema.const(true).description("强制开启"),
+    Schema.const(false).description("强制关闭"),
+]).description("入站图片自动下载补丁") as Schema<boolean>;
+
 /** 配置 schema（koishi）。 */
-export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.object({
-    selfId: Schema.string()
-        .pattern(SELF_ID_PATTERN)
-        .description("登录 QQ 号（5–11 位 ASCII 数字，用于数据目录隔离和快速登录）")
-        .required(),
-    qqPath: Schema.string().description(
-        "本机 Windows 或 Linux 版 QQ 可执行文件路径（缺省自动探测）",
-    ),
-    stubDir: Schema.string().description("Windows stub QQNT.dll 目录（缺省 loader 包内默认）"),
-    linuxStubPath: Schema.string().description("Linux ELF stub 文件路径（缺省 loader 自动解析）"),
-    winNodePath: Schema.string().description("Windows 非 Node 宿主使用的 node.exe（缺省自动解析）"),
-    nativeMediaPatch: Schema.boolean().description(
-        "入站图片自动下载补丁（缺省沿用 loader 默认及环境开关）",
-    ),
-    dataDir: Schema.string().description("数据根目录（缺省自动解析）"),
-    kernelEntry: Schema.string().description(
-        "kernel 入口路径覆盖（高级项；缺省按 dependencies 自动解析）",
-    ),
-    selfHostEntry: Schema.string().description(
-        "自建宿主入口路径覆盖（高级项；缺省 loader 包内默认）",
-    ),
-    adapterEntry: Schema.string().description(
-        "OB11 动作桥 adapter 入口覆盖（高级项；缺省按依赖自动解析）",
-    ),
-    networkEntry: Schema.string().description(
-        "OB11 动作桥 network 入口覆盖（高级项；缺省按依赖自动解析）",
-    ),
-    heartbeatTimeoutMs: Schema.number()
-        .description("子进程心跳超时（毫秒，默认 45000）")
-        .default(45_000),
-    ob11Actions: Schema.boolean()
-        .description(
-            "OB11 动作桥（默认开）：提供 OneBot 11 动作、原始事件以及 Koishi 群成员变动和请求事件。" +
-                "关闭后仍可收发消息和接收撤回事件。",
-        )
-        .default(true),
-    remoteMediaPolicy: Schema.union([Schema.const("compatible"), Schema.const("public-only")])
-        .description("远程媒体策略（compatible 支持本机/LAN，public-only 仅允许公网）")
-        .default(DEFAULT_REMOTE_MEDIA_POLICY),
-    localFilePolicy: Schema.union([Schema.const("legacy"), Schema.const("allowlist")])
-        .description("本地媒体策略（allowlist 仅允许指定的媒体目录）")
-        .default(DEFAULT_LOCAL_FILE_POLICY),
-    localMediaRoots: Schema.array(Schema.string())
-        .description("允许低信任调用者发送的本地媒体目录")
-        .default([]),
-    logLevel: Schema.union([
-        Schema.const("debug" as const),
-        Schema.const("info" as const),
-        Schema.const("error" as const),
-        Schema.const("silent" as const),
+export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.intersect([
+    Schema.object({
+        selfId: Schema.string().pattern(SELF_ID_PATTERN).description("用于登录的 QQ 号").required(),
+        logLevel: Schema.union([
+            Schema.const("silent" as const).description("静默"),
+            Schema.const("info" as const).description("常规"),
+            Schema.const("error" as const).description("错误"),
+            Schema.const("debug" as const).description("调试"),
+        ])
+            .description("当前账号的日志输出等级")
+            .default(DEFAULT_LOG_LEVEL),
+    }).description("基础设置"),
+    Schema.intersect([
+        // Koishi 将分组说明传给子项，清空此处避免重复显示分组标题。
+        Schema.object({
+            ob11Actions: Schema.boolean()
+                .description(
+                    "启用 OneBot 11 动作桥（提供 OB11 动作，关闭后仍可收发消息和接收撤回事件）",
+                )
+                .default(true),
+            remoteMediaPolicy: Schema.union([
+                Schema.const("compatible").description("兼容模式（允许本机与局域网媒体地址）"),
+                Schema.const("public-only").description("仅公网（拦截内网地址）"),
+            ])
+                .description("出站远程媒体下载策略")
+                .default(DEFAULT_REMOTE_MEDIA_POLICY),
+            localFilePolicy: Schema.union([
+                Schema.const("legacy").description("兼容模式（沿用本地路径与 file://）"),
+                Schema.const("allowlist").description("白名单模式（仅允许指定目录）"),
+            ])
+                .description("出站本地媒体读取策略")
+                .default(DEFAULT_LOCAL_FILE_POLICY),
+        }).description(""),
+        Schema.union([
+            Schema.object({
+                localFilePolicy: Schema.const("allowlist").required(),
+                localMediaRoots: localMediaRootsSchema,
+            }),
+            Schema.object({
+                localFilePolicy: Schema.const("legacy"),
+                localMediaRoots: localMediaRootsSchema.hidden(),
+            }),
+        ]),
     ])
-        .description(
-            "当前账号的日志等级（默认 debug：子进程/事件/消息详细日志；info 只留消息与警告，" +
-                "error 只报错，silent 关闭）",
-        )
-        .default("debug"),
-    restart: Schema.object({
-        maxRetries: Schema.number().description("最大重启次数（0 = 不重启，默认 3）").default(3),
-        backoffMs: Schema.number().description("首次退避基数（毫秒，默认 1000）").default(1_000),
-        backoffFactor: Schema.number().description("退避因子（默认 2）").default(2),
-    }).description("子进程重启策略"),
-}).description("NapukettoQQ 连接设置");
+        .description("功能与媒体策略")
+        .role("napuketto-config-group")
+        .collapse(),
+    Schema.object({
+        heartbeatTimeoutMs: Schema.number()
+            .min(5_000)
+            .step(1_000)
+            .description("子进程心跳超时时间（毫秒），超时判定失联并重启")
+            .default(45_000),
+        restart: Schema.object({
+            maxRetries: Schema.number()
+                .min(0)
+                .max(20)
+                .step(1)
+                .description("最大自动重启次数（0 表示不重启）")
+                .default(3),
+            backoffMs: Schema.number()
+                .min(100)
+                .step(100)
+                .description("首次重启退避基数（毫秒）")
+                .default(1_000),
+            backoffFactor: Schema.number()
+                .min(1)
+                .max(10)
+                .step(0.5)
+                .description("退避倍率（每次重试等待时间按此倍率递增）")
+                .default(2),
+        }).description("ㅤ子进程重启策略"),
+    })
+        .description("进程保活与重启")
+        .role("napuketto-config-group")
+        .collapse(),
+    Schema.object({
+        qqPath: Schema.string().description("自定义 QQ 可执行文件路径（留空自动探测）"),
+        dataDir: Schema.string().description("自定义数据根目录（支持 ~ 与相对路径，留空自动解析）"),
+        nativeMediaPatch: nativeMediaPatchSchema,
+        stubDir: Schema.string().description(
+            "Windows stub 目录（QQNT.dll 所在目录，留空使用内置默认）",
+        ),
+        linuxStubPath: Schema.string().description(
+            "Linux ELF stub 路径（留空自动解析，非 x64 架构按需指定）",
+        ),
+        winNodePath: Schema.string().description(
+            "Windows 外部 node.exe 路径（非标准 Node 宿主使用）",
+        ),
+    })
+        .description("运行环境与路径")
+        .role("napuketto-config-group")
+        .collapse(),
+    Schema.object({
+        kernelEntry: Schema.string().description("kernel 入口路径覆盖").hidden(),
+        selfHostEntry: Schema.string().description("自建宿主入口路径覆盖").hidden(),
+        adapterEntry: Schema.string().description("OB11 动作桥 adapter 入口覆盖").hidden(),
+        networkEntry: Schema.string().description("OB11 动作桥 network 入口覆盖").hidden(),
+    }).hidden(),
+]);

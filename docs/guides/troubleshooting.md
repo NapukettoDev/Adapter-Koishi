@@ -1,6 +1,6 @@
 # 排障
 
-排查前先把 `logLevel` 设为 `debug`（默认值），并确认看的是**当前账号**的日志。
+排查前先把 `logLevel` 设为 `debug`，并确认看的是**当前账号**的日志。
 
 ## 快速定位
 
@@ -154,8 +154,8 @@
 
 ## 日志与诊断
 
-- 默认 `debug`：包含引导阶段、事件转发、子进程 log、provider 诊断。调到 `info` 可只保留消息派发与
-  警告；`silent` 关闭插件日志（子进程 stderr 仍会转发）。
+- 默认 `info` 保留消息派发、警告与错误。`debug` 还包含引导阶段、事件转发、子进程日志和 provider
+  诊断。`silent` 关闭插件日志，子进程 stderr 仍会转发。
 - 子进程自己的日志由 kernel 写在账号目录（`<dataRoot>/<selfId>`）；崩溃前的 stderr 在父进程日志里。
 - 提 issue 时请附：插件版本、Koishi 版本、`@napuketto/*` 版本、平台（Windows / Linux / WSL）、
   boot phase 日志、子进程 stderr、以及脱敏后的配置（至少保留 `selfId` 的位数特征）。

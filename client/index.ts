@@ -6,11 +6,19 @@
  * dev 由 koishi dev 动态编译；prod 由本仓 vite.config.client.ts 打包
  * （docs/internals/console.md）。
  */
+import { SchemaBase } from '@koishijs/client';
+import ConfigGroup from './components/ConfigGroup.vue';
 import Settings from './settings.vue';
 import type { Context } from './types/koishijs-client';
 
 export default (ctx: Context) =>
 {
+  const configGroup = { role: 'napuketto-config-group', component: ConfigGroup, important: true };
+  SchemaBase.extensions.add(configGroup);
+  ctx.on('dispose', () => {
+    SchemaBase.extensions.delete(configGroup);
+  });
+
   ctx.slot({
     type: 'plugin-details',
     component: Settings,

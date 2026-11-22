@@ -40,6 +40,12 @@ bots:
 
 ## 配置项
 
+控制台把 QQ 号和日志等级放在「基础设置」。适配器的控制台入口加载后，「功能与媒体策略」
+「进程保活与重启」和「运行环境与路径」默认折叠，点击各组标题展开。切换本地媒体策略到白名单模式时
+可编辑目录列表。入站图片自动下载补丁可选「自动」「强制开启」或「强制关闭」，其中「自动」对应 YAML
+省略 `nativeMediaPatch`。
+包入口覆盖可在 YAML 中填写，控制台表单隐藏这些字段。
+
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `selfId` | `string` | **必填** | 登录 QQ 号，须为 5–11 位 ASCII 数字组成的字符串。用于数据目录隔离、快速登录目标、`user.id` 与账号一致性校验 |
@@ -53,15 +59,15 @@ bots:
 | `selfHostEntry` | `string` | loader 包内 | 自建宿主入口覆盖（高级项） |
 | `adapterEntry` | `string` | 依赖自动解析 | OB11 动作桥 adapter 入口覆盖（高级项） |
 | `networkEntry` | `string` | 依赖自动解析 | OB11 动作桥 network 入口覆盖（高级项） |
-| `heartbeatTimeoutMs` | `number` | `45000` | 子进程心跳超时（毫秒），超时判定失联并重启 |
+| `heartbeatTimeoutMs` | `number` | `45000` | 子进程心跳超时（毫秒），超时判定失联并重启。至少 5000，步进 1000 |
 | `ob11Actions` | `boolean` | `true` | 是否挂载 OneBot 11 动作、原始订阅和标准成员变动 / 请求事件。消息与撤回仍通过 kernel IPC 提供 |
 | `remoteMediaPolicy` | `compatible` \| `public-only` | `compatible` | 出站 HTTP(S) 媒体下载策略 |
 | `localFilePolicy` | `legacy` \| `allowlist` | `legacy` | 出站本地媒体路径策略 |
 | `localMediaRoots` | `string[]` | `[]` | 本地媒体白名单目录，供 `allowlist` 使用 |
-| `logLevel` | `debug` \| `info` \| `error` \| `silent` | `debug` | 当前账号的 Bot 日志等级 |
-| `restart.maxRetries` | `number` | `3` | 子进程崩溃/失联最大重启次数；`0` = 不重启 |
-| `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒） |
-| `restart.backoffFactor` | `number` | `2` | 退避乘数（1s / 2s / 4s） |
+| `logLevel` | `debug` \| `info` \| `error` \| `silent` | `info` | 当前账号的 Bot 日志等级 |
+| `restart.maxRetries` | `number` | `3` | 子进程崩溃或失联时的最大重启次数，取 0 到 20 的整数，`0` 表示不重启 |
+| `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒），至少 100，步进 100 |
+| `restart.backoffFactor` | `number` | `2` | 退避倍率，取 1 到 10，步进 0.5 |
 
 `schema` 定义在 `src/config.ts`。未显式给出的可选路径类配置由 launch 在每次 spawn 时解析；
 `heartbeatTimeoutMs` / `restart` / `ob11Actions` / `logLevel` 的默认值同时存在于 schema 与运行时兜底。
@@ -104,8 +110,8 @@ YAML 中请给 QQ 号加引号以保留字符串原值。登录成其他 QQ 号�
 `logLevel` 按 `selfId` 设置对应的 Koishi/reggol logger `onebot-<selfId>`，不同账号可独立设置。
 等级为 debug=3 / info=2 / error=1 / silent=0。
 
-- 子进程 `log` 转发、driver 状态、事件转发等都是 debug 级；默认 `debug` 便于排查。
-- 消息派发日志是 info 级；调成 `info` 可保留消息日志但关闭高频事件日志。
+- 子进程 `log` 转发、driver 状态、事件转发等使用 `debug` 级，排查时可显式开启。
+- 默认 `info` 保留消息派发日志、警告和错误。
 - 登录面板、控制台 provider 和收发媒体都通过对应账号的 Bot logger 将日志交给 Koishi。
 
 ## 多账号

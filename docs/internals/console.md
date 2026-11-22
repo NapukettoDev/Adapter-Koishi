@@ -127,11 +127,15 @@ interface LoginPanelPayload {
 
 | 文件 | 职责 |
 | :--- | :--- |
-| `client/index.ts` | `ctx.slot({ type: "plugin-details", component: Settings, order: 800 })` |
+| `client/index.ts` | 注册登录面板插槽与高级配置分组的表单渲染器 |
+| `client/components/ConfigGroup.vue` | 默认折叠高级配置分组，展开后使用 Koishi 原生字段控件 |
 | `client/settings.vue` | 共享状态：读取 store/配置、过期计时、刷新 loading、状态分发 |
 | `client/components/QrCodePanel.vue` | `waiting_scan`：二维码、2 分钟过期遮罩、刷新/打开链接 |
 | `client/components/StatusSection.vue` | `idle` / `scanned` 加载文案；`logged_in` / `failed` 的状态、账号信息与重登/扫码按钮 |
 | `client/types/` | 控制台 `@koishijs/client` 模块的本地类型 shim（上游以 TS 源码发布，strict 下会暴露其错误） |
+
+Koishi 原生交叉表单渲染器会给子组传入 `foldable: false`。高级分组使用独立的 `napuketto-config-group`
+表单角色，由控制台入口注册折叠渲染器。编辑事件继续交给原生表单，YAML 字段沿用原有层级。
 
 `settings.vue` 的关键逻辑：
 
