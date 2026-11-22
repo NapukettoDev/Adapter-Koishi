@@ -1,4 +1,4 @@
-import type { Bot, Logger } from "koishi";
+import type { Bot, Computed, Logger } from "koishi";
 import type { NapukettoSessionFields } from "../bridge/events/types.js";
 import type { NapukettoIpcClient } from "../runtime/ipc/index.js";
 import type { NapukettoDatabase } from "./database.js";
@@ -7,8 +7,13 @@ interface DispatchHost {
     bot: Pick<Bot, "session" | "dispatch">;
     logger: Pick<Logger, "info" | "warn">;
     database: Pick<NapukettoDatabase, "ensureChannel" | "ensureUser">;
-    autoAssign: boolean;
-    autoAuthorize: number;
+    /**
+     * 原始 autoAssign 配置：boolean 为静态值；函数 / Eval 表达式为动态值，
+     * 预热阶段不猜测其求值结果（见 preheat 注释）。
+     */
+    autoAssign: Computed<boolean>;
+    /** 原始 autoAuthorize 配置，语义同 autoAssign。 */
+    autoAuthorize: Computed<number>;
     getClient(): NapukettoIpcClient | null;
 }
 
@@ -57,19 +62,33 @@ export class SessionDispatcher {
     }
 
     private async preheat(fields: NapukettoSessionFields): Promise<void> {
-        if (this.host.autoAssign && fields.channelId !== undefined) {
+        // 动态 Computed 的结果依赖真实 session（甚至 Koishi 在 dispatch 期间才延迟
+        // 加载的 user/channel）。预热阶段无法安全等价求值，因此跳过对应预热，让
+        // Koishi 在 dispatch 时按真实 session 求值：动态返回 false / 0 时它会走
+        // detached 分支，绝不会被这里的默认值写成错误 assignee 或默认权限。
+        if (
+            typeof this.host.autoAssign === "boolean" &&
+            this.host.autoAssign &&
+            fields.channelId !== undefined &&
+            // koishi getChannel：assignee 为空串时返回 detached，不落库。
+            fields.selfId !== ""
+        ) {
             await this.host.database.ensureChannel({
                 platform: fields.platform,
                 id: fields.channelId,
                 ...(fields.guildId !== undefined ? { guildId: fields.guildId } : {}),
-                // assignee 仅非空 selfId（koishi autoAssign 语义：空串不落库）
-                ...(fields.selfId !== "" ? { assignee: fields.selfId } : {}),
+                assignee: fields.selfId,
             });
         }
-        if (fields.userId !== undefined && fields.userId !== "") {
+        if (
+            typeof this.host.autoAuthorize === "number" &&
+            fields.userId !== undefined &&
+            fields.userId !== ""
+        ) {
             await this.host.database.ensureUser({
                 platform: fields.platform,
                 userId: fields.userId,
+                // 0 由 NapukettoDatabase 跳过；这里保留调用以维持既有降级语义。
                 authority: this.host.autoAuthorize,
             });
         }

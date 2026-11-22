@@ -2,6 +2,7 @@
 import { join } from "node:path";
 import {
     type Bot,
+    type Computed,
     type Context as KoishiContext,
     h as koishiH,
     type Logger,
@@ -100,20 +101,20 @@ export function createPanel(host: PanelHost): NapukettoLoginPanel {
 }
 
 /**
- * 解析 autoAssign/autoAuthorize 语义。
+ * 读取 autoAssign/autoAuthorize 原始配置。
  *
- * koishi 的这两项配置支持 Computed 函数形式（per-session 计算）——构造阶段
- * 无 session 无法求值，取 Schema 默认值（autoAssign=true / autoAuthorize=1）。
+ * koishi 的这两项配置支持 Computed 函数 / Eval 表达式（per-session 计算）。这里
+ * 只补配置缺省值，不求值：动态值由 dispatcher 跳过预热、交给 koishi 在 dispatch
+ * 时按真实 session 计算，避免写入默认权限或错误 assignee。
  */
 function resolveAssignPolicy(ctx: KoishiContext): {
-    autoAssign: boolean;
-    autoAuthorize: number;
+    autoAssign: Computed<boolean>;
+    autoAuthorize: Computed<number>;
 } {
-    const rawAutoAssign = ctx.config.autoAssign;
-    const autoAssign = typeof rawAutoAssign === "function" ? true : (rawAutoAssign ?? true);
-    const rawAutoAuthorize = ctx.config.autoAuthorize;
-    const autoAuthorize = typeof rawAutoAuthorize === "function" ? 1 : (rawAutoAuthorize ?? 1);
-    return { autoAssign, autoAuthorize };
+    return {
+        autoAssign: ctx.config.autoAssign ?? true,
+        autoAuthorize: ctx.config.autoAuthorize ?? 1,
+    };
 }
 
 /** 事件桥装配依赖。 */
