@@ -167,17 +167,17 @@ importers:
   .:
     dependencies:
       '@napuketto/adapter':
-        specifier: ^0.19.0
-        version: 0.19.0(supports-color@8.1.1)
+        specifier: ^0.20.0
+        version: 0.20.0(supports-color@8.1.1)
       '@napuketto/kernel':
         specifier: ^0.16.4
         version: 0.16.4
       '@napuketto/loader':
-        specifier: ^0.11.0
-        version: 0.11.0
+        specifier: ^0.12.0
+        version: 0.12.0
       '@napuketto/media':
-        specifier: ^0.2.3
-        version: 0.2.3(supports-color@8.1.1)
+        specifier: ^0.3.0
+        version: 0.3.0(supports-color@8.1.1)
       '@napuketto/network':
         specifier: ^0.5.0
         version: 0.5.0
@@ -426,20 +426,20 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
-  '@napuketto/adapter@0.19.0':
-    resolution: {integrity: sha512-38Z4i2jwW0Kuxqo3Oh2DrKkfM2CUUWlG41jO1WuUFhTUW9Fgn7I4vTMaJb6jWElvU2RbZN1GAvd7NBHSDUujGA==}
+  '@napuketto/adapter@0.20.0':
+    resolution: {integrity: sha512-IpcgOkZbgQUrZc6icyFiVsn1n65EitxEP/cKHjLTCXwvIU6PK7XBxHNNdgWbZTI6I5dBhzO0ExtSM52WLEXNBg==}
     engines: {node: '>=22.12.0'}
 
   '@napuketto/kernel@0.16.4':
     resolution: {integrity: sha512-F3C6iSG8g07lPQcZE7Km8UEIYgOhLZclLBdW/fhQWNkX+9vv9kekX/77bxyplbpNXai9jzQLghw0tot4KRHKrg==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/loader@0.11.0':
-    resolution: {integrity: sha512-bU0nsAiUCZJbktIxoGspAJ9OcnsxJRIwdmBnIkGgkKSDnZ3IhPlVPkTR7XMJEuHU4mrnHJUXUK13FSFX9omkdg==}
+  '@napuketto/loader@0.12.0':
+    resolution: {integrity: sha512-y2gPSnltDbWRSgEt2fkZoqgvoCSyq0E8aJ/vdVDzVc5A7W5h9ihs9tFI+T/bE6KPSFGYTmTPWxpeBQDcJtth/Q==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/media@0.2.3':
-    resolution: {integrity: sha512-6qhmc9/nElpGtB1B9UW/xzM7mLxrk6RRLWs9qqxw8DTrfMTpMQFcqK4a1LoOwI21w5R2mIVSUkDhwc24vc5k/g==}
+  '@napuketto/media@0.3.0':
+    resolution: {integrity: sha512-YApmKJ1xxO9ttbYYPzafuvM6FPUnMtX+JyLLSFRjl32bIJjX9pWs1p1BsqFzaPtMkhVm8Krutc9dGX0BmCZevQ==}
     engines: {node: '>=22.12.0'}
 
   '@napuketto/network@0.5.0':
@@ -2254,10 +2254,10 @@ snapshots:
       '@tybys/wasm-util': 0.10.5
     optional: true
 
-  '@napuketto/adapter@0.19.0(supports-color@8.1.1)':
+  '@napuketto/adapter@0.20.0(supports-color@8.1.1)':
     dependencies:
       '@napuketto/kernel': 0.16.4
-      '@napuketto/media': 0.2.3(supports-color@8.1.1)
+      '@napuketto/media': 0.3.0(supports-color@8.1.1)
       '@napuketto/network': 0.5.0
       zod: 4.6.7
     transitivePeerDependencies:
@@ -2270,11 +2270,11 @@ snapshots:
       pino: 10.4.0
       smol-toml: 1.9.1
 
-  '@napuketto/loader@0.11.0':
+  '@napuketto/loader@0.12.0':
     dependencies:
       zod: 4.6.7
 
-  '@napuketto/media@0.2.3(supports-color@8.1.1)':
+  '@napuketto/media@0.3.0(supports-color@8.1.1)':
     dependencies:
       execa: 10.2.1
       file-type: 22.3.0(supports-color@8.1.1)
