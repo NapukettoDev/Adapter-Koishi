@@ -44,17 +44,6 @@ function avatarUrl(selfId: string): string {
     return avatar.href;
 }
 
-const BOT_USAGE = `
-<div style="border-radius: 10px; border: 1px solid #ddd; padding: 16px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-  <h2 style="margin-top: 0; color: #4a6ee0;">🖥️ NapukettoQQ 适配器</h2>
-  <p>自研 QQ NT <strong>wrapper.node</strong> 协议层，无需外部协议端。</p>
-  <p>每个 <code>bots</code> 配置项启动一个自建宿主子进程，经 IPC 与 Koishi 通信。
-  Windows 使用 QQNT.dll stub，Linux / WSL 使用 Linux 版 QQ、ELF stub 与 libgnutls.so.30。
-  Wine 已退役。配置 <code>selfId</code> 为登录 QQ 号即可。
-  登录二维码在插件详情页实时展示（控制台安装后可见）。</p>
-</div>
-`;
-
 // 使用 satorijs Context 满足 Bot 基类的约束。
 type SatoriContext = Bot["ctx"];
 
@@ -243,5 +232,4 @@ export namespace NapukettoBot {
     export const Config = napukettoConfigSchema;
     export type Config = NapukettoBotConfig;
     export const inject = BOT_INJECT;
-    export const usage = BOT_USAGE;
 }
