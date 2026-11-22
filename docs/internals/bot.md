@@ -127,9 +127,9 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 的 check-then-act 并发竞态：多条消息同 tick 派发时，多个 SELECT 先于首个 INSERT 完成，随后
 并发 INSERT 撞唯一键（`channel.id, platform` 或 `binding.pid, platform`）。
 
-同一根上下文的多个 Bot 共享一份预热协调状态（per-key 串行队列 + 失败报告器），按
-`(platform, channel id)` / `(platform, user id)` 协调创建路径。多个 Koishi 实例之间没有共享内存，
-只依赖数据库唯一键与事务。
+同一根上下文的多个 Bot（同一插件模块实例内）共享一份预热协调状态（per-key 串行队列 +
+失败报告器），按 `(platform, channel id)` / `(platform, user id)` 协调创建路径。多个 Koishi
+实例之间没有共享内存，只依赖数据库唯一键与事务。
 
 **channel**：
 
