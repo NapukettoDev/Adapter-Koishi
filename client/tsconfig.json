@@ -1,9 +1,8 @@
 {
     "$schema": "https://json.schemastore.org/tsconfig",
     "compilerOptions": {
+        /* 运行环境 */
         "target": "ES2025",
-        "module": "esnext",
-        "moduleResolution": "bundler",
         "lib": [
             "ES2025",
             "DOM"
@@ -11,42 +10,40 @@
         // 不引用 @koishijs/client/global：其 5.30.11 exports 把 ./global 映射到
         // 不存在的 ./client/global.d.ts（上游打包 bug，最新版未修）。vue 模块声明
         // 由同目录 shims.d.ts 提供。types: [] 同时防止 node 全局泄漏进前端作用域。
+        "types": [],
+        /* 模块系统 */
+        "module": "ESNext",
+        "moduleResolution": "bundler",
         // @koishijs/client 以 TS 源码发布（无 types 条件），strict 下会把上游源码
         // 错误暴露进 IDE；这里 paths 重定向到本地 shim（koishijs-client.d.ts），
         // 使 strict 只作用于本项目代码（vite 构建不读 paths，不受影响）。
-        "types": [],
         "paths": {
             "@koishijs/client": [
                 "./types/koishijs-client.d.ts"
             ]
         },
-        "strict": true,
-        "noImplicitAny": true,
-        "strictNullChecks": true,
-        "strictFunctionTypes": true,
-        "strictBindCallApply": true,
-        "strictPropertyInitialization": true,
-        "noImplicitThis": true,
-        "alwaysStrict": true,
-        "noUncheckedIndexedAccess": true,
-        "noPropertyAccessFromIndexSignature": true,
-        "exactOptionalPropertyTypes": true,
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "noImplicitReturns": true,
-        "noFallthroughCasesInSwitch": true,
-        "noImplicitOverride": true,
-        "allowUnreachableCode": false,
-        "allowUnusedLabels": false,
+        /* 语法与转译安全 */
         "verbatimModuleSyntax": true,
         "isolatedModules": true,
-        "esModuleInterop": true,
-        "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true,
+        /* 类型严格度 */
+        "strict": true,
+        "exactOptionalPropertyTypes": true,
+        "noUncheckedIndexedAccess": true,
+        "noPropertyAccessFromIndexSignature": true,
+        "noImplicitOverride": true,
+        /* 控制流与死代码 */
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "allowUnreachableCode": false,
+        "allowUnusedLabels": false,
+        /* 输出与工程 */
         "noEmit": true,
-        "rootDir": "."
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
     },
     "include": [
         "."
-    ],
+    ]
 }
