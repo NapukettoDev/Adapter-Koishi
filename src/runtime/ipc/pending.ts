@@ -6,6 +6,7 @@
  * 请求生命周期可单测（注入假超时）。
  */
 import { IpcError } from "../../shared.js";
+import { DEFAULT_MAX_PENDING_REQUESTS } from "./limits.js";
 
 /** 动作请求超时（毫秒）。 */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -23,11 +24,29 @@ export class PendingRequests {
     private readonly pending = new Map<number, PendingRequest>();
     private nextId = 1;
 
+    constructor(private readonly maxPending = DEFAULT_MAX_PENDING_REQUESTS) {
+        if (!Number.isSafeInteger(maxPending) || maxPending <= 0) {
+            throw new RangeError("maxPending 必须是正整数");
+        }
+    }
+
+    /** 当前在途请求数。 */
+    get size(): number {
+        return this.pending.size;
+    }
+
     /**
      * 登记一个请求：分配 id + 启动超时，返回 id 与 Promise。
      * 调用方拿到 id 后负责发送消息；响应到达时调 resolve/reject。
+     * 达到在途上限时抛 IpcError(IPC_QUEUE_FULL)，不会消费 id 或启动定时器。
      */
     add(action: string, timeoutMs: number): { id: number; promise: Promise<unknown> } {
+        if (this.pending.size >= this.maxPending) {
+            throw new IpcError(
+                `在途 IPC 请求已达上限（${this.maxPending}）: ${action}`,
+                "IPC_QUEUE_FULL",
+            );
+        }
         const id = this.nextId++;
         return {
             id,
@@ -59,9 +78,24 @@ export class PendingRequests {
         if (pending === undefined) {
             return false; // 迟到的响应：忽略
         }
+        return this.rejectWith(
+            id,
+            new IpcError(`动作 ${pending.action} 失败: ${error.message}`, error.code),
+        );
+    }
+
+    /**
+     * 以调用方给定的错误结束请求（本地编码/发送失败等），
+     * 同时清理定时器与 id 簿记。条目不存在时返回 false。
+     */
+    rejectWith(id: number, error: unknown): boolean {
+        const pending = this.pending.get(id);
+        if (pending === undefined) {
+            return false;
+        }
         this.pending.delete(id);
         clearTimeout(pending.timer);
-        pending.reject(new IpcError(`动作 ${pending.action} 失败: ${error.message}`, error.code));
+        pending.reject(error);
         return true;
     }
 

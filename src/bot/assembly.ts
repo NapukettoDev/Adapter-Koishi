@@ -78,8 +78,7 @@ export function createPanel(host: PanelHost): NapukettoLoginPanel {
         if (client === null) {
             return false;
         }
-        client.sendControl(payload);
-        return true;
+        return client.sendControl(payload);
     };
     return new NapukettoLoginPanel(
         {
@@ -133,16 +132,15 @@ export interface BridgeHost {
 /** 装配事件桥：kernel 事件 → koishi session（dispatch 异步化 + 预热不阻断）。 */
 export function createBridge(host: BridgeHost): NapukettoEventBridge {
     return new NapukettoEventBridge({
-        // 事件桥同步接收事件，预热与派发由下游异步处理。
-        dispatch: (session) => {
-            void host.dispatchSession(session);
-        },
+        // 事件桥同步接收事件，预热与派发由下游异步处理；Promise 拒绝由桥统一诊断。
+        dispatch: (session) => host.dispatchSession(session),
         selfId: () => host.getLogin().snapshot.self?.uin ?? host.config.selfId,
         // koishi h 可调用（Element 工厂）；绑定生产 h
         h: bindKoishiH(koishiH),
         platform: "onebot",
         enrichElements: (elements) =>
             enrichReceiveVoice(elements, host.dataRoot, (message) => host.logger.warn(message)),
+        onError: (error, context) => host.logger.warn("[napuketto] %s: %o", context, error),
     });
 }
 

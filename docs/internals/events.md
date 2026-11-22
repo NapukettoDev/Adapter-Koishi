@@ -8,19 +8,21 @@
   └─ driver.onEvent → NapukettoEventBridge.handle(payload)
        ├─ service === "Msg" && name === "onRecvMsg"
        │    └─ args[0] = RawMessage | RawMessage[]
+       │         → validateRawMessage()（坏条目诊断后跳过，不影响同批其他条目）
        │         → 过滤启动前历史积压并分流撤回、成员变动和戳一戳灰条
        │         → 过滤系统占位消息
        │         → adaptRawMessageWithMedia()
        │              ├─ kernel toCanonicalElements()
-       │              ├─ 收向媒体富化（语音 silk → WAV，可失败透传）
+       │              ├─ 收向媒体富化（语音 silk → WAV，失败诊断后透传）
        │              └─ toKoishiElements()
        │         → SessionDispatcher.dispatch(fields)
-       │              → 消息预热 channel/user → Bot.session() → applySessionFields → dispatch
+       │              → 消息预热 channel/user（失败 warn，继续派发）→ Bot.session()
+       │              → applySessionFields → dispatch（同步/异步失败均诊断）
        └─ service === "ob11"
-            └─ args[0] → 成员变动和请求转换，同时保留 bot.onOb11() 原始订阅
+            └─ args[0] → 结构校验 → 成员变动和请求转换，同时保留 bot.onOb11() 原始订阅
 ```
 
-涉及代码：`src/bridge/events/bridge.ts`、`adapt.ts`、`notices.ts`、`src/shared.ts`、`voice-decode.ts`、`types.ts`；
+涉及代码：`src/bridge/events/bridge.ts`、`adapt.ts`、`validate.ts`、`notices.ts`、`src/shared.ts`、`voice-decode.ts`、`types.ts`；
 `src/bot/dispatcher.ts` 的 `SessionDispatcher`。
 
 ## kernel 事件入口
@@ -28,11 +30,21 @@
 `bridge.handle(payload)` 只处理两类：
 
 1. `service === "Msg"` 且 `name === "onRecvMsg"`：`args[0]` 是 `RawMessage` 或 `RawMessage[]`
-   （QQ 会批量推送）。逐条处理，非对象条目跳过。
+   （QQ 会批量推送）。逐条校验并处理，非对象或结构非法的条目跳过。
 2. `service === "ob11"`：`args[0]` 是 OneBot 11 原始事件对象，成员变动和请求可以生成标准事件。
    原始对象仍交给 `onOb11` 订阅者。
 
 其他 service/name 由子进程透传，适配器不转换。
+
+**结构校验**：元素转换前先确认适配器实际依赖的字段——`msgId` 非空字符串、`chatType` 是
+kernel `ChatType` 的整数、`elements` 是数组且每个元素带整数 `elementType`；`senderUin` /
+`peerUin` 若出现必须是字符串（缺省沿用空串兜底）。校验函数是纯函数（`validate.ts`），读取字段
+自身抛错也按无效事件处理。通过后才进入 `toCanonicalElements()`，避免把坏载荷变成未处理异常。
+
+**异常隔离与诊断**：单条坏消息、元素转换失败、富化失败、OB11 转换失败、OB11 订阅者异常以及
+会话派发的同步抛错或 Promise 拒绝，都只影响当前事件或当前订阅者。诊断经事件桥的 `onError`
+回调（生产接 bot logger 的 warn）上报，错误文本不拼接原始消息内容；后续有效事件继续送达。
+会话派发由桥统一处理同步/异步失败，不会留下未处理的 Promise 拒绝。
 
 **系统占位消息过滤**：`senderUin === "0"` 的消息跳过。QQ 在群通知等场景会把无内容的占位消息混在
 批量推送里；派发它们只会让 koishi 对无价值消息创建 channel，并放大并发落库竞态。
@@ -113,8 +125,9 @@ koishi 运行时。
    Bot 停止后，已派发的 WAV 仍可能被 Koishi 消费，继续由 TTL 清理。进程非正常退出留下的目录由系统临时目录策略清理。
 5. 目录未知、路径校验失败或解码失败时原样返回原路径，消息继续派发。
 
-事件桥对富化做了异步化：`adaptRawMessageWithMedia()` 失败时回退到普通 `adaptRawMessage()`；
-`dispatch()` 回调不等待 Promise。
+事件桥对富化做了异步化：`adaptRawMessageWithMedia()` 富化失败时先经 `onError` 诊断，再回退到
+普通 `adaptRawMessage()`；`dispatch()` 回调返回 Promise 时由事件桥接管拒绝，不留下未处理的
+Promise。元素转换失败与富化失败分开处理，前者丢弃当前事件并诊断，后者保留既有透传降级。
 
 ## OB11 原始事件
 
@@ -127,8 +140,9 @@ const off = bot.onOb11((event) => {
 })
 ```
 
-- 结构异常（非对象 / 无 `post_type`）静默丢弃。
-- 单个订阅者抛错不影响其他订阅者。
+- 结构异常（非对象 / 缺字符串 `post_type`）诊断后丢弃；OB11 事件转换失败只影响标准事件生成，
+  原始订阅继续。
+- 单个订阅者抛错不影响其他订阅者，并通过事件桥的 `onError` 留下诊断。
 - `ob11Actions: false`、入口解析失败或子进程降级时，不会有这类事件。
 
 ## 标准通知与请求

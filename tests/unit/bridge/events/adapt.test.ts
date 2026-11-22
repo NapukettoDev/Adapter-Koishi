@@ -100,6 +100,36 @@ describe("adaptRawMessageWithMedia", () => {
             { type: "text", attrs: { content: "你好" } },
         ]);
     });
+
+    it("富化失败 → 诊断后回退原始元素，消息仍可派发", async () => {
+        const onError = vi.fn();
+        const session = await adaptRawMessageWithMedia(makeMsg(), {
+            ...adaptOpts(),
+            enrichElements: async () => {
+                throw new Error("silk 解码失败");
+            },
+            onError,
+        });
+        expect(session.elements).toHaveLength(1);
+        expect(String(session.elements?.[0])).toContain("你好");
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "silk 解码失败" }),
+            "收向元素富化失败（回退原始元素）",
+        );
+    });
+
+    it("诊断回调自身抛错也不阻断富化降级", async () => {
+        const session = await adaptRawMessageWithMedia(makeMsg(), {
+            ...adaptOpts(),
+            enrichElements: async () => {
+                throw new Error("silk 解码失败");
+            },
+            onError: () => {
+                throw new Error("diagnostic boom");
+            },
+        });
+        expect(String(session.elements?.[0])).toContain("你好");
+    });
 });
 
 describe("normalizeMessageTime", () => {

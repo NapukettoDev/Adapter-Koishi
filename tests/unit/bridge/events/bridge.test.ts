@@ -154,6 +154,153 @@ describe("NapukettoEventBridge", () => {
     });
 });
 
+describe("NapukettoEventBridge 异常隔离", () => {
+    function makeRaw(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+        return {
+            msgId: "m1",
+            msgSeq: "1",
+            msgTime: "1700000000",
+            msgType: 9,
+            chatType: 2,
+            peerUid: "u_peer",
+            peerUin: "10001",
+            senderUid: "u_s",
+            senderUin: "20001",
+            peerName: "群",
+            sendNickName: "小明",
+            elements: [{ elementType: 1, textElement: { content: "a" } }],
+            ...overrides,
+        };
+    }
+
+    function makeBridge() {
+        const dispatch = vi.fn();
+        const onError = vi.fn();
+        const bridge = new NapukettoEventBridge({
+            dispatch,
+            selfId: () => "1",
+            h: mockH(),
+            onError,
+        });
+        return { bridge, dispatch, onError };
+    }
+
+    it("坏事件被丢弃并诊断，同批后续有效事件继续送达", async () => {
+        const { bridge, dispatch, onError } = makeBridge();
+        bridge.handle(recvPayload([makeRaw({ msgId: "bad", elements: "x" }), makeRaw()]));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "elements 不是数组" }),
+            "消息事件结构非法（已丢弃）",
+        );
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({ messageId: "m1" });
+    });
+
+    it("元素转换抛错只丢弃该条事件，后续有效事件继续送达", async () => {
+        const { bridge, dispatch, onError } = makeBridge();
+        const broken = makeRaw({
+            msgId: "broken",
+            elements: [
+                {
+                    elementType: 1,
+                    get textElement(): never {
+                        throw new Error("元素读取爆炸");
+                    },
+                },
+            ],
+        });
+        bridge.handle(recvPayload([broken, makeRaw({ msgId: "after" })]));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({ messageId: "after" });
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "元素读取爆炸" }),
+            "消息事件转换失败（已丢弃）",
+        );
+    });
+
+    it("会话派发异步拒绝 → 诊断且后续事件继续派发", async () => {
+        const dispatch = vi
+            .fn()
+            .mockRejectedValueOnce(new Error("派发异步失败"))
+            .mockResolvedValue(undefined);
+        const onError = vi.fn();
+        const bridge = new NapukettoEventBridge({
+            dispatch,
+            selfId: () => "1",
+            h: mockH(),
+            onError,
+        });
+        bridge.handle(recvPayload(makeRaw({ msgId: "first" })));
+        await vi.waitFor(() =>
+            expect(onError).toHaveBeenCalledWith(
+                expect.objectContaining({ message: "派发异步失败" }),
+                "会话派发失败（异步）",
+            ),
+        );
+        bridge.handle(recvPayload(makeRaw({ msgId: "second" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+    });
+
+    it("会话派发同步抛错 → 诊断且后续事件继续派发", async () => {
+        const dispatch = vi
+            .fn()
+            .mockImplementationOnce(() => {
+                throw new Error("派发同步失败");
+            })
+            .mockResolvedValue(undefined);
+        const onError = vi.fn();
+        const bridge = new NapukettoEventBridge({
+            dispatch,
+            selfId: () => "1",
+            h: mockH(),
+            onError,
+        });
+        bridge.handle(recvPayload(makeRaw({ msgId: "first" })));
+        await vi.waitFor(() =>
+            expect(onError).toHaveBeenCalledWith(
+                expect.objectContaining({ message: "派发同步失败" }),
+                "会话派发失败（同步）",
+            ),
+        );
+        bridge.handle(recvPayload(makeRaw({ msgId: "second" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+    });
+
+    it("OB11 单订阅者异常被诊断并隔离，后续订阅者与事件继续", () => {
+        const { bridge, onError } = makeBridge();
+        const first = vi.fn(() => {
+            throw new Error("订阅者 A 失败");
+        });
+        const second = vi.fn();
+        bridge.onOb11(first);
+        bridge.onOb11(second);
+        bridge.handle({ service: "ob11", name: "notice", args: [{ post_type: "notice" }] });
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "订阅者 A 失败" }),
+            "OB11 订阅者异常（已隔离）",
+        );
+
+        second.mockClear();
+        bridge.handle({ service: "ob11", name: "notice", args: [{ post_type: "notice" }] });
+        expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it("OB11 结构非法 → 诊断且不影响后续合法事件", () => {
+        const { bridge, onError } = makeBridge();
+        const listener = vi.fn();
+        bridge.onOb11(listener);
+        bridge.handle({ service: "ob11", name: "unknown", args: [{ foo: 1 }] });
+        expect(listener).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "缺少 post_type 或不是对象" }),
+            "OB11 事件结构非法（已丢弃）",
+        );
+        bridge.handle({ service: "ob11", name: "message", args: [{ post_type: "message" }] });
+        expect(listener).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe("NapukettoEventBridge（OB11 原始事件，docs/internals/actions.md）", () => {
     function makeBridge() {
         const dispatch = vi.fn();
@@ -195,7 +342,7 @@ describe("NapukettoEventBridge（OB11 原始事件，docs/internals/actions.md�
         expect(b).toHaveBeenCalledTimes(2);
     });
 
-    it("事件结构异常（缺 post_type / 非对象）静默丢弃", () => {
+    it("事件结构异常（缺 post_type / 非对象）丢弃", () => {
         const { bridge } = makeBridge();
         const listener = vi.fn();
         bridge.onOb11(listener);

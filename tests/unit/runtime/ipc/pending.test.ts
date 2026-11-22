@@ -89,5 +89,40 @@ describe("PendingRequests", () => {
         pr.rejectAll(); // 幂等：无 pending 时 no-op
         await assertionA;
         await assertionB;
+        expect(pr.size).toBe(0);
+    });
+
+    it("容量上限 → 抛 IPC_QUEUE_FULL 且不消费 id、不启动定时器", async () => {
+        const pr = new PendingRequests(1);
+        const first = pr.add("first", 1_000);
+        const firstAssertion = expect(first.promise).rejects.toMatchObject({ code: "CLOSED" });
+        try {
+            pr.add("second", 1_000);
+            expect.unreachable("超限请求应抛错");
+        } catch (error) {
+            expect(error).toMatchObject({ code: "IPC_QUEUE_FULL" });
+        }
+        expect(pr.size).toBe(1);
+        pr.rejectAll();
+        await firstAssertion;
+
+        // 容量释放后 id 继续单调递增；被拒绝的请求没有占用 id。
+        const next = pr.add("next", 1_000);
+        expect(next.id).toBe(first.id + 1);
+        const nextAssertion = expect(next.promise).rejects.toMatchObject({ code: "CLOSED" });
+        pr.rejectAll();
+        await nextAssertion;
+        expect(pr.size).toBe(0);
+    });
+
+    it("rejectWith → 清理定时器与条目并 reject 原错误；迟到调用返回 false", async () => {
+        const pr = new PendingRequests();
+        const { id, promise } = pr.add("local", 1_000);
+        const error = new Error("本地编码失败");
+        const assertion = expect(promise).rejects.toBe(error);
+        expect(pr.rejectWith(id, error)).toBe(true);
+        expect(pr.size).toBe(0);
+        expect(pr.rejectWith(id, error)).toBe(false);
+        await assertion;
     });
 });

@@ -10,6 +10,11 @@ import {
 import type { HostProcess } from "./terminator.js";
 import type { DriverEvents, DriverOptions, DriverState } from "./types.js";
 
+/** 诊断回调只接受 Error，非 Error 抛出值转成 Error 再上报。 */
+function toError(error: unknown): Error {
+    return error instanceof Error ? error : new Error(String(error));
+}
+
 interface ClientBinding {
     onConnect(client: NapukettoIpcClient): void;
     onTransportError(): void;
@@ -29,18 +34,22 @@ export function connectHost(
         transport =
             createTransport !== undefined
                 ? createTransport(host.child)
-                : new ChildProcessIpcTransport(host.child as ChildProcess, (error) =>
-                      events.onIpcWriteError?.(error),
+                : new ChildProcessIpcTransport(
+                      host.child as ChildProcess,
+                      (error) => events.onIpcWriteError?.(error),
+                      {
+                          onOversizeLine: (error) => events.onIpcError?.(error),
+                      },
                   );
     } catch (error) {
         binding.onTransportError();
         events.onError?.(error);
         return;
     }
-    const client = new NapukettoIpcClient(
-        transport,
-        onJunkLine === undefined ? {} : { onJunkLine },
-    );
+    const client = new NapukettoIpcClient(transport, {
+        ...(onJunkLine === undefined ? {} : { onJunkLine }),
+        onHandlerError: (error) => events.onIpcError?.(toError(error)),
+    });
     binding.onConnect(client);
     subscribeClient(client, host, events, binding);
 }

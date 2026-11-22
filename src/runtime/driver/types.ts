@@ -118,6 +118,8 @@ export interface DriverEvents {
     onError?(error: unknown): void;
     /** IPC stdin 写入故障诊断，进程生命周期由 driver 继续管理。 */
     onIpcWriteError?(error: Error): void;
+    /** IPC 传输/客户端诊断（入站行超限、消息订阅者异常等）。 */
+    onIpcError?(error: Error): void;
 }
 
 /** 退出原因。 */

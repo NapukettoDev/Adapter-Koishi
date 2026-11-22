@@ -6,10 +6,12 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { KernelError } from "@napuketto/kernel";
 import { isNativeNoiseLine } from "@napuketto/loader";
 import { IpcError } from "../../shared.js";
+import { LineFramer } from "./framing.js";
+import { DEFAULT_MAX_IPC_LINE_BYTES } from "./limits.js";
 
 /** 订阅集合用快照派发，回调内增删订阅不会改变本次通知。 */
 export class SubscriberSet<T extends unknown[]> {
@@ -90,17 +92,47 @@ export abstract class BaseLineTransport implements IpcLineTransport {
     protected onClosed(): void {}
 }
 
-/** 基于 ChildProcess stdio 的传输：stdout 收行（readline），stdin 发行。 */
+/** ChildProcess 传输选项。 */
+export interface ChildProcessIpcTransportOptions {
+    /** 单条入站 IPC 行字节上限（默认 16 MiB，不含行尾 LF）。 */
+    maxLineBytes?: number;
+    /** 超限行被整行丢弃时的诊断回调。 */
+    onOversizeLine?: (error: IpcError) => void;
+}
+
+/** 基于 ChildProcess stdio 的传输：stdout 增量分帧，stdin 发行。 */
 export class ChildProcessIpcTransport extends BaseLineTransport {
     private readonly stdin: Writable;
-    private readonly stdoutLines: Interface;
+    private readonly stdout: Readable;
+    private readonly framer: LineFramer;
     private readonly stderrLines: Interface | undefined;
+    private readonly onOversizeLine: ((error: IpcError) => void) | undefined;
     private writeFailed = false;
 
     private readonly onStdoutLine = (line: string): void => {
         // 整行原生噪音静默丢弃，协议行撕裂留给客户端诊断。
         if (!isNativeNoiseLine(line)) {
             this.dispatchLine(line);
+        }
+    };
+
+    private readonly onStdoutData = (chunk: Buffer | string): void => {
+        this.framer.push(chunk);
+    };
+
+    private readonly onStdoutEnd = (): void => {
+        this.framer.end();
+    };
+
+    private readonly onFramerOversize = (limitBytes: number): void => {
+        const error = new IpcError(
+            `IPC 入站行超过单行上限（${limitBytes} 字节），已整行丢弃`,
+            "IPC_LINE_TOO_LARGE",
+        );
+        try {
+            this.onOversizeLine?.(error);
+        } catch {
+            // 诊断回调异常不得中断 stdout 的后续分帧。
         }
     };
 
@@ -127,6 +159,7 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
     constructor(
         private readonly child: ChildProcess,
         private readonly onWriteError?: (error: Error) => void,
+        options: ChildProcessIpcTransportOptions = {},
     ) {
         super();
         const { stdin, stdout } = child;
@@ -134,13 +167,20 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
             throw new KernelError("子进程 stdio 未启用（需要 stdout/stdin pipe）", "INVALID_STATE");
         }
         this.stdin = stdin;
+        this.stdout = stdout;
+        this.onOversizeLine = options.onOversizeLine;
         // IPC 可以先于 stdin 关闭，已提交的写入此后仍可能触发 error。
         if (!stdin.closed) {
             stdin.on("error", this.handleWriteError);
             stdin.once("close", () => stdin.off("error", this.handleWriteError));
         }
-        this.stdoutLines = createInterface({ input: stdout, crlfDelay: Infinity });
-        this.stdoutLines.on("line", this.onStdoutLine);
+        this.framer = new LineFramer({
+            maxLineBytes: options.maxLineBytes ?? DEFAULT_MAX_IPC_LINE_BYTES,
+            onLine: this.onStdoutLine,
+            onOversize: this.onFramerOversize,
+        });
+        stdout.on("data", this.onStdoutData);
+        stdout.on("end", this.onStdoutEnd);
         // stderr 保留宿主的原始诊断，同时过滤原生噪音。
         if (child.stderr !== null) {
             this.stderrLines = createInterface({ input: child.stderr, crlfDelay: Infinity });
@@ -165,7 +205,10 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
 
     protected override onClosed(): void {
         this.child.off("close", this.onChildClose);
-        this.stdoutLines.off("line", this.onStdoutLine).close();
+        this.stdout.off("data", this.onStdoutData);
+        this.stdout.off("end", this.onStdoutEnd);
+        this.stdout.pause();
+        this.framer.reset();
         this.stderrLines?.off("line", this.onStderrLine).close();
     }
 }

@@ -5,7 +5,7 @@ import type { NapukettoDatabase } from "./database.js";
 
 interface DispatchHost {
     bot: Pick<Bot, "session" | "dispatch">;
-    logger: Pick<Logger, "info">;
+    logger: Pick<Logger, "info" | "warn">;
     database: Pick<NapukettoDatabase, "ensureChannel" | "ensureUser">;
     autoAssign: boolean;
     autoAuthorize: number;
@@ -22,8 +22,13 @@ export class SessionDispatcher {
             return;
         }
         // 预热避免 Koishi 并发创建同一 channel 或 binding 时触发唯一键冲突。
+        // 预热失败只影响落库优化，不能阻断消息派发（见 docs/internals/bot.md）。
         if (fields.type === "message") {
-            await this.preheat(fields);
+            try {
+                await this.preheat(fields);
+            } catch (error) {
+                this.host.logger.warn("[napuketto] 会话预热失败（继续派发）: %o", error);
+            }
         }
         if (this.host.getClient() !== client) {
             return; // 预热期间子进程已退出或被替换
