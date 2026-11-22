@@ -50,7 +50,8 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 5. `createLifecycle(...)`：装配启停与登录控制器，事件桥在创建驱动时读取。
 6. `panel = createPanel(...)` + `panel.setup(ctx)`：控制台服务就绪后装配 provider（见
    [控制台面板](console.md)）。
-7. `createDispatcher(...)` 解析 `autoAssign` / `autoAuthorize`，并装配数据库预热和会话派发。
+7. `createDispatcher(...)` 读取原始 `autoAssign` / `autoAuthorize`（不提前求值动态配置），
+   并装配数据库预热和会话派发。
 8. `bridge = createBridge(...)`：注入 `h`、平台名、selfId getter、收向语音富化、dispatch 回调。
 9. `internal = createInternal(...)`：`request` 绑定 `clientRef`，client 未就绪时抛
    “子进程未就绪”。
@@ -126,29 +127,58 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 的 check-then-act 并发竞态：多条消息同 tick 派发时，多个 SELECT 先于首个 INSERT 完成，随后
 并发 INSERT 撞唯一键（`channel.id, platform` 或 `binding.pid, platform`）。
 
+同一根上下文的多个 Bot（同一插件模块实例内）共享一份预热协调状态（per-key 串行队列 +
+失败报告器），按 `(platform, channel id)` / `(platform, user id)` 协调创建路径。多个 Koishi
+实例之间没有共享内存，只依赖数据库唯一键与事务。
+
 **channel**：
 
 1. `get("channel", { id, platform }, ["id"])` 命中直接返回（绝大多数路径零写入）。
-2. 未命中 `upsert("channel", [row], ["id", "platform"])`：`INSERT … ON CONFLICT DO UPDATE`，
-   并发安全且幂等。
-3. 先 `get` 命中即返回，所以已有行不会走到 upsert；只有并发 miss 的双 upsert 可能覆盖
-   `createdAt`，毫秒级差异可忽略。
+2. 未命中 `create("channel", row)` 单条原子插入；撞 `(id, platform)` 主键时回读。命中说明另一
+   路径已创建，按成功处理。
+3. 全程不使用 upsert：已有行的 `assignee` / `createdAt` 不会被并发预热覆盖。
 
 **user**：
 
 1. `get("binding", { platform, pid }, ["aid"])` 命中直接返回。
-2. 未命中 `create("user", { authority, locales: [], createdAt })`（user 表无唯一键，重复创建无害）。
-3. `upsert("binding", [{ aid, bid, pid, platform }], ["pid", "platform"])` 幂等合并。
+2. 未命中在 `db.transact` 内复查 binding，再 `create("user")` + `create("binding")`。binding
+   主键冲突会让输家事务回滚；输家回读赢家 binding，命中即按成功处理。
+3. 绝不用 upsert 改写 binding.aid。数据库无事务能力时退化为 create user + create binding，
+   并在 binding 失败时补偿删除未被引用的 user，避免重试累积孤儿行。
 
 **策略与降级**：
 
 | 条件 | 行为 |
 | :--- | :--- |
 | `autoAssign === false` | 跳过 channel 预热（保持 koishi 不落库语义） |
+| `selfId` 为空 | 跳过 channel 预热（koishi 走 detached，不落库） |
+| `autoAssign` 为 Eval 表达式 | 跳过 channel 预热，由 koishi 在 dispatch 时求值 |
+| `autoAssign` 为函数 | 只读取不可变 session 字段时按真实值预热；读取延迟字段、改写 session、抛错或返回非 boolean 时跳过 |
 | `autoAuthorize === 0` | 跳过 user 预热（detached user） |
-| `autoAssign` / `autoAuthorize` 是 Computed 函数 | 构造期取 koishi 默认值（`true` / `1`） |
-| `ctx.database` 不可用或写入失败 | 单次 warn 后跳过，由 koishi 兜底；**绝不阻塞 dispatch** |
-| 同一 channel / user 的并发消息 | per-key 串行队列（key = `channel:<platform>:<id>` / `user:<platform>:<userId>`），不同 key 并行 |
+| `autoAuthorize` 为 Eval 表达式 | 跳过 user 预热，由 koishi 在 dispatch 时求值 |
+| `autoAuthorize` 为函数 | 只读取不可变 session 字段时按真实值预热；读取延迟字段、改写 session、抛错或返回非 natural number 时跳过 |
+| `ctx.database` 不可用或写入失败 | 告警后跳过，由 koishi 兜底；**绝不阻塞 dispatch** |
+| 同一记录键的并发预热 | 同根上下文共享串行队列（key = `channel:<platform>:<id>` / `user:<platform>:<userId>`），不同 key 并行 |
+
+`policy.ts` 只把构造期已定字段（`selfId` / `platform` / `userId` / `channelId` / `guildId` /
+`isDirect` 等）暴露给 Computed 函数。函数读取 `user` / `channel` / `guild` / `argv` / `event` 等
+延迟或可被 dispatch 改写的数据、调用 session 方法或改写 session 时，代理会标记 unsafe 并让该次
+预热 deferred；即使函数自己 catch 了异常也不会采用它返回的兜底值。Eval 表达式与 async 函数一律
+deferred。deferred 后由 koishi 在 dispatch 时按真实 session 求值，动态返回 `false` / `0` 时自然走
+detached 分支。
+
+**并发保证范围**：
+
+| 场景 | 机制 | 保证 |
+| :--- | :--- | :--- |
+| 同一进程、同根上下文多 Bot | 共享 per-key 串行队列 | 同一记录键同时只有一个创建者；后到者读到已存在记录 |
+| 同一进程、不同根上下文 | 仅数据库约束 | 依赖主键冲突回读 / 事务回滚，不覆盖已有行 |
+| 多个 Koishi 实例（独立进程，同库） | 主键唯一 + 原子 create / 事务回滚 | 不重复 binding、不覆盖 `assignee` / `createdAt`；输家事务回滚或补偿清理，不遗留孤儿 user；可能多一次失败尝试 |
+| 不同数据库 | 无协调 | 各自独立 |
+
+**失败告警**：按「操作 + 平台 + 错误指纹」归并。首次失败保留完整错误对象（含堆栈），后续同因
+失败只计数；累计 50 次或冷却 60 秒后输出一次摘要。不同平台、不同错误类型/错误码各自成组；
+无错误码时按错误消息区分，不会因为某个组先告警而吞掉后续证据。
 
 `NapukettoDatabase` 构造时收 `ctx.root`：root 的 internal 一定含 database，且 `checkInject` 对 root
 放行，避免插件作用域访问服务时反复 emit warning。
@@ -182,7 +212,10 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 
 | 文件 | 测试方式 |
 | :--- | :--- |
-| `dispatcher.ts` | 宽松 session 结构，直接断言字段 |
+| `dispatcher.ts` | 宽松 session 结构，直接断言字段 / 预热策略 |
+| `policy.ts` | 注入 session 桩，验证静态值、纯函数求值与 unsafe/deferred 分支 |
+| `database.ts` | 有状态假数据库验证原子 create、事务回滚、冲突回读与共享队列 |
+| `failure-reporter.ts` | 注入时钟与 warn，验证去重、限频与证据保留 |
 | `lifecycle.ts` | 验证账号判定与拒绝上线，注入 driver 和 Bot 验证启停重叠及旧轮次回调 |
 | `transform.ts` | 断言 Universal 形状转换，无 Koishi 运行时 |
 | `src/console/panel.ts` | 纯决策表 + mock executor |
