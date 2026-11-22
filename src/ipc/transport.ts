@@ -2,15 +2,39 @@
  * transport.ts：JSON 行传输抽象。
  *
  * 真实实现包装 ChildProcess stdio（stdout readline 收行 + stdin 发行）；
- * 测试注入内存双端（MemoryLinePair，见 index.test.ts）。
+ * 测试注入内存双端（MemoryLinePair，见 src/__test-utils__/ipc.ts）。
  */
 import type { ChildProcess } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { Writable } from "node:stream";
 import { KernelError } from "@napuketto/kernel";
 import { isNativeNoiseLine } from "@napuketto/loader";
-import { IpcError } from "./errors.js";
-import { SubscriberSet } from "./subscribers.js";
+import { IpcError } from "../shared/errors.js";
+
+/** 订阅集合用快照派发，回调内增删订阅不会改变本次通知。 */
+export class SubscriberSet<T extends unknown[]> {
+    private readonly handlers = new Set<(...args: T) => void>();
+
+    /** 订阅；返回退订函数。 */
+    add(handler: (...args: T) => void): () => void {
+        this.handlers.add(handler);
+        return () => {
+            this.handlers.delete(handler);
+        };
+    }
+
+    /** 通知全部订阅者（快照遍历，允许回调内退订）。 */
+    dispatch(...args: T): void {
+        for (const handler of [...this.handlers]) {
+            handler(...args);
+        }
+    }
+
+    /** 清空订阅。 */
+    clear(): void {
+        this.handlers.clear();
+    }
+}
 
 /** JSON 行传输接口。 */
 export interface IpcLineTransport {

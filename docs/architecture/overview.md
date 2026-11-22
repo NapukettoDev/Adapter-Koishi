@@ -50,7 +50,7 @@ Koishi 主进程（Node）
 | `@koishijs/plugin-console`（peer） | `DataService` 与控制台前端运行时 | `src/console/provider.ts`、`client/` |
 | `@napuketto/kernel` | 数据根/配置路径解析、`RawMessage` / `CanonicalElement`、`LoginState` / `QrCodeData`、`KernelError`、`toCanonicalElements` | `src/bot/launch.ts`、`src/events/`、`src/actions/`、`src/ipc/transport.ts` |
 | `@napuketto/loader` | `launchSelfHost`、QQ 文件解析、stub 目录、IPC 消息 schema、原生噪音过滤 | `src/bot/launch.ts`、`src/ipc/` |
-| `@napuketto/media` | silk 编解码、视频信息/抽帧 | `src/actions/media.ts`、`src/events/voice-decode.ts` |
+| `@napuketto/media` | silk 编解码、视频信息/抽帧 | `src/actions/media/transcode.ts`、`src/events/voice-decode.ts` |
 | `@napuketto/adapter` / `@napuketto/network` | **不在插件源码中 import**；仅把磁盘入口路径传给子进程，由 loader 在子进程内动态装配 OneBot 11 动作面 | `src/bot/launch.ts`（`resolveEntry`） |
 
 依赖方向单向：插件 → 上游包；上游包不知道适配器存在。`@napuketto/*` 是真实 `dependencies`
@@ -62,55 +62,56 @@ Koishi 主进程（Node）
 src/
 ├── index.ts                 插件入口：默认导出 NapukettoBot，导出 Config
 ├── config.ts                Config 接口 + koishi Schema
-├── constants.ts             PRIVATE_PREFIX / BOT_STATUS
+├── shared/                  协议约定、媒体策略、路径校验、IPC 错误和串行队列
+├── __test-utils__/           IPC、driver 与事件桥共享测试夹具
 ├── bot/                     Koishi Bot 集成
-│   ├── bot.ts               NapukettoBot（平台注册、生命周期、动作方法、dispatch）
+│   ├── bot.ts               NapukettoBot（Koishi 插件与 Universal 动作接口）
 │   ├── message.ts           NapukettoMessageEncoder（发送编码器）
 │   ├── launch.ts            launch 工厂（launchSelfHost 组装 + 入口解析）
-│   ├── login-actions.ts     重登/强制扫码决策纯函数
-│   ├── login-panel.ts       控制台面板装配类
-│   └── utils/
-│       ├── assembly.ts      构造期组件工厂（login/panel/bridge/internal/策略）
-│       ├── driver-events.ts driver 事件接线工厂
-│       ├── identity.ts      账号一致性判定与拒绝动作
-│       ├── session.ts       session 字段应用纯函数
-│       ├── transform.ts     kernel → Universal 形状映射
-│       └── console-entry.ts 控制台前端入口注册
+│   ├── assembly.ts          构造期组件工厂
+│   ├── driver-events.ts     driver 事件接线工厂
+│   ├── identity.ts          账号一致性判定与拒绝动作
+│   ├── lifecycle.ts         Bot 启停、账号校验与轮次管理
+│   ├── dispatcher.ts        session 字段应用、预热与派发
+│   ├── metadata.ts          插件元数据、日志等级与头像 URL
+│   └── transform.ts         kernel → Universal 形状映射
 ├── driver/                  子进程生命周期
 │   ├── driver.ts            NapukettoDriver（spawn/重启/停止/状态重查）
 │   ├── heartbeat.ts         HeartbeatMonitor
-│   ├── backoff.ts           指数退避纯函数
-│   ├── types.ts             DriverOptions / DriverEvents / DriverState 等
-│   └── test-utils.ts        FakeChild + createHarness
+│   ├── account-lock.ts     账号目录所有权
+│   ├── restart.ts           重启计数、退避与取消
+│   ├── boot-resync.ts       引导期事件缓存与状态重查
+│   ├── terminator.ts        宿主退出监听与分级终止
+│   ├── client-events.ts     IPC 客户端创建与事件接线
+│   └── types.ts             DriverOptions / DriverEvents / DriverState 等
 ├── ipc/                     JSON 行协议（插件侧）
 │   ├── client.ts            NapukettoIpcClient（线路处理/请求匹配/心跳）
 │   ├── transport.ts         IpcLineTransport + ChildProcessIpcTransport
 │   ├── pending.ts           PendingRequests（id/超时/批量 reject）
-│   ├── subscribers.ts       SubscriberSet
-│   ├── codec.ts             encode/decode（zod 校验）
-│   └── errors.ts            IpcError
+│   └── codec.ts             encode/decode（zod 校验）
 ├── login/                   登录状态观察
 │   ├── machine.ts           NapukettoLoginState
 │   └── types.ts             LoginView / LoginSnapshot
 ├── events/                  收方向（QQ → Koishi）
 │   ├── bridge.ts            NapukettoEventBridge
 │   ├── adapt.ts             RawMessage → session 字段
-│   ├── elements.ts          canonical → koishi 元素
 │   ├── voice-decode.ts      silk → WAV
 │   └── types.ts             NapukettoSessionFields / EventBridgeOptions
 ├── actions/                 发方向（Koishi → QQ）
 │   ├── internal.ts          NapukettoInternal（bot.internal）
 │   ├── elements.ts          koishi 元素 → canonical
 │   ├── channel.ts           channelId → chatType/peerUin
-│   ├── media.ts             语音/图片/视频发送归一化
+│   ├── media/               媒体获取、转码、白名单和发送准备
 │   └── types.ts             RequestFn / PeerTarget
 ├── console/                 控制台面板后端
+│   ├── entry.ts             控制台前端入口注册
+│   ├── login-panel.ts       控制台面板装配
+│   ├── login-actions.ts     重登与强制扫码决策
 │   ├── provider.ts          NapukettoLoginProvider（DataService）
 │   ├── payload.ts           快照 → payload 纯函数
 │   └── types.ts             LoginPanelPayload
 └── database/                channel/user 预热
-    ├── index.ts             NapukettoDatabase
-    └── serial-queue.ts      per-key 串行队列
+    └── index.ts             NapukettoDatabase
 
 client/                      控制台前端（由本仓 vite.config.client.ts 构建）
 ├── index.ts                 plugin-details slot 注册
@@ -125,7 +126,7 @@ client/                      控制台前端（由本仓 vite.config.client.ts �
 - `tsdown` 配置 `deps.bundle: false`：`@napuketto/*` 与 koishi 生态全部保持 external，由 npm
   安装的真实包提供。**不是**单文件自包含 bundle。
 - 控制台前端单独构建为 `dist/index.js` + `dist/index.css`，文件名固定，运行时由
-  `src/bot/utils/console-entry.ts` 注册。
+  `src/console/entry.ts` 注册。
 - `package.json` 的 `files` 只发布 `lib`、`client`、`dist`；`exports.development` 指向的
   `src/` 不在发布内容中，因此该条件只对仓库内开发有效。
 

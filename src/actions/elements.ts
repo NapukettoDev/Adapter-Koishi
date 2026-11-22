@@ -1,7 +1,7 @@
 /**
  * elements.ts：koishi 元素 → canonical 元素（纯函数，docs/internals/actions.md）。
  *
- * 与 events/elements.ts（canonical → koishi）对称的反向映射。koishi h() 元素
+ * 与 shared/protocol.ts（canonical → koishi）对称的反向映射。koishi h() 元素
  * 宽松结构 { type, attrs, children }（不 import koishi 主包）：
  *  - text → { type: "text", text }（attrs.content 优先，children join 兜底）
  *  - br → { type: "text", text: "\n" }
@@ -17,7 +17,7 @@
  */
 import { fileURLToPath } from "node:url";
 import type { CanonicalElement } from "@napuketto/kernel";
-import { IpcError } from "../ipc/errors.js";
+import { IpcError } from "../shared/errors.js";
 
 /** koishi 元素宽松结构（h() 元素，不 import koishi 主包）。 */
 interface LooseElement {

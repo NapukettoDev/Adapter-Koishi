@@ -2,8 +2,10 @@
  * driver-events.test.ts：NapukettoDriver 事件转发单测（login/qr/event/log）。
  */
 import { describe, expect, it, vi } from "vitest";
+import { createHarness, flush } from "../../__test-utils__/driver.js";
+import { makeRawMessage, mockH } from "../../__test-utils__/events.js";
+import type { MemoryLinePair } from "../../__test-utils__/ipc.js";
 import { NapukettoEventBridge } from "../../events/bridge.js";
-import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import {
     decodeIpcMessage,
     encodeIpcMessage,
@@ -11,8 +13,6 @@ import {
     type IpcEventPayload,
     type NapukettoIpcClient,
 } from "../../ipc/index.js";
-import type { MemoryLinePair } from "../../ipc/test-utils.js";
-import { createHarness, flush } from "../test-utils.js";
 
 function emitMessage(pair: MemoryLinePair | undefined, sequence: number): void {
     pair?.peer.write(

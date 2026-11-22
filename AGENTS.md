@@ -43,9 +43,9 @@
 5. **发布形态**：`tsdown.config.ts` 设置 `deps.bundle: false`，`@napuketto/*` 与 koishi 生态全部
    external——子进程运行时要读磁盘上的 `self-host.cjs`、stub `QQNT.dll`、kernel 入口，bundle 会丢资产。
    产物固定为 `lib/index.cjs` + `lib/index.d.cts`、`dist/index.js` + `dist/index.css`；控制台产物文件名
-   不可改（`console-entry.ts` 按清单复制，改名即 404）。`files` 只发布 `lib` / `client` / `dist`，不含 `src`。
+   不可改（`src/console/entry.ts` 按清单复制，改名即 404）。`files` 只发布 `lib` / `client` / `dist`，不含 `src`。
 6. **配置与账号一致性**：配置 schema 唯一来源 `src/config.ts`（`selfId` 必填），schema 默认值与运行时
-   兜底必须一致。`selfId` 同时是账号数据目录边界；登录成其他 QQ 号必须拒绝上线（`src/bot/utils/identity.ts`），
+   兜底必须一致。`selfId` 同时是账号数据目录边界；登录成其他 QQ 号必须拒绝上线（`src/bot/identity.ts`），
    严禁“将就用实际 uin”。
 7. **测试边界**：单测**不加载 koishi 运行时**（会初始化 loader 并直接崩溃）。可测逻辑必须是纯函数 /
    依赖注入；`bot.ts`、`message.ts`、`login-panel.ts`、`assembly.ts`、`config.ts`、`console/provider.ts`、
@@ -64,7 +64,7 @@
 - **可选属性**：`exactOptionalPropertyTypes` 下用条件展开
   `...(x !== undefined ? { x } : {})`，不要显式赋 `undefined`。
 - **`const enum` 不可用**：`Universal.Channel.Type` / `Universal.Status` 在 `verbatimModuleSyntax`
-  下无法访问，用 `src/constants.ts`（如 `BOT_STATUS`）或字面量。
+  下无法访问，用 `src/shared/protocol.ts`（如 `BOT_STATUS`）或字面量。
 - **barrel 最小化**：`index.ts` 只 re-export 有消费者的符号；内部类型让消费方直接从 `types.js` 引入，
   避免死导出。
 - **错误与日志**：业务抛类型化错误（`IpcError` / `KernelError` 等），禁止静默吞错；日志走 bot logger
@@ -97,9 +97,9 @@
      更新 `docs/guides/configuration.md` → 补 `resolveLaunchOptions` 纯函数单测。
    - 新发向动作 / 元素：`src/actions/elements.ts` / `internal.ts` → 用 mock request 断言动作名与参数 →
      更新 `docs/internals/actions.md`；子进程动作表没有的能力需上游提供，不在本仓硬造。
-   - 新收向元素：`src/events/elements.ts` 正向映射 + `src/actions/elements.ts` 反向映射，两个方向都要测，
+   - 新收向元素：`src/shared/protocol.ts` 正向映射 + `src/actions/elements.ts` 反向映射，两个方向都要测，
      并同步 `docs/internals/events.md` 与 `actions.md` 的表格。
-   - 新控制台事件：`src/console/provider.ts` → `src/bot/login-panel.ts` → `client/settings.vue` 或子组件 →
+   - 新控制台事件：`src/console/provider.ts` → `src/console/login-panel.ts` → `client/settings.vue` 或子组件 →
      更新 `docs/internals/console.md`。
 4. **本地联调**：`pnpm build && pnpm build:client` → `pnpm pack` → 目标 Koishi 实例
    `pnpm add file:<tarball>`。**禁止用 workspace link 代替真实安装形态**（路径解析不同），验证完切回

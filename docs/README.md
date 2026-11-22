@@ -23,7 +23,7 @@
 | 文档 | 内容 | 主要对应代码 |
 | :--- | :--- | :--- |
 | [architecture/overview.md](architecture/overview.md) | 定位、边界、依赖方向、目录结构、关键决策、能力边界 | `package.json`、`src/index.ts` |
-| [architecture/lifecycle.md](architecture/lifecycle.md) | 从 Bot 构造到上下线：driver 状态、登录状态、就绪/重启/停止、账号一致性、重登决策 | `src/bot/bot.ts`、`src/bot/login-actions.ts`、`src/driver/`、`src/login/` |
+| [architecture/lifecycle.md](architecture/lifecycle.md) | 从 Bot 构造到上下线：driver 状态、登录状态、就绪/重启/停止、账号一致性、重登决策 | `src/bot/lifecycle.ts`、`src/console/login-actions.ts`、`src/driver/`、`src/login/` |
 | [internals/runtime.md](internals/runtime.md) | 子进程编排与 IPC：launch 组装、driver、心跳、退避、JSON 行协议、请求匹配 | `src/driver/`、`src/ipc/`、`src/bot/launch.ts` |
 | [internals/events.md](internals/events.md) | 收方向：kernel 事件 → koishi session，元素映射，收向语音解码，OB11 原始事件 | `src/events/` |
 | [internals/actions.md](internals/actions.md) | 发方向：koishi 动作 → canonical → IPC，媒体归一化，kernel/OB11 两个动作面 | `src/actions/` |

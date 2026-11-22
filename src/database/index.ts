@@ -27,7 +27,7 @@
  */
 
 import type { Context } from "koishi";
-import { SerialQueue } from "./serial-queue.js";
+import { SerialQueue } from "../shared/serial-queue.js";
 
 /** channel 预热字段（dispatch 前 session 字段子集）。 */
 export interface EnsureChannelData {

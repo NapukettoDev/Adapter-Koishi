@@ -5,10 +5,10 @@
  */
 import { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
+import { createHarness, flush } from "../../__test-utils__/driver.js";
+import { MemoryLinePair } from "../../__test-utils__/ipc.js";
 import { encodeIpcMessage, IPC_VERSION, type IpcMessage } from "../../ipc/index.js";
-import { MemoryLinePair } from "../../ipc/test-utils.js";
 import { NapukettoDriver } from "../driver.js";
-import { createHarness, flush } from "../test-utils.js";
 
 describe("NapukettoDriver 启动", () => {
     it("正常启动 → status.ready → state=ready + onReady", async () => {

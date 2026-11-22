@@ -1,17 +1,17 @@
 /**
- * test-utils.ts：driver 层测试共享设施。
+ * driver.ts：driver 层测试共享设施。
  * FakeChild（可触发 exit）+ createHarness（driver + spawns/peers 记录）。
  */
 import { EventEmitter } from "node:events";
+import { NapukettoDriver } from "../driver/driver.js";
+import type { ChildProcessLike, DriverEvents } from "../driver/types.js";
 import {
     encodeIpcMessage,
     IPC_VERSION,
     type IpcMessage,
     type IpcStatusPayload,
 } from "../ipc/index.js";
-import { MemoryLinePair } from "../ipc/test-utils.js";
-import { NapukettoDriver } from "./driver.js";
-import type { ChildProcessLike, DriverEvents } from "./types.js";
+import { MemoryLinePair } from "./ipc.js";
 
 /** 假子进程：可手动触发 exit。 */
 export class FakeChild

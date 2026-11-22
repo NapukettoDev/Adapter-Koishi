@@ -12,7 +12,7 @@ bot.internal.<method>()
        └─ request("msg.sendMessage", params)  → IPC action → 子进程
 ```
 
-涉及代码：`src/actions/internal.ts`、`ob11-resources.ts`、`elements.ts`、`channel.ts`、`media.ts`、`types.ts`。
+涉及代码：`src/actions/internal.ts`、`ob11-resources.ts`、`elements.ts`、`channel.ts`、`src/actions/media/`、`types.ts`。
 
 ## 动作入口与调用方
 

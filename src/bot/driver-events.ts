@@ -1,23 +1,14 @@
-/**
- * driver-events.ts：driver 事件接线工厂（自 bot.ts setupDriver 拆出）。
- *
- * NapukettoBot.setupDriver 里 50 行的 events 回调对象 → buildDriverEvents(host)
- * 工厂函数。依赖通过 host 接口注入（logger/login/bridge/offline 等），
- * bot 的 setupDriver 只剩一行组装——接线逻辑独立可读。
- *
- * 运行时仅依赖类型（DriverEvents 来自 driver/types，logger 是 koishi Logger
- * 接口），零 koishi 运行时依赖——可直接单测。
- */
+/** 把当前轮次的驱动事件接到登录状态、桥接和 Bot 回调。 */
 import type { Logger } from "koishi";
-import type { DriverEvents } from "../../driver/types.js";
-import type { NapukettoEventBridge } from "../../events/index.js";
-import type { IpcLoginPayload } from "../../ipc/index.js";
-import type { NapukettoLoginState } from "../../login/index.js";
+import type { DriverEvents } from "../driver/types.js";
+import type { NapukettoEventBridge } from "../events/index.js";
+import type { IpcLoginPayload } from "../ipc/index.js";
+import type { NapukettoLoginState } from "../login/index.js";
 
 /** driver events 主机（bot 层提供依赖，避免工厂直接依赖 NapukettoBot 全量）。 */
 export interface DriverEventsHost {
     /** 对应账号的 Bot logger。 */
-    logger: Logger;
+    logger: Pick<Logger, "debug" | "warn">;
     /** 登录状态机（onLogin/onQr/onExit 转发）。 */
     login: Pick<NapukettoLoginState, "onLogin" | "onQr" | "onExit">;
     /** 事件桥（kernel 事件 → koishi session）。 */
@@ -34,14 +25,11 @@ export interface DriverEventsHost {
     onLoggedIn?(self: NonNullable<IpcLoginPayload["selfInfo"]>): void;
     /** 下线回调（driver 崩溃/错误时置 offline）。 */
     offline: (error?: Error) => void;
-    /**
-     * 回调是否仍属于当前轮次。Bot 每次 start/stop 都递增轮次，旧 driver 在
-     * 停止边界上的迟到回调（onExit/onError/onReady 等）据此丢弃。
-     */
+    /** 是否仍属于最近创建的驱动轮次。 */
     isCurrent?: () => boolean;
 }
 
-/** 组装 driver 事件回调（bot.setupDriver 注入 DriverEvents）。 */
+/** 组装 driver 事件回调（生命周期控制器注入 DriverEvents）。 */
 export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
     const current = () => host.isCurrent?.() ?? true;
     return {

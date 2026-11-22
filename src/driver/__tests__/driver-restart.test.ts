@@ -3,9 +3,9 @@
  */
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { ControlledWritable } from "../../ipc/test-utils.js";
+import { createHarness, FakeChild, flush } from "../../__test-utils__/driver.js";
+import { ControlledWritable } from "../../__test-utils__/ipc.js";
 import { NapukettoDriver } from "../driver.js";
-import { createHarness, FakeChild, flush } from "../test-utils.js";
 import type { DriverLauncher } from "../types.js";
 
 describe("NapukettoDriver 重启", () => {

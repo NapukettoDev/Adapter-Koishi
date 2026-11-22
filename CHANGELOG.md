@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.56
+
+### Patch Changes
+
+- 重组适配器内部模块，拆分 Bot 与驱动生命周期、会话派发和出站媒体管线。保留现有公开 API 与 Koishi 插件入口，补充启停并发和旧驱动回调隔离测试。
+
 ## 0.0.55
 
 ### Patch Changes

@@ -8,17 +8,17 @@ import { PassThrough, Writable } from "node:stream";
 import { ElementType } from "@napuketto/kernel";
 import { launchSelfHost } from "@napuketto/loader";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeRawMessage, mockH } from "../../__test-utils__/events.js";
 import type { LogLevel } from "../../config.js";
 import type { LoginPanelPayload } from "../../console/types.js";
-import { BOT_STATUS } from "../../constants.js";
 import type { DriverEvents } from "../../driver/types.js";
-import { makeRawMessage, mockH } from "../../events/test-utils.js";
 import {
     decodeIpcMessage,
     encodeIpcMessage,
     IPC_VERSION,
     type IpcMessage,
 } from "../../ipc/index.js";
+import { BOT_STATUS } from "../../shared/protocol.js";
 import { NapukettoBot } from "../bot.js";
 
 vi.mock("koishi", () => {
@@ -651,9 +651,9 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         const { bot, click, logger } = setupPanel();
         const child = await startBot(bot);
         child.login({ state: "waiting_scan" });
-        expect(bot["driver"]?.currentState).toBe("booting");
-        expect(bot["driver"]?.currentClient).not.toBeNull();
-        expect(bot["clientRef"].current).toBeNull();
+        expect(bot["lifecycle"]["driver"]?.currentState).toBe("booting");
+        expect(bot["lifecycle"]["driver"]?.currentClient).not.toBeNull();
+        expect(bot["lifecycle"].client).toBeNull();
         await expect(bot.deleteMessage("private:20001", "1")).rejects.toThrow("子进程未就绪");
 
         click("refresh-qr");
@@ -671,7 +671,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         ]);
         await vi.advanceTimersByTimeAsync(0);
         expect(logger.info).toHaveBeenCalledWith("[napuketto] 刷新二维码: %s", "已触发新二维码");
-        expect(bot["qrOnlyRef"].current).toBe(false);
+        expect(bot["lifecycle"]["qrOnlyRef"].current).toBe(false);
     });
 
     it("failed 时通过仍在引导的连接重启，后续启动只消费一次扫码标记", async () => {
@@ -888,17 +888,17 @@ describe("Bot 启停生命周期", () => {
         first.ready();
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.online).toHaveBeenCalledOnce();
-        expect(bot["driver"]?.currentState).toBe("ready");
+        expect(bot["lifecycle"]["driver"]?.currentState).toBe("ready");
 
         const stopping = bot.stop();
         first.emit("exit", 0, null);
         await stopping;
-        expect(bot["driver"]).toBeNull();
+        expect(bot["lifecycle"]["driver"]).toBeNull();
 
         const second = await startBot(bot);
         expect(second).not.toBe(first);
         expect(launch).toHaveBeenCalledTimes(2);
-        expect(bot["identityMismatch"]).toBe(false);
+        expect(bot["lifecycle"]["identityMismatch"]).toBe(false);
         second.ready();
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.online).toHaveBeenCalledTimes(2);
@@ -911,7 +911,7 @@ describe("Bot 启停生命周期", () => {
         first.ready("20002");
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.online).not.toHaveBeenCalled();
-        expect(bot["identityMismatch"]).toBe(true);
+        expect(bot["lifecycle"]["identityMismatch"]).toBe(true);
         expect(bot.status).toBe(0);
 
         // 账号校验已同步停 driver；此时再次 start 要等旧宿主确认退出。
@@ -922,11 +922,11 @@ describe("Bot 启停生命周期", () => {
 
         const second = latestChild();
         expect(second).not.toBe(first);
-        expect(bot["identityMismatch"]).toBe(false);
+        expect(bot["lifecycle"]["identityMismatch"]).toBe(false);
         second.ready(SELF_ID);
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.online).toHaveBeenCalledOnce();
-        expect(bot["clientRef"].current).not.toBeNull();
+        expect(bot["lifecycle"].client).not.toBeNull();
     });
 
     it("重复 start 只创建一个宿主，重复 stop 只停止一次", async () => {
@@ -941,7 +941,7 @@ describe("Bot 启停生命周期", () => {
         child.emit("exit", 0, null);
         await Promise.all([firstStop, secondStop]);
         expect(bot.status).toBe(0);
-        expect(bot["driver"]).toBeNull();
+        expect(bot["lifecycle"]["driver"]).toBeNull();
     });
 
     it("旧宿主退出造成短暂离线时，重叠 start 只创建一个新宿主", async () => {
@@ -1001,7 +1001,7 @@ describe("Bot 启停生命周期", () => {
         latestChild().emit("exit", null, "SIGTERM");
         await Promise.all([starting, stopping]);
         expect(bot.status).toBe(0);
-        expect(bot["driver"]).toBeNull();
+        expect(bot["lifecycle"]["driver"]).toBeNull();
     });
 
     it("停止超时仍上报 EXIT_TIMEOUT，旧宿主退出后可再次 start", async () => {
@@ -1035,7 +1035,7 @@ describe("Bot 启停生命周期", () => {
         const first = await startBot(bot);
         first.ready();
         await vi.advanceTimersByTimeAsync(0);
-        const oldDriver = bot["driver"];
+        const oldDriver = bot["lifecycle"]["driver"];
         if (oldDriver === null) {
             throw new Error("旧 driver 未创建");
         }
@@ -1062,7 +1062,7 @@ describe("Bot 启停生命周期", () => {
 
         expect(bot.status).toBe(1);
         expect(bot.online).toHaveBeenCalledTimes(2);
-        expect(bot["clientRef"].current).not.toBeNull();
+        expect(bot["lifecycle"].client).not.toBeNull();
         expect(bot["login"].snapshot.self?.uin).toBe(SELF_ID);
         expect(bot["login"].snapshot.qr).toBeUndefined();
     });

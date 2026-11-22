@@ -11,16 +11,14 @@
  */
 
 import type { CanonicalElement, RawMessage } from "@napuketto/kernel";
-import { toCanonicalElements } from "@napuketto/kernel";
-import { type HFn, toKoishiElements } from "./elements.js";
-import { normalizeMessageTime } from "./message-time.js";
+import { ChatType, toCanonicalElements } from "@napuketto/kernel";
+import {
+    type HFn,
+    normalizeMessageTime,
+    PRIVATE_PREFIX,
+    toKoishiElements,
+} from "../shared/protocol.js";
 import type { NapukettoSessionFields } from "./types.js";
-
-/** 私聊 channelId 前缀（napcat 同构）。 */
-const PRIVATE_PREFIX = "private:";
-
-/** 会话类型（kernel ChatType 对齐）。 */
-const ChatType = { C2C: 1, GROUP: 2, TEMP: 100 } as const;
 
 /** 适配选项。 */
 export interface AdaptOptions {
@@ -59,7 +57,7 @@ export function adaptRawMessage(msg: RawMessage, options: AdaptOptions): Napuket
             : { channelId: `${PRIVATE_PREFIX}${senderUin}` }),
     };
     // 临时会话（群内私聊）带 guildId（群号）
-    if (msg.chatType === ChatType.TEMP && groupCode !== "") {
+    if (msg.chatType === ChatType.C2C_TEMP && groupCode !== "") {
         session.guildId = groupCode;
     }
 

@@ -13,7 +13,15 @@
 import { NapukettoBot } from "./bot/index.js";
 import { napukettoConfigSchema as Config } from "./config.js";
 
-export * from "./actions/index.js";
+export {
+    type MessageListResponse,
+    NapukettoInternal,
+    type NapukettoInternalOptions,
+    type PeerTarget,
+    parseChannelId,
+    type RequestFn,
+    toCanonicalElements,
+} from "./actions/index.js";
 export * from "./bot/index.js";
 export * from "./events/index.js";
 

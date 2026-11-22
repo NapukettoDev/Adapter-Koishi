@@ -16,7 +16,7 @@ import {
     evaluateIdentity,
     type IdentityMismatchSink,
     rejectIdentityMismatch,
-} from "../utils/identity.js";
+} from "../identity.js";
 
 describe("evaluateIdentity", () => {
     it("① 实际 uin 缺失（未拉到 selfInfo）→ 放行", () => {

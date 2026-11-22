@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname } from "node:path";
 import type { CanonicalElement } from "@napuketto/kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { prepareOutboundMedia } from "../media.js";
+import { prepareOutboundMedia } from "../media/prepare.js";
 
 /** 图片元素工厂。 */
 function imageEl(path: string): CanonicalElement {

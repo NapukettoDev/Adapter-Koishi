@@ -2,7 +2,7 @@
  * backoff.test.ts：指数退避纯函数单测。
  */
 import { describe, expect, it } from "vitest";
-import { backoffDelay } from "../backoff.js";
+import { backoffDelay } from "../restart.js";
 
 describe("backoffDelay", () => {
     it("第 1 次 = base", () => {

@@ -1,13 +1,13 @@
 /**
- * session.test.ts：applySessionFields 单测（自 bot.ts dispatchSession 拆出的核心复杂度）。
+ * applySessionFields 单测。
  *
  * 覆盖：必填字段直赋 / 可选字段条件展开（exactOptionalPropertyTypes：undefined 不 set）/
  * elements 特殊处理（只设 elements 不设 content，content 由 satorijs getter 派生）。
  * 用 Proxy 拦截 set 记录实际赋值 key，验证「不显式赋 undefined」语义。
  */
 import { describe, expect, it } from "vitest";
-import type { NapukettoSessionFields } from "../../../events/index.js";
-import { applySessionFields, type SessionLike } from "../session.js";
+import type { NapukettoSessionFields } from "../../events/index.js";
+import { applySessionFields, type SessionLike } from "../dispatcher.js";
 
 /** 拦截 session 赋值，记录被 set 的 key（验证条件展开语义）。 */
 function trackAssignments(): { session: SessionLike; setKeys: string[] } {

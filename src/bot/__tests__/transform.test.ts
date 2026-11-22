@@ -11,7 +11,7 @@ import {
     toGuildList,
     toTextChannel,
     toUserFields,
-} from "../utils/transform.js";
+} from "../transform.js";
 
 describe("toFriendList", () => {
     it("undefined → 空列表", () => {

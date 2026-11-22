@@ -7,8 +7,8 @@
  * status → 幂等守卫防重复 onReady。
  */
 import { describe, expect, it, vi } from "vitest";
+import { createHarness, type DriverHarness, flush } from "../../__test-utils__/driver.js";
 import { encodeIpcMessage, IPC_VERSION, type IpcMessage } from "../../ipc/index.js";
-import { createHarness, type DriverHarness, flush } from "../test-utils.js";
 
 /** 模拟子进程发事件消息（发给最近一次 spawn 的 client；不依赖 ready）。 */
 function emitEvent(harness: DriverHarness): void {

@@ -13,6 +13,8 @@ import type {
     IpcStatusPayload,
 } from "../ipc/index.js";
 
+import type { AccountOwnerRegistry } from "./account-lock.js";
+
 /** 驱动状态机（docs/internals/runtime.md）。 */
 export type DriverState =
     | "idle" // 未启动
@@ -54,6 +56,8 @@ export interface DriverOptions {
     launch: DriverLauncher;
     /** 使用同一账号数据目录的 driver 共享子进程所有权（含插件重载）。 */
     accountDir?: string;
+    /** 可注入独立注册表，默认同一插件进程共享。 */
+    accountOwners?: AccountOwnerRegistry;
     /** 传输工厂（默认 ChildProcessIpcTransport，测试注入内存双端）。 */
     createTransport?: TransportFactory;
     /** 事件回调（apply() 注入）。 */

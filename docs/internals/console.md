@@ -4,7 +4,7 @@
 强制扫码与刷新二维码。后端是 `DataService` 推送，前端只读 store + 发 WebSocket 事件，**零 HTTP
 请求**。
 
-涉及代码：`src/console/`、`src/bot/login-panel.ts`、`src/bot/utils/console-entry.ts`、`client/`。
+涉及代码：`src/console/`、`client/`。
 
 ## 数据流
 
@@ -107,10 +107,10 @@ interface LoginPanelPayload {
 
 ## 前端入口与 403 防护
 
-`registerConsoleEntry(ctx)`（`src/bot/utils/console-entry.ts`）：
+`registerConsoleEntry(ctx)`（`src/console/entry.ts`）：
 
 1. `packageRoot()` 从当前模块文件逐级上溯最多 5 层，找到 `package.json` 且 `name` 匹配本包。
-   bundle（`lib/index.cjs`）与源码（`src/bot/utils/...`）深度不同，不能写死相对层数。
+   bundle（`lib/index.cjs`）与源码（`src/console/entry.ts`）深度不同，不能写死相对层数。
 2. `ensureServeableProd()`：prod 目录是 `<packageRoot>/dist`。
    `@koishijs/plugin-console` 的 `serveAssets` 要求入口路径以 console root 开头或**包含
    `node_modules`**，否则返回 403（浏览器动态 import 失败，面板永不挂载）。

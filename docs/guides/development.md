@@ -64,15 +64,15 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 
 | 设施 | 位置 | 用途 |
 | :--- | :--- | :--- |
-| `MemoryLinePair` / `captureAction` | `src/ipc/test-utils.ts` | 内存双端传输，捕获 action 请求 |
-| `FakeChild` / `createHarness` | `src/driver/test-utils.ts` | 假子进程、spawn 记录、发送 status |
-| `mockH()` | `src/events/test-utils.ts` | 模拟 satorijs `Element.toString()` 语义 |
+| `MemoryLinePair` / `captureAction` | `src/__test-utils__/ipc.ts` | 内存双端传输，捕获 action 请求 |
+| `FakeChild` / `createHarness` | `src/__test-utils__/driver.ts` | 假子进程、spawn 记录、发送 status |
+| `mockH()` | `src/__test-utils__/events.ts` | 模拟 satorijs `Element.toString()` 语义 |
 | mock `request` | 各 `actions/__tests__` | 断言动作名与 params，不经过 IPC |
-| mock `logger` | `bot/utils/__tests__/driver-events.test.ts` 等 | 断言事件接线 |
+| mock `logger` | `bot/__tests__/driver-events.test.ts` 等 | 断言事件接线 |
 
 适合写单测的形态：
 
-- 元素双向映射（`events/elements.ts`、`actions/elements.ts`）。
+- 元素双向映射（`shared/protocol.ts`、`actions/elements.ts`）。
 - channelId 解析、session 字段应用、Universal 形状转换、身份判定、重登决策。
 - IPC 编解码/超时/关闭、driver 状态迁移/退避/心跳（注入假时钟或短超时）。
 - 媒体管线（mock fetch / 临时目录 / 注入超时与大小上限）。
@@ -93,7 +93,7 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 - **barrel**：`index.ts` 只 re-export 有消费者的符号；内部类型让消费方直接从 `types.js` 引入，
   避免死导出。
 - **const enum**：`Universal.Channel.Type` / `Universal.Status` 在 `verbatimModuleSyntax` 下不可访问，
-  用 `src/constants.ts` 或字面量（如 `type: 1` / `BOT_STATUS`）。
+  用 `src/shared/protocol.ts` 或字面量（如 `type: 1` / `BOT_STATUS`）。
 - **注释**：解释非显然的约束与防御原因（并发竞态、协议行撕裂、路径语义），不写日期化的施工记录。
 - **红线**：不得引入 NapCat 源码/类型（GPL 与 MIT 不兼容）；不得在插件进程内 `dlopen`。
 
@@ -115,14 +115,14 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 
 新增收方向元素：
 
-1. `src/events/elements.ts` 正向映射；反向在 `src/actions/elements.ts`。
+1. `src/shared/protocol.ts` 正向映射；反向在 `src/actions/elements.ts`。
 2. 两个方向的单测都要覆盖（避免只修一半）。
 3. 更新 [事件桥](../internals/events.md) 与 [动作桥](../internals/actions.md) 的表格。
 
 新增控制台事件：
 
 1. `src/console/provider.ts`：`declare module` 事件名 + `ctx.console.addListener`。
-2. `src/bot/login-panel.ts`：把回调接到 bot 能力。
+2. `src/console/login-panel.ts`：把回调接到 bot 能力。
 3. `client/settings.vue` 或子组件：`send(...)` 上行。
 4. 更新 [控制台面板](../internals/console.md)。
 

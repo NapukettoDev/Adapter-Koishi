@@ -1,12 +1,4 @@
-/**
- * identity.ts：账号一致性校验纯逻辑（自 bot.ts checkIdentity 拆出，2026-09-10
- * 单测补齐）。checkIdentity 是 2026-08-20 生产事故根治点（QR 谁扫谁登录 →
- * 配置 selfId 与实际 uin 不一致时数据目录污染 + koishi assignee/binding 写错
- * 账号 → 群消息被受理人闸门静默丢弃，见 bot.ts 注释）。副作用挂在 koishi Bot
- * 基类（offline）与 private 字段上，单测不可 import koishi（docs/guides/development.md 单测边界）
- * ——判定抽纯函数、拒绝动作抽注入式执行器（对齐 login-actions
- * planRelogin/executeRelogin 模式），bot.ts 的 checkIdentity 只剩组装。
- */
+/** 扫码账号与配置不一致时，停止宿主并拒绝上线。 */
 
 /** 账号一致性判定结果（allow：放行上线；mismatch：拒绝上线）。 */
 export type IdentityDecision =
@@ -33,7 +25,7 @@ export function evaluateIdentity(
     return { kind: "mismatch", configSelfId, actualUin };
 }
 
-/** 拒绝上线动作宿主（bot.ts 注入 logger/identityMismatch/driver/offline 真实接线）。 */
+/** 拒绝上线动作宿主（生命周期控制器注入 logger/identityMismatch/driver/offline 真实接线）。 */
 export interface IdentityMismatchSink {
     /** logger.error：可操作提示（改 selfId 或换账号重扫）。 */
     onError: (message: string, ...args: unknown[]) => void;

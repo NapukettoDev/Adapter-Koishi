@@ -1,25 +1,32 @@
-/**
- * elements.ts：canonical 元素 → koishi 元素（纯函数，docs/internals/events.md）。
- *
- * 元素映射（canonical → koishi）：
- *  - text → h("text", { content })
- *  - at → h.at（target "all" 原样）
- *  - image → h("img", ...)（koishi 标准元素是 img，onebot 实证；url 优先，path 兜底）
- *  - face → h("face", { id })
- *  - voice → h.audio（url 优先，path 兜底）
- *  - reply → h.quote
- *  - 其他 → h("text", { content: "[type]" }) 占位
- *
- * ⚠️ text 元素必须 attrs.content（2026-08-09 修复）：satorijs Element.toString
- * 对 `type==="text" && "content" in attrs` 返回纯文本；content 放 children 会
- * 渲染 `<text>...</text>` 标签，content getter（elements.join）返回 XML → koishi
- * 指令系统无法提取纯文本。
- *
- * h 依赖注入：生产环境 apply() 传 koishi 的 `h`；单测传内存 mock
- * （koishi 主包 import 会初始化 loader，单测环境崩溃）。
- */
+/** 跨模块使用的会话标识、账号校验、时间戳和元素转换。 */
 import type { CanonicalElement } from "@napuketto/kernel";
 import type { h } from "koishi";
+
+/** 私聊 channelId 前缀。 */
+export const PRIVATE_PREFIX = "private:";
+
+/** Status：CONNECT=2 / DISCONNECT=3（koishi Bot.status）。 */
+export const BOT_STATUS = { CONNECT: 2, DISCONNECT: 3 } as const;
+
+/** 与 Napuketto CLI 的账号格式一致，并保证账号目录名只有一个路径段。 */
+export const SELF_ID_PATTERN = /^[0-9]{5,11}$/;
+
+export function requireSelfId(value: unknown): string {
+    if (typeof value !== "string" || !SELF_ID_PATTERN.test(value)) {
+        throw new TypeError("selfId 必须是 5–11 位 ASCII 数字组成的 QQ 号字符串");
+    }
+    return value;
+}
+
+/** QQ NT uses Unix seconds or milliseconds depending on the wrapper version. */
+export function normalizeMessageTime(raw: unknown): number | undefined {
+    const value = typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : raw;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+        return undefined;
+    }
+    const timestamp = value < 1e12 ? value * 1000 : value;
+    return timestamp <= 8.64e15 ? timestamp : undefined;
+}
 
 /** koishi h() 工厂最小面（type/attrs → 元素；单测用 mock 实现）。 */
 export type HFn<Element = { type: string; attrs: Record<string, unknown>; toString(): string }> = (
@@ -33,7 +40,7 @@ export type HFn<Element = { type: string; attrs: Record<string, unknown>; toStri
  *
  * h 可调用（Element 工厂），类型宽适配规避逆变检查（koishi h 的实际签名
  * 比 HFn 更复杂，cast 到最小面即可——运行时行为不变）。单测用 mockH()
- * （test-utils.ts），不 import koishi 主包（docs/guides/development.md 单测边界）。
+ * （src/__test-utils__/events.ts），不 import koishi 主包（docs/guides/development.md 单测边界）。
  */
 export function bindKoishiH(koishiH: typeof h): HFn<ReturnType<typeof h>> {
     const factory = koishiH as unknown as HFn<ReturnType<typeof h>>;
