@@ -311,6 +311,25 @@ describe("NapukettoDatabase channel", () => {
         expect(db.channels[0]?.assignee).toBe("10001");
     });
 
+    it("不同根上下文（模拟多 Koishi 实例）→ 不共享队列，靠唯一键回读收敛", async () => {
+        const db = new FakeDatabase();
+        const first = new NapukettoDatabase(mockCtx({ database: db }));
+        const second = new NapukettoDatabase(mockCtx({ database: db }));
+        const release = db.setCreateGate("channel");
+        const a = first.ensureChannel({ platform: "onebot", id: "g1", assignee: "10001" });
+        const b = second.ensureChannel({ platform: "onebot", id: "g1", assignee: "10002" });
+        await flushMicrotasks();
+        // 两个根各自排队，均已完成 get 并进入 create
+        expect(db.get).toHaveBeenCalledTimes(2);
+        expect(db.create).toHaveBeenCalledTimes(2);
+        release();
+        await Promise.all([a, b]);
+        // 输家唯一键冲突后回读赢家；最终只有一行，assignee 不被后写覆盖
+        expect(db.channels).toHaveLength(1);
+        expect(["10001", "10002"]).toContain(db.channels[0]?.assignee);
+        expect(db.upsert).not.toHaveBeenCalled();
+    });
+
     it("不同 channel 并发 → 并行不互相阻塞", async () => {
         const db = new FakeDatabase();
         const release = db.setCreateGate("channel");
