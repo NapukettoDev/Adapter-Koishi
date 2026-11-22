@@ -252,6 +252,30 @@ describe("SessionDispatcher", () => {
         expect(dispatch).toHaveBeenCalledOnce();
     });
 
+    it("直接会话 → 仍按 private channelId 预热（不写 guildId）", async () => {
+        const direct: NapukettoSessionFields = {
+            type: "message",
+            selfId: "10001",
+            platform: "onebot",
+            timestamp: 1_700_000_000_000,
+            userId: "20001",
+            channelId: "private:20001",
+            isDirect: true,
+        };
+        const { dispatcher, ensureChannel, ensureUser } = makeDispatcher();
+        await dispatcher.dispatch(direct);
+        expect(ensureChannel).toHaveBeenCalledWith({
+            platform: "onebot",
+            id: "private:20001",
+            assignee: "10001",
+        });
+        expect(ensureUser).toHaveBeenCalledWith({
+            platform: "onebot",
+            userId: "20001",
+            authority: 1,
+        });
+    });
+
     it("selfId 为空 → 不预热 channel（koishi 走 detached，不落库）", async () => {
         const { dispatcher, ensureChannel, ensureUser } = makeDispatcher();
         await dispatcher.dispatch({ ...fields, selfId: "" });
