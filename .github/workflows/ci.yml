@@ -56,11 +56,11 @@ jobs:
               run: pnpm check
 
             - name: 验证 Napuketto 依赖组
-              run: node tooling/sync-napuketto-deps.mjs --verify
+              run: node tooling/sync-napuketto-deps.ts --verify
 
             - name: 确认宿主依赖 PR 测试的是 npm latest
               if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'dependabot/npm_and_yarn/koishi-host-')
-              run: node tooling/sync-napuketto-deps.mjs --verify-hosts
+              run: node tooling/sync-napuketto-deps.ts --verify-hosts
 
             - name: 测试（含已发布 loader 的 IPC 契约）
               run: pnpm test

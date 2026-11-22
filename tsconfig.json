@@ -38,7 +38,8 @@
     },
     "include": [
         "src",
-        "tests"
+        "tests",
+        "tooling"
     ],
     "exclude": [
         "**/node_modules",

@@ -9,7 +9,8 @@
         "ignoreUnknown": false,
         "includes": [
             "**/src/**/*.{ts,tsx,mts,cts,js,mjs,cjs,jsx}",
-            "**/tests/**/*.{ts,tsx,mts,cts}"
+            "**/tests/**/*.{ts,tsx,mts,cts}",
+            "tooling/**/*.ts"
         ]
     },
     "formatter": {
