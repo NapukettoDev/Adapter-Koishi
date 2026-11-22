@@ -1,15 +1,11 @@
 /**
- * identity.test.ts：checkIdentity 账号一致性校验单测（2026-09-10 补齐）。
+ * identity.test.ts：账号一致性校验单测。
  *
- * 覆盖 2026-08-20 生产事故根治分支三例：①实际 uin 缺失/空 → 放行（不
- * offline）②与配置 selfId 一致 → 放行 ③不一致 → 拒绝（置闸门 + 可操作
- * 提示 + 停 driver + 拒绝上线，顺序保持原实现）。
+ * 只有实际 uin 非空且等于配置 selfId 才放行。缺失/空白身份是 missing，
+ * 不能当成“还没拉到所以先上线”的理由；不一致按原事故处置顺序拒绝。
  *
- * checkIdentity 副作用挂 koishi Bot 基类，单测不可 import koishi
- * （docs/guides/development.md 单测边界）——被测对象是拆出的纯逻辑
- * （utils/identity.ts）：evaluateIdentity
- * 纯判定 + rejectIdentityMismatch 注入式拒绝动作；bot.ts 的 checkIdentity
- * 只剩组装（接线注入 logger/identityMismatch/driver/offline）。
+ * 判定与拒绝动作都是纯逻辑（生命周期控制器只做接线），单测不 import
+ * koishi 运行时（docs/guides/development.md 单测边界）。
  */
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -19,19 +15,26 @@ import {
 } from "../../../src/bot/lifecycle.js";
 
 describe("evaluateIdentity", () => {
-    it("① 实际 uin 缺失（未拉到 selfInfo）→ 放行", () => {
-        expect(evaluateIdentity("10001", undefined)).toEqual({ kind: "allow" });
+    it("实际 uin 缺失 → missing（等待补拉，不放行）", () => {
+        expect(evaluateIdentity("10001", undefined)).toEqual({ kind: "missing" });
     });
 
-    it("① 实际 uin 为空串 → 放行", () => {
-        expect(evaluateIdentity("10001", "")).toEqual({ kind: "allow" });
+    it("实际 uin 为空串 → missing", () => {
+        expect(evaluateIdentity("10001", "")).toEqual({ kind: "missing" });
     });
 
-    it("② 实际 uin 与配置 selfId 一致 → 放行", () => {
-        expect(evaluateIdentity("10001", "10001")).toEqual({ kind: "allow" });
+    it("实际 uin 为空白 → missing", () => {
+        expect(evaluateIdentity("10001", " \t ")).toEqual({ kind: "missing" });
     });
 
-    it("③ 实际 uin 与配置 selfId 不一致 → mismatch（携带两侧 uin 供文案插值）", () => {
+    it("实际 uin 与配置 selfId 一致 → verified（携带 uin）", () => {
+        expect(evaluateIdentity("10001", "10001")).toEqual({
+            kind: "verified",
+            uin: "10001",
+        });
+    });
+
+    it("实际 uin 与配置 selfId 不一致 → mismatch（携带两侧 uin 供文案插值）", () => {
         expect(evaluateIdentity("10001", "20002")).toEqual({
             kind: "mismatch",
             configSelfId: "10001",

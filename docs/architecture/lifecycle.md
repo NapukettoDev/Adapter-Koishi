@@ -23,12 +23,12 @@ Koishi 加载插件
                            ├─ status: booting → dlopening → logging → sessioning
                            ├─ login: 快速登录 / QR 登录
                            ├─ status: ready（session READY + kernel services）
-                           └─ driver ready → Bot.handleReady()
-                                ├─ clientRef = 新 client
-                                ├─ login.onReady()
-                                ├─ 账号一致性校验
-                                ├─ Bot.online()
-                                └─ getLogin()（同步昵称/头像等 user 字段）
+                           └─ driver ready → BotLifecycleController.handleReady()
+                                ├─ 关闭动作/派发闸门，记录 driver 轮次
+                                ├─ 登录快照已有身份 → 校验
+                                ├─ 缺失身份 → login.getSelf 补拉（限定当前驱动与登录轮次）
+                                ├─ 校验通过 → login.onReady + clientRef + Bot.online()
+                                └─ getLogin()（异步结果绑定登录轮次）
 ```
 
 `Bot.start()` 用 `this.isActive` 防重复。每次 `start()` 都是独立轮次：即使上一轮是正常 `stop()`，
@@ -37,6 +37,10 @@ Koishi 加载插件
 offline 或写入旧账号。stop 递增独立的停止序号，让尚未完成的 start 放弃创建 driver，同时保留
 本轮 driver 在停止期间的 `onExit` / `onError` 语义。子进程启动是 fire-and-forget，失败通过
 driver 事件回到 `offline()`。
+
+登录状态另有一个自增 `generation`（`NapukettoLoginState`）：软重登会复用同一 driver，
+仅靠 driver 轮次无法区分前后两次登录。快照中的身份与异步 `getLogin` / `getSelf` 结果都
+绑定该代次；软重登开始、宿主重启、stop 或 exit 都会自增，旧代次的结果直接丢弃。
 
 ## driver 状态机
 
@@ -93,22 +97,26 @@ idle ──onLogin(waiting_scan)──▶ waiting_scan ──onLogin(scanned)─
 
 `handleReady()` 的顺序不可交换：
 
-1. 取 driver 当前 client 写入 `clientRef`（重启后 client 是**新实例**，动作桥通过引用间接更新）。
-2. `login.onReady()`。
-3. **账号一致性校验**：实际登录 `uin` 必须等于配置 `selfId`。实际 uin 缺失或为空串时视为尚未拿到
-   `selfInfo`，先放行；后续 `logged_in` 携带 `selfInfo` 时会再次校验。
-4. `online()`。
-5. `getLogin()` 拉取/同步自身信息（失败只 warn）。
+1. 记录当前 driver 与登录 `generation`，关闭动作/派发闸门（`sessionReady` 仅在 ready 后成立）。
+2. 快照已有 `selfInfo` 时直接校验；缺失或空串时调用当前锁定 loader/kernel 公开的
+   `login.getSelf` 补拉。查询响应必须仍属于同一 driver、同一 client 与同一登录代次。
+3. **账号一致性校验**：实际 `uin` 必须非空且等于配置 `selfId`。缺失、空串、空白、查询失败
+   都不再放行。
+4. 只有第 3 步通过后才写 `clientRef`、`login.onReady()`、`online()`；随后
+   `getLogin()` 拉取/同步自身信息（失败只 warn）。
+5. 查询失败/空身份进入可恢复的 `failed` 登录快照：动作与派发保持关闭，但宿主继续运行；
+   后续 `logged_in` 携带正确身份，或用户重新登录/重启，都能恢复。
 
-账号不一致时的处置见 `src/bot/lifecycle.ts`：
+不一致时的处置见 `src/bot/lifecycle.ts`：
 
-- 置 `identityMismatch` 闸门；后续所有 kernel 消息**拒绝派发**。
+- 置 `identityMismatch` 闸门；后续所有 kernel 消息**拒绝派发**，动作桥无 client。
+- 清空登录快照中的错误账号（`rejectIdentity`），不把上一轮身份留给后续事件。
 - 输出可操作错误（把 `selfId` 改成实际 uin，或换回配置账号重新扫码）。
 - 停止 driver 并 `offline()`。
 
-再次 `start()` 会先复位 `identityMismatch`、登录快照与 clientRef，因此换回正确账号后可以
-恢复上线；若旧宿主尚未确认退出，`start()` 会等待其停止完成，不会在账号目录仍被占用时
-启动第二个宿主。
+再次 `start()` 会先复位 `identityMismatch`、登录快照、`sessionReady` 与 clientRef，因此换回正确
+账号后可以恢复上线；若旧宿主尚未确认退出，`start()` 会等待其停止完成，不会在账号目录仍被
+占用时启动第二个宿主。
 
 为什么必须拒绝上线，而不是"将就用实际 uin"：数据目录按配置 `selfId` 命名，另一个账号的数据会
 写进同一目录；同时 koishi 的 `channel.assignee` / `binding` 会按实际 uin 落库。事后换回正确账号时，
@@ -116,7 +124,8 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 全部丢弃，且 assignee 不会自动修复。
 
 收到携带 `selfInfo` 的 `logged_in` 时，driver 事件层立即调用 `handleLoggedIn()` 校验账号并同步昵称。
-这覆盖了 `ready` 前拿到登录结果和 `ready` 后补到账号信息两种顺序。
+这覆盖了 `ready` 前拿到登录结果和 `ready` 后补到账号信息两种顺序。若登录事件先到，进行中的
+`login.getSelf` 结果会被代次自增作废，避免旧响应覆盖新身份。
 
 ## 异常、重启与状态重同步
 
@@ -138,12 +147,12 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 1. 递增停止序号、清 `clientRef`、立即解除 `driver` 引用：进行中的 `start()` 会放弃创建。
 2. `driver.stop()`：置 `stopping`、清重试计时器、停心跳。
 3. client 存活时发 `control stop`；等待子进程退出，最多 5s，超时 `kill()`。
-4. `finishStop()`：清计时器、关 client（pending 全部 reject）、状态置 `stopped`。
+4. `resolveStop()`：清计时器、关 client（pending 全部 reject）、状态置 `stopped`。
 5. `super.stop()`：把 Bot 置为 offline。
 
 重复 `stop()` 会等待同一批停止任务；停止超时仍按 `failed` + `EXIT_TIMEOUT` 处理，不确认退出
-前不会释放账号目录所有权。与 `start()` 重叠时，新一轮会等待停止任务和旧 driver 结束，
-再创建自己的 driver。
+前不会释放账号目录所有权。超时后宿主仍存活时再次 `stop()` 会重新执行有界终止，而不是立即
+返回。与 `start()` 重叠时，新一轮会等待停止任务和旧 driver 结束，再创建自己的 driver。
 
 ## 重新登录与强制扫码
 
@@ -163,3 +172,8 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 `control login` 的 `uin` 取配置 `selfId`；若登录成了其他账号，由账号一致性校验拒绝上线。
 请求重启宿主后，Bot 立即进入连接中，清理旧登录快照并解除业务 IPC 绑定。确认旧宿主退出后才启动
 新宿主，收到新一轮 `ready` 后恢复在线。这样扫码登录使用新宿主的原生登录会话。
+
+软重登（已就绪宿主收到 `control login`，loader 先报 `status.sessioning`）复用同一 driver：
+`onRelogin` 立即清空快照身份、`clientRef` 与派发闸门，Bot 回到连接中；装配期间收到的事件不会
+派发，动作请求按“未就绪”失败。新会话 `ready` 触发 `onReassembled`，重新走身份校验后才恢复
+`online()` 与动作桥。

@@ -15,6 +15,7 @@
  * 替换成 `{}` 报错，见 docs/guides/development.md 产物与依赖形态）；`launchSelfHost` 内部 `__dirname`
  * 定位 self-host.cjs 由 loader 包内 `files: ["dist", "native/..."]` 保证。
  */
+import { statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { resolveConfigPath, resolveDataRoot } from "@napuketto/kernel";
@@ -40,16 +41,16 @@ import { requireSelfId } from "../shared.js";
 const require = createRequire(import.meta.url);
 
 export function resolveEntry(pkg: string, override?: string): string {
-    if (override !== undefined && override !== "") {
-        return resolvePath(override);
+    const trimmed = override?.trim();
+    if (trimmed !== undefined && trimmed !== "") {
+        return resolvePath(trimmed);
     }
     try {
         return require.resolve(pkg);
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+    } catch {
+        // 不把 Node 解析错误里的绝对路径透出给控制台/日志。
         throw new Error(
-            `无法解析 ${pkg} 入口: ${message}（请确认 ${pkg} 依赖已安装；` +
-                `或手动指定 ${pkg} 入口路径）`,
+            `无法解析 ${pkg} 入口（请确认 ${pkg} 依赖已安装；或手动指定 ${pkg} 入口路径）`,
         );
     }
 }
@@ -57,6 +58,68 @@ export function resolveEntry(pkg: string, override?: string): string {
 /** 路径解析（相对路径基于进程 cwd 展开）。 */
 function resolvePath(p: string): string {
     return p.startsWith(".") ? join(process.cwd(), p) : p;
+}
+
+/** 可选路径配置的期望类型（与 loader 消费方式一致）。 */
+type OptionalPathKind = "file" | "directory";
+
+/**
+ * 归一化可选路径配置：空白视为未配置，显式路径保留相对/绝对语义。
+ *
+ * 路径存在时按配置契约校验类型；错误只点名配置项，不回显完整路径
+ * （路径可能含用户名、挂载点等部署信息，且会进入控制台/日志）。
+ */
+function normalizeOptionalPath(
+    key: string,
+    value: string | undefined,
+    kind: OptionalPathKind,
+    resolveValue: (path: string) => string = resolve,
+): string | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    if (trimmed === "") {
+        return undefined;
+    }
+    const path = resolveValue(trimmed);
+    assertPathKind(key, path, kind);
+    return path;
+}
+
+/** 路径存在时校验类型；不存在留给 loader 报出更具体的缺失原因。 */
+function assertPathKind(key: string, path: string, kind: OptionalPathKind): void {
+    let info: ReturnType<typeof statSync> | undefined;
+    try {
+        info = statSync(path, { throwIfNoEntry: false });
+    } catch {
+        throw new TypeError(`配置项 ${key} 指向的路径无法访问`);
+    }
+    if (info === undefined) {
+        return;
+    }
+    const matched = kind === "file" ? info.isFile() : info.isDirectory();
+    if (!matched) {
+        throw new TypeError(`配置项 ${key} 必须指向${kind === "file" ? "文件" : "目录"}`);
+    }
+}
+
+/** 入口覆盖只做空白归一化；resolving 与类型校验由 resolveEntry 路径处理。 */
+function normalizeEntryOverride(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
+
+/** 配置项错误只点名 key，避免解析异常里的路径泄露到控制台。 */
+function resolveConfiguredEntry(key: string, pkg: string, override: string | undefined): string {
+    let entry: string;
+    try {
+        entry = resolveEntry(pkg, override);
+    } catch {
+        throw new TypeError(`无法解析配置项 ${key}（请确认 ${pkg} 依赖已安装或路径有效）`);
+    }
+    assertPathKind(key, entry, "file");
+    return entry;
 }
 
 /** launchSelfHost 选项（resolveLaunchOptions 产出，测试断言用）。 */
@@ -105,12 +168,33 @@ export async function resolveLaunchOptions(
     deps: LaunchResolvers = {},
 ): Promise<ResolvedLaunch> {
     const selfId = requireSelfId(config.selfId);
-    const dataRoot = resolveDataRoot(config.dataDir);
+    const dataDir = normalizeOptionalPath("dataDir", config.dataDir, "directory");
+    let dataRoot: string;
+    try {
+        dataRoot = resolveDataRoot(dataDir);
+    } catch (error) {
+        if (dataDir === undefined) {
+            throw error;
+        }
+        throw new TypeError("配置项 dataDir 无法解析为可写目录");
+    }
+    assertPathKind("dataDir", dataRoot, "directory");
     const cfgDir = join(dataRoot, selfId);
-    const qq = await (deps.resolveQq ?? ((opts) => defaultResolveQq(opts, deps.onStage)))({
-        qqPath: config.qqPath,
-        dataRoot,
-    });
+    const qqPath = normalizeOptionalPath("qqPath", config.qqPath, "file", resolvePath);
+    let qq: QqInstallInfo;
+    try {
+        qq = await (deps.resolveQq ?? ((opts) => defaultResolveQq(opts, deps.onStage)))({
+            qqPath,
+            dataRoot,
+        });
+    } catch (error) {
+        if (qqPath === undefined) {
+            throw error;
+        }
+        throw new TypeError(
+            "配置项 qqPath 无法解析为有效的 QQ 安装（请检查可执行文件与 versions 目录）",
+        );
+    }
     // OB11 动作桥入口（§5.14）：ob11Actions !== false 时解析 adapter/network
     // 磁盘入口传给子进程（launcher 透传 NAPUKETTO_ADAPTER_ENTRY/NAPUKETTO_NETWORK_ENTRY，
     // loader IPC 分支检测到即装配）。解析失败（依赖未装/损坏）fail-soft 降级为
@@ -119,12 +203,22 @@ export async function resolveLaunchOptions(
     if (config.ob11Actions !== false) {
         try {
             ob11 = {
-                adapterEntry: resolveEntry("@napuketto/adapter", config.adapterEntry),
-                networkEntry: resolveEntry("@napuketto/network", config.networkEntry),
+                adapterEntry: resolveConfiguredEntry(
+                    "adapterEntry",
+                    "@napuketto/adapter",
+                    normalizeEntryOverride(config.adapterEntry),
+                ),
+                networkEntry: resolveConfiguredEntry(
+                    "networkEntry",
+                    "@napuketto/network",
+                    normalizeEntryOverride(config.networkEntry),
+                ),
             };
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            deps.onStage?.(`OB11 动作桥不可用（降级纯 kernel 动作面）: ${message}`);
+        } catch {
+            // 不把入口解析异常里的路径透出到阶段日志。
+            deps.onStage?.(
+                "OB11 动作桥不可用（降级纯 kernel 动作面）：配置项 adapterEntry/networkEntry 无法解析",
+            );
         }
     }
     // 强制扫码一次性标记（面板「扫码登录」置 true）：本次 spawn 消费后清零，
@@ -133,12 +227,18 @@ export async function resolveLaunchOptions(
     if (qrOnly && deps.forceQr !== undefined) {
         deps.forceQr.current = false;
     }
+    const selfHostEntry = normalizeOptionalPath("selfHostEntry", config.selfHostEntry, "file");
+    const stubDir = normalizeOptionalPath("stubDir", config.stubDir, "directory");
+    const linuxStubPath = normalizeOptionalPath("linuxStubPath", config.linuxStubPath, "file");
+    const winNodePath = normalizeOptionalPath("winNodePath", config.winNodePath, "file");
     return {
         qq,
-        kernelEntry: resolveEntry("@napuketto/kernel", config.kernelEntry),
-        ...(config.selfHostEntry !== undefined
-            ? { selfHostEntry: resolve(config.selfHostEntry) }
-            : {}),
+        kernelEntry: resolveConfiguredEntry(
+            "kernelEntry",
+            "@napuketto/kernel",
+            normalizeEntryOverride(config.kernelEntry),
+        ),
+        ...(selfHostEntry !== undefined ? { selfHostEntry } : {}),
         ...ob11,
         ...(qrOnly ? { qrOnly: true } : {}),
         cfgDir,
@@ -146,11 +246,9 @@ export async function resolveLaunchOptions(
         configPath: resolveConfigPath({ dataRoot }),
         // 宿主引导和 OB11 clean_cache 分别读取这两个变量。
         extraEnv: { NAPUKETTO_DATA_ROOT: dataRoot, NAPUKETTO_DATA: dataRoot },
-        ...(config.stubDir !== undefined ? { stubDir: resolve(config.stubDir) } : {}),
-        ...(config.linuxStubPath !== undefined
-            ? { linuxStubPath: resolve(config.linuxStubPath) }
-            : {}),
-        ...(config.winNodePath !== undefined ? { winNodePath: resolve(config.winNodePath) } : {}),
+        ...(stubDir !== undefined ? { stubDir } : {}),
+        ...(linuxStubPath !== undefined ? { linuxStubPath } : {}),
+        ...(winNodePath !== undefined ? { winNodePath } : {}),
         ...(config.nativeMediaPatch !== undefined
             ? { nativeMediaPatch: config.nativeMediaPatch }
             : {}),

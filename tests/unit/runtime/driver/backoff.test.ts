@@ -1,8 +1,8 @@
 /**
  * backoff.test.ts：指数退避纯函数单测。
  */
-import { describe, expect, it } from "vitest";
-import { backoffDelay } from "../../../../src/runtime/driver/supervision.js";
+import { describe, expect, it, vi } from "vitest";
+import { backoffDelay, RestartScheduler } from "../../../../src/runtime/driver/supervision.js";
 
 describe("backoffDelay", () => {
     it("第 1 次 = base", () => {
@@ -21,5 +21,39 @@ describe("backoffDelay", () => {
 
     it("attempt=0 兜底 = base", () => {
         expect(backoffDelay(0, 500, 3)).toBe(500);
+    });
+});
+
+describe("RestartScheduler", () => {
+    it("重复调度只保留最新计时器，不会 spawn 两次", async () => {
+        vi.useFakeTimers();
+        try {
+            const scheduler = new RestartScheduler({ backoffMs: 100, backoffFactor: 2 });
+            const first = vi.fn();
+            const second = vi.fn();
+            scheduler.schedule(first);
+            scheduler.schedule(second);
+            await vi.advanceTimersByTimeAsync(100);
+            expect(first).not.toHaveBeenCalled();
+            expect(second).toHaveBeenCalledOnce();
+            expect(scheduler.attempts).toBe(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("cancel 能阻止已安排的重启并清空计时器", async () => {
+        vi.useFakeTimers();
+        try {
+            const scheduler = new RestartScheduler({ backoffMs: 100 });
+            const spawn = vi.fn();
+            scheduler.schedule(spawn);
+            scheduler.cancel();
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(spawn).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

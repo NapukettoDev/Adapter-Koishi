@@ -5,8 +5,8 @@ import type { h } from "koishi";
 /** 私聊 channelId 前缀。 */
 export const PRIVATE_PREFIX = "private:";
 
-/** Status：CONNECT=2 / DISCONNECT=3（koishi Bot.status）。 */
-export const BOT_STATUS = { CONNECT: 2, DISCONNECT: 3 } as const;
+/** Status：ONLINE=1 / CONNECT=2 / DISCONNECT=3（koishi Bot.status）。 */
+export const BOT_STATUS = { ONLINE: 1, CONNECT: 2, DISCONNECT: 3 } as const;
 
 export const DEFAULT_LOG_LEVEL = "info";
 

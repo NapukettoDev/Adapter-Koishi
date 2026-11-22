@@ -72,6 +72,12 @@ bots:
 `schema` 定义在 `src/config.ts`。未显式给出的可选路径类配置由 launch 在每次 spawn 时解析；
 `heartbeatTimeoutMs` / `restart` / `ob11Actions` / `logLevel` 的默认值同时存在于 schema 与运行时兜底。
 
+可选路径项（`qqPath` / `stubDir` / `linuxStubPath` / `winNodePath` / `dataDir` / 入口覆盖等）
+按以下契约归一化：空串或纯空白视为未配置，不会解析成当前工作目录；合法的相对路径按 Koishi
+工作目录展开，显式覆盖优先；路径存在时校验期望类型（`stubDir` / `dataDir` 为目录，
+`qqPath` / `linuxStubPath` / `winNodePath` / `selfHostEntry` / 入口覆盖为文件）。类型不符会以
+配置项名报错，不输出完整路径。OB11 入口解析失败只降级并记录配置项，不阻断启动。
+
 ## 数据与账号隔离
 
 一次 spawn 使用以下路径：

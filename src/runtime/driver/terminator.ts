@@ -84,7 +84,10 @@ export class HostTerminator {
     }
 
     detach(host: HostProcess): void {
-        clearTimeout(host.timer);
+        if (host.timer !== undefined) {
+            clearTimeout(host.timer);
+            delete host.timer;
+        }
         host.removeListeners();
     }
 
@@ -106,7 +109,10 @@ export class HostTerminator {
         const client = this.deps.getClient();
         if ((reason === "stop" || reason === "restart") && client?.alive === true) {
             // 先设期限，控制指令可能导致子进程立即退出。
-            host.timer = setTimeout(() => this.signalHost(host, "SIGTERM"), EXIT_TIMEOUT_MS);
+            host.timer = setTimeout(() => {
+                delete host.timer;
+                this.signalHost(host, "SIGTERM");
+            }, EXIT_TIMEOUT_MS);
             try {
                 if (reason === "restart") {
                     this.deps.onLoginRestart?.();
@@ -130,6 +136,7 @@ export class HostTerminator {
             return;
         }
         host.timer = setTimeout(() => {
+            delete host.timer;
             if (signal === "SIGTERM") {
                 this.signalHost(host, "SIGKILL");
             } else {

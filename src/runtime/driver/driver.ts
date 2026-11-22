@@ -107,8 +107,7 @@ export class NapukettoDriver {
             return Promise.resolve();
         }
         const host = this.host;
-        if (this.state === "failed" && host !== null) {
-            host.reason = "stop";
+        if (this.state === "failed" && host === null) {
             return Promise.resolve();
         }
         const completion = Promise.withResolvers<void>();
@@ -253,21 +252,27 @@ export class NapukettoDriver {
     }
 }
 
-/** 同账号的新驱动只等待已进入停止流程的旧宿主。 */
+/** 同账号的新驱动只等待已进入停止/终止流程的旧宿主。 */
 export class AccountOwnerRegistry implements AccountOwners {
     private readonly owners = new Map<string, AccountOwner>();
 
     waitForRelease(dir: string): Promise<void> | undefined {
         const previous = this.owners.get(dir);
-        return previous?.currentState === "stopping" ? previous.stop() : undefined;
+        if (previous === undefined) {
+            return undefined;
+        }
+        // terminating：心跳失联/手动重启已开始杀旧进程；failed：强制终止超时后
+        // 仍持有所有权。两者都要先完成或确认无法完成再尝试 claim。
+        return previous.currentState === "stopping" ||
+            previous.currentState === "terminating" ||
+            previous.currentState === "failed"
+            ? previous.stop()
+            : undefined;
     }
 
     claim(dir: string, owner: AccountOwner): void {
         if (this.owners.has(dir)) {
-            throw new IpcError(
-                `账号数据目录仍由旧宿主使用（${dir}），请先停止旧宿主`,
-                "INVALID_STATE",
-            );
+            throw new IpcError("账号数据目录仍由旧宿主使用，请先停止旧宿主", "INVALID_STATE");
         }
         this.owners.set(dir, owner);
     }

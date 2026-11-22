@@ -20,7 +20,7 @@ describe("loginStateMessage", () => {
 
 describe("toLoginPanelPayload", () => {
     it("基础快照 → payload（state/selfId/message，无可选字段）", () => {
-        const payload = toLoginPanelPayload({ state: "idle" }, "10001");
+        const payload = toLoginPanelPayload({ state: "idle", generation: 0 }, "10001");
         expect(payload).toEqual({
             state: "idle",
             selfId: "10001",
@@ -35,6 +35,7 @@ describe("toLoginPanelPayload", () => {
         const payload = toLoginPanelPayload(
             {
                 state: "waiting_scan",
+                generation: 0,
                 qr: { pngBase64: "aGVsbG8=", qrcodeUrl: "https://example.com/qr" },
             },
             "10001",
@@ -46,7 +47,11 @@ describe("toLoginPanelPayload", () => {
 
     it("pngBase64 为空时不产出 image 字段", () => {
         const payload = toLoginPanelPayload(
-            { state: "waiting_scan", qr: { pngBase64: "", qrcodeUrl: "https://example.com/qr" } },
+            {
+                state: "waiting_scan",
+                generation: 0,
+                qr: { pngBase64: "", qrcodeUrl: "https://example.com/qr" },
+            },
             "10001",
         );
         expect(payload.qr).toBeDefined();
@@ -55,14 +60,21 @@ describe("toLoginPanelPayload", () => {
 
     it("self 条件展开（logged_in）", () => {
         const payload = toLoginPanelPayload(
-            { state: "logged_in", self: { uin: "10001", uid: "u_1", nick: "测试号" } },
+            {
+                state: "logged_in",
+                generation: 0,
+                self: { uin: "10001", uid: "u_1", nick: "测试号" },
+            },
             "10001",
         );
         expect(payload.self).toEqual({ uin: "10001", uid: "u_1", nick: "测试号" });
     });
 
     it("lastError 条件展开（failed）", () => {
-        const payload = toLoginPanelPayload({ state: "failed", lastError: "登录失败" }, "10001");
+        const payload = toLoginPanelPayload(
+            { state: "failed", generation: 0, lastError: "登录失败" },
+            "10001",
+        );
         expect(payload.lastError).toBe("登录失败");
     });
 });
@@ -95,6 +107,7 @@ describe("toLoginPanelPayload 二维码外链校验", () => {
         const payload = toLoginPanelPayload(
             {
                 state: "waiting_scan",
+                generation: 0,
                 qr: { pngBase64: "aGVsbG8=", qrcodeUrl: "javascript:alert(1)" },
             },
             "10001",
@@ -107,6 +120,7 @@ describe("toLoginPanelPayload 二维码外链校验", () => {
         const payload = toLoginPanelPayload(
             {
                 state: "waiting_scan",
+                generation: 0,
                 qr: { pngBase64: "aGVsbG8=", qrcodeUrl: "HTTPS://Example.com/qr" },
             },
             "10001",

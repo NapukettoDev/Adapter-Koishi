@@ -148,6 +148,28 @@ describe("NapukettoDriver 状态重同步", () => {
         spawns[0]?.emitExit(0, null);
     });
 
+    it("软重登 sessioning → ready 通知装配开始/完成，但不重复 onReady", async () => {
+        const onReady = vi.fn();
+        const onRelogin = vi.fn();
+        const onReassembled = vi.fn();
+        const { driver, emit } = createHarness({ onReady, onRelogin, onReassembled });
+        driver.start();
+        await flush();
+        emit("ready");
+        expect(onReady).toHaveBeenCalledOnce();
+
+        emit("sessioning");
+        expect(onRelogin).toHaveBeenCalledOnce();
+        expect(onReassembled).not.toHaveBeenCalled();
+        emit("sessioning");
+        expect(onRelogin).toHaveBeenCalledOnce();
+
+        emit("ready");
+        expect(onReassembled).toHaveBeenCalledOnce();
+        expect(onReady).toHaveBeenCalledOnce();
+        void driver.stop();
+    });
+
     it("onJunkLine 透传：子进程脏行触发回调", async () => {
         const junk: string[] = [];
         const harness = createHarness({}, { onJunkLine: (line) => junk.push(line) });

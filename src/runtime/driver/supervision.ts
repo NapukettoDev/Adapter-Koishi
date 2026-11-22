@@ -117,6 +117,9 @@ export class RestartScheduler {
             this.policy.backoffMs,
             this.policy.backoffFactor,
         );
+        // 重复调度（例如迟到退出事件）只保留最新一次，避免一个 driver 同时
+        // 跑两个退避计时器并 spawn 出两个宿主。
+        this.cancel();
         this.timer = setTimeout(() => {
             this.timer = null;
             this.count = attempt;

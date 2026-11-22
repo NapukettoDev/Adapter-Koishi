@@ -11,6 +11,7 @@ import {
     launch,
     logRecords,
     SELF_ID,
+    selfInfo,
     setupPanel,
     startBot,
 } from "./harness.js";
@@ -61,6 +62,40 @@ describe("Bot 启停生命周期", () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(bot.online).toHaveBeenCalledOnce();
         expect(bot["lifecycle"].client).not.toBeNull();
+    });
+
+    it("软重登装配期间不派发事件，身份重新校验后才恢复在线", async () => {
+        const { bot } = setupPanel();
+        const child = await startBot(bot);
+        child.ready();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledOnce();
+
+        child.send({ v: IPC_VERSION, type: "status", payload: { phase: "sessioning" } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.status).toBe(BOT_STATUS.CONNECT);
+        expect(bot["lifecycle"].client).toBeNull();
+        expect(bot["lifecycle"].dispatchClient).toBeNull();
+
+        child.receiveMessage("during-relogin");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.dispatch).not.toHaveBeenCalled();
+        await expect(
+            bot.internal.sendMessage("private:20001", [{ type: "text", attrs: { content: "x" } }]),
+        ).rejects.toThrow("未就绪");
+
+        child.login({ state: "logged_in", selfInfo });
+        child.send({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.online).toHaveBeenCalledTimes(2);
+        expect(bot["lifecycle"].client).not.toBeNull();
+
+        child.receiveMessage("after-relogin");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.dispatch).toHaveBeenCalledOnce();
+        expect(bot.dispatch).toHaveBeenCalledWith(
+            expect.objectContaining({ messageId: "after-relogin" }),
+        );
     });
 
     it("重复 start 只创建一个宿主，重复 stop 只停止一次", async () => {
