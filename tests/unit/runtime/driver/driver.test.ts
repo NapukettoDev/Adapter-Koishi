@@ -53,6 +53,29 @@ describe("NapukettoDriver 启动", () => {
         expect(onError).toHaveBeenCalled();
     });
 
+    it("launch 抛错时释放账号目录所有权，后续 driver 可接管", async () => {
+        const accountDir = "spawn-failure-owner";
+        const driver = new NapukettoDriver({
+            launch: async () => {
+                throw new Error("self-host.cjs 缺失");
+            },
+            accountDir,
+            createTransport: () => new MemoryLinePair(),
+            events: {},
+        });
+        driver.start();
+        await flush();
+        expect(driver.currentState).toBe("failed");
+
+        const next = createHarness({}, { accountDir });
+        next.driver.start();
+        await flush();
+        expect(next.spawns).toHaveLength(1);
+        const stopping = next.driver.stop();
+        next.spawns[0]?.emitExit(0, null);
+        await stopping;
+    });
+
     it("Node 启动失败且无 PID 时可完成清理", async () => {
         const failure = Promise.withResolvers<unknown>();
         const onExit = vi.fn();
@@ -227,6 +250,54 @@ describe("NapukettoDriver 停止", () => {
         }
     });
 
+    it("退出超时进入 failed 后，stop 仍有界重试终止并保留账号所有权", async () => {
+        vi.useFakeTimers();
+        try {
+            const options = { accountDir: "failed-stop-retry" };
+            const { driver, spawns } = createHarness({}, options);
+            driver.start();
+            await flush();
+            const child = spawns[0];
+            if (child === undefined) {
+                throw new Error("子进程未启动");
+            }
+            await vi.advanceTimersByTimeAsync(46_000);
+            await vi.advanceTimersByTimeAsync(5_000);
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(driver.currentState).toBe("failed");
+            expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
+            expect(vi.getTimerCount()).toBe(0);
+
+            const stopping = driver.stop();
+            expect(driver.currentState).toBe("stopping");
+            await vi.advanceTimersByTimeAsync(10_000);
+            await stopping;
+            expect(driver.currentState).toBe("failed");
+            expect(child.signals).toEqual(["SIGTERM", "SIGKILL", "SIGTERM", "SIGKILL"]);
+
+            // 未确认退出前不释放所有权：同目录新驱动只能等待。
+            const blocked = createHarness({}, options);
+            blocked.driver.start();
+            await flush();
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(blocked.spawns).toHaveLength(0);
+            expect(blocked.driver.currentState).toBe("failed");
+
+            child.emitExit(null, "SIGKILL");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(driver.currentState).toBe("stopped");
+            const next = createHarness({}, options);
+            next.driver.start();
+            await flush();
+            expect(next.spawns).toHaveLength(1);
+            const stopNext = next.driver.stop();
+            next.spawns[0]?.emitExit(0, null);
+            await stopNext;
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("确认停止后可再次启动，重启计数复位并重新占用账号目录", async () => {
         const options = { accountDir: "restart-after-stop" };
         const { driver, spawns, emit } = createHarness({}, options);
@@ -263,6 +334,35 @@ describe("NapukettoDriver 停止", () => {
         spawns[0]?.emitExit(0, null);
         await stopping;
         expect(driver.currentState).toBe("stopped");
+    });
+
+    it("插件重载时旧宿主正在终止，也等待其确认退出后才接管账号目录", async () => {
+        vi.useFakeTimers();
+        try {
+            const options = { accountDir: "reload-terminating" };
+            const previous = createHarness({}, options);
+            const next = createHarness({}, options);
+            previous.driver.start();
+            await flush();
+            expect(previous.driver.restartLogin()).toBe(true);
+            expect(previous.driver.currentState).toBe("terminating");
+
+            next.driver.start();
+            await flush();
+            expect(next.spawns).toHaveLength(0);
+
+            // 手动重启的 5s 升级期限被停止请求接管。
+            await vi.advanceTimersByTimeAsync(5_000);
+            previous.spawns[0]?.emitExit(null, "SIGTERM");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(previous.driver.currentState).toBe("stopped");
+            expect(next.spawns).toHaveLength(1);
+            const stopNext = next.driver.stop();
+            next.spawns[0]?.emitExit(0, null);
+            await stopNext;
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("插件重载时同一数据目录等待旧宿主退出", async () => {

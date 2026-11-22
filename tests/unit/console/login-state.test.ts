@@ -96,9 +96,38 @@ describe("NapukettoLoginState", () => {
         machine.onQr(QR);
         machine.onLogin("logged_in", { uin: "10001", uid: "u1", nick: "n" });
         machine.onLogin("failed", undefined, "旧错误");
+        const generation = machine.currentGeneration;
         machine.reset();
         expect(machine.currentState).toBe("idle");
-        expect(machine.snapshot).toEqual({ state: "idle" });
+        expect(machine.snapshot).toEqual({ state: "idle", generation: generation + 1 });
+    });
+
+    it("beginLoginRound 自增 generation 并清空上一轮身份（软重登不复用）", () => {
+        const machine = new NapukettoLoginState();
+        machine.onLogin("logged_in", { uin: "10001", uid: "u1", nick: "旧账号" });
+        const generation = machine.currentGeneration;
+        machine.beginLoginRound();
+        expect(machine.currentGeneration).toBe(generation + 1);
+        expect(machine.snapshot.self).toBeUndefined();
+        expect(machine.currentState).toBe("idle");
+    });
+
+    it("rejectIdentity 清空身份并进入 failed（异步结果作废）", () => {
+        const machine = new NapukettoLoginState();
+        machine.onLogin("logged_in", { uin: "10001", uid: "u1", nick: "旧账号" });
+        const generation = machine.currentGeneration;
+        machine.rejectIdentity("账号不一致");
+        expect(machine.currentGeneration).toBe(generation + 1);
+        expect(machine.snapshot.self).toBeUndefined();
+        expect(machine.currentState).toBe("failed");
+        expect(machine.snapshot.lastError).toBe("账号不一致");
+    });
+
+    it("非 logged_in 状态不保留可派发身份", () => {
+        const machine = new NapukettoLoginState();
+        machine.onLogin("logged_in", { uin: "10001", uid: "u1", nick: "旧账号" });
+        machine.onLogin("waiting_scan");
+        expect(machine.snapshot.self).toBeUndefined();
     });
 
     it("相同状态不重复通知", () => {

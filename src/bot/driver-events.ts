@@ -17,7 +17,7 @@ export interface DriverEventsHost {
     isDisconnected: () => boolean;
     /** 就绪回调（clientRef 更新 + online + 拉登录信息）。 */
     handleReady: () => void;
-    /** 手动重启宿主时更新 Bot 状态与登录快照。 */
+    /** 手动重启宿主或软重登开始时更新 Bot 状态与登录快照。 */
     handleLoginRestart: () => void;
     /** 结束当前会话时解除动作桥的客户端绑定。 */
     clearClient: () => void;
@@ -56,6 +56,19 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
         onEventSubscription: () => {
             if (current()) {
                 host.bridge.resetMessageBaseline();
+            }
+        },
+        onRelogin: () => {
+            if (!current()) {
+                return;
+            }
+            // 软重登复用同一宿主：旧身份、动作绑定与派发闸门必须在装配期间关闭。
+            host.clearClient();
+            host.handleLoginRestart();
+        },
+        onReassembled: () => {
+            if (current()) {
+                host.handleReady();
             }
         },
         onEvent: (payload) => {

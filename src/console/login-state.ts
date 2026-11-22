@@ -31,6 +31,8 @@ export interface LoginSnapshot {
     self?: SelfInfo;
     /** 最近错误（failed 时）。 */
     lastError?: string;
+    /** 登录轮次：每次重新登录/复位自增，异步身份查询只认同一轮快照。 */
+    generation: number;
 }
 
 /**
@@ -43,6 +45,7 @@ export class NapukettoLoginState implements LoginObserver {
     private qr: QrCodeData | null = null;
     private self: SelfInfo | null = null;
     private lastError: string | null = null;
+    private generation = 0;
 
     constructor(view: LoginView = {}) {
         this.view = view;
@@ -53,6 +56,11 @@ export class NapukettoLoginState implements LoginObserver {
         return this.state;
     }
 
+    /** 当前登录轮次（生命周期控制器绑定异步响应）。 */
+    get currentGeneration(): number {
+        return this.generation;
+    }
+
     /** 快照（apply() 层查询）。 */
     get snapshot(): LoginSnapshot {
         return {
@@ -60,13 +68,19 @@ export class NapukettoLoginState implements LoginObserver {
             ...(this.qr !== null ? { qr: this.qr } : {}),
             ...(this.self !== null ? { self: this.self } : {}),
             ...(this.lastError !== null ? { lastError: this.lastError } : {}),
+            generation: this.generation,
         };
     }
 
     /** 收到登录状态（driver.onLogin）。message 为失败原因（如登录超时）。 */
     onLogin(state: LoginState, selfInfo?: SelfInfo, message?: string): void {
-        if (selfInfo !== undefined) {
-            this.self = selfInfo;
+        if (state === "logged_in") {
+            if (selfInfo !== undefined) {
+                this.self = selfInfo;
+            }
+        } else {
+            // 非 logged_in 状态不再持有可派发的身份；下一次 logged_in 必须重新给出。
+            this.self = null;
         }
         if (state === "failed") {
             this.lastError = message ?? "登录失败";
@@ -98,16 +112,48 @@ export class NapukettoLoginState implements LoginObserver {
     }
 
     /**
+     * 开始新的登录轮次：自增 generation 并清空上一轮二维码/账号/错误。
+     *
+     * 软重登在同一宿主、同一 driver 内发生，单靠 driver 轮次号无法区分；
+     * 异步身份查询和 getLogin 结果必须在 generation 变化后作废。
+     */
+    beginLoginRound(): void {
+        this.generation++;
+        this.qr = null;
+        this.self = null;
+        this.lastError = null;
+        if (this.state === "idle") {
+            this.notifyState();
+        } else {
+            this.transition("idle");
+        }
+    }
+
+    /**
+     * 账号不一致/身份不可用：作废本轮身份并进入可重新登录的 failed 状态。
+     *
+     * 不复用上一轮 self，避免后续事件或动作继续按旧账号派发。
+     */
+    rejectIdentity(message: string): void {
+        this.generation++;
+        this.qr = null;
+        this.self = null;
+        this.lastError = message;
+        if (this.state === "failed") {
+            this.notifyState();
+        } else {
+            this.transition("failed");
+        }
+    }
+
+    /**
      * 复位登录会话（清理二维码/账号/错误并回到 idle）。
      *
      * 子进程退出与 Bot 的新一轮 start 共用：旧 driver 在 stop 后不会再触发
      * onExit（回调已过期），新一轮启动必须在 spawn 前主动清掉上一轮快照。
      */
     reset(): void {
-        this.qr = null;
-        this.self = null;
-        this.lastError = null;
-        this.transition("idle");
+        this.beginLoginRound();
     }
 
     private transition(next: LoginState): void {

@@ -181,7 +181,10 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     }
 
     override getLogin(): Promise<Universal.Login> {
-        return resolveBotLogin(this, this.login.snapshot.self);
+        const generation = this.lifecycle.loginGeneration;
+        return resolveBotLogin(this, this.login.snapshot.self, () =>
+            this.lifecycle.isLoginGeneration(generation),
+        );
     }
 
     /** 订阅子进程转发的原始 OneBot 11 事件。 */

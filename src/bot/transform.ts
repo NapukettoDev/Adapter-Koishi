@@ -89,19 +89,34 @@ type LoginBot = Pick<Bot, "selfId" | "user" | "toJSON"> & {
     internal: Pick<NapukettoInternal, "getSelf">;
 };
 
-/** 登录推送已有自身信息时直接使用，缺省时才向宿主拉取。 */
+/**
+ * 登录推送已有自身信息时直接使用，缺省时才向宿主拉取。
+ *
+ * `isCurrent` 绑定调用时的驱动/登录轮次：异步查询返回后若已经软重登或换轮，
+ * 结果必须丢弃，不能把旧账号写回 bot.selfId/user。
+ */
 export async function resolveBotLogin(
     bot: LoginBot,
     self: LoginSnapshot["self"],
+    isCurrent: () => boolean = () => true,
 ): Promise<Universal.Login> {
     if (self !== undefined) {
-        syncUser(bot, { uin: self.uin, nick: self.nick });
-        bot.selfId = self.uin;
+        if (isCurrent()) {
+            syncUser(bot, { uin: self.uin, nick: self.nick });
+            bot.selfId = self.uin;
+        }
     } else {
         const data = (await bot.internal.getSelf()) as
             | { uin?: string; nickname?: string }
             | undefined;
+        if (!isCurrent()) {
+            return bot.toJSON();
+        }
         if (data != null) {
+            // 查询结果与配置账号不一致时保留既有身份；账号闸门负责拒绝上线。
+            if (typeof data.uin === "string" && data.uin !== "" && data.uin !== bot.selfId) {
+                return bot.toJSON();
+            }
             if (typeof data.uin === "string" && data.uin !== "") {
                 bot.selfId = data.uin;
             }

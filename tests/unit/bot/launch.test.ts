@@ -240,6 +240,93 @@ describe("resolveLaunchOptions", () => {
         expect(options.networkEntry).toBeUndefined();
     });
 
+    it("可选路径的空串/空白视为未配置，不解析成 cwd", async () => {
+        const options = await resolveLaunchOptions(
+            makeConfig({
+                qqPath: "   ",
+                dataDir: "\t ",
+                stubDir: " ",
+                linuxStubPath: "",
+                winNodePath: "\t",
+                selfHostEntry: "   ",
+                kernelEntry: " ",
+                adapterEntry: "",
+                networkEntry: " ",
+            }),
+            { resolveQq: fakeResolveQq },
+        );
+        expect(options.qq.qqPath).toBe("C:/QQ/NTQQ/QQ.exe");
+        expect(options.stubDir).toBeUndefined();
+        expect(options.linuxStubPath).toBeUndefined();
+        expect(options.winNodePath).toBeUndefined();
+        expect(options.selfHostEntry).toBeUndefined();
+    });
+
+    it.each([
+        ["stubDir", "file"],
+        ["linuxStubPath", "directory"],
+        ["winNodePath", "directory"],
+        ["selfHostEntry", "directory"],
+        ["qqPath", "directory"],
+        ["kernelEntry", "directory"],
+        ["dataDir", "file"],
+    ] as const)("配置项 %s 期望 %s，类型不符时报错且不回显路径", async (key, actualKind) => {
+        const root = mkdtempSync(join(tmpdir(), "napuketto-path-kind-"));
+        try {
+            const filePath = join(root, "not-a-directory");
+            const dirPath = join(root, "not-a-file");
+            writeFileSync(filePath, "x");
+            mkdirSync(dirPath);
+            const path = actualKind === "file" ? filePath : dirPath;
+            const config = makeConfig({ [key]: path });
+            const error = await resolveLaunchOptions(config, {
+                resolveQq: fakeResolveQq,
+            }).catch((caught: unknown) => caught);
+            expect(error).toBeInstanceOf(TypeError);
+            expect((error as Error).message).toContain(key);
+            expect((error as Error).message).not.toContain(root);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it("qqPath 解析失败只点名配置项，不回显底层路径", async () => {
+        const root = mkdtempSync(join(tmpdir(), "napuketto-qq-path-"));
+        try {
+            const qqPath = join(root, "QQ.exe");
+            writeFileSync(qqPath, "x");
+            const error = await resolveLaunchOptions(makeConfig({ qqPath }), {
+                resolveQq: async () => {
+                    throw new Error(`无法读取 ${root}`);
+                },
+            }).catch((caught: unknown) => caught);
+            expect(error).toBeInstanceOf(TypeError);
+            expect((error as Error).message).toContain("qqPath");
+            expect((error as Error).message).not.toContain(root);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it("OB11 动作桥 override 是目录时降级并点名配置项（不阻断启动）", async () => {
+        const root = mkdtempSync(join(tmpdir(), "napuketto-entry-dir-"));
+        try {
+            const adapterDir = join(root, "adapter");
+            mkdirSync(adapterDir);
+            const onStage = vi.fn();
+            const options = await resolveLaunchOptions(
+                makeConfig({ adapterEntry: adapterDir, networkEntry: adapterDir }),
+                { resolveQq: fakeResolveQq, onStage },
+            );
+            expect(options.adapterEntry).toBeUndefined();
+            expect(options.networkEntry).toBeUndefined();
+            expect(onStage).toHaveBeenCalledWith(expect.stringContaining("adapterEntry"));
+            expect(onStage).toHaveBeenCalledWith(expect.stringContaining("networkEntry"));
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     it("OB11 动作桥入口：override 优先", async () => {
         const options = await resolveLaunchOptions(
             makeConfig({

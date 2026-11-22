@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+    resolveBotLogin,
     toDirectChannel,
     toFriendList,
     toGuildList,
@@ -101,5 +102,45 @@ describe("toUserFields", () => {
 
     it("undefined 字段 → 不产出字段", () => {
         expect(toUserFields({})).toEqual({});
+    });
+});
+
+describe("resolveBotLogin", () => {
+    type LoginBot = Parameters<typeof resolveBotLogin>[0];
+
+    function makeBot(getSelf: () => Promise<unknown>) {
+        return {
+            selfId: "10001",
+            user: {},
+            toJSON: () => ({ selfId: "10001" }),
+            internal: { getSelf },
+        } as unknown as LoginBot & { selfId: string; user: Record<string, unknown> };
+    }
+
+    it("缺快照时拉取 getSelf，仍绑定配置账号", async () => {
+        const bot = makeBot(async () => ({ uin: "10001", nickname: "测试号" }));
+        await resolveBotLogin(bot, undefined);
+        expect(bot.selfId).toBe("10001");
+        expect(bot.user).toMatchObject({ id: "10001", name: "测试号" });
+    });
+
+    it("异步查询返回时已换轮 → 丢弃结果，不写回旧账号", async () => {
+        const bot = makeBot(async () => ({ uin: "10001", nickname: "旧账号" }));
+        await resolveBotLogin(bot, undefined, () => false);
+        expect(bot.selfId).toBe("10001");
+        expect(bot.user).toEqual({});
+    });
+
+    it("查询结果不是配置账号 → 不写回身份", async () => {
+        const bot = makeBot(async () => ({ uin: "20002", nickname: "错误账号" }));
+        await resolveBotLogin(bot, undefined);
+        expect(bot.user).toEqual({});
+    });
+
+    it("快照身份在换轮后也不写回", async () => {
+        const bot = makeBot(async () => ({ uin: "10001" }));
+        await resolveBotLogin(bot, { uin: "10001", uid: "u1", nick: "旧快照" }, () => false);
+        expect(bot.selfId).toBe("10001");
+        expect(bot.user).toEqual({});
     });
 });

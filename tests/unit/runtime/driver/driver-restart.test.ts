@@ -290,6 +290,10 @@ describe("NapukettoDriver 重启", () => {
             blocked.driver.start();
             await flush();
             expect(blocked.spawns).toHaveLength(0);
+            // 旧宿主 failed 但仍持有账号目录：新驱动进入有界等待，而不是
+            // 直接抢目录；重试终止超时后新驱动才失败。
+            expect(blocked.driver.currentState).toBe("spawning");
+            await vi.advanceTimersByTimeAsync(10_000);
             expect(blocked.driver.currentState).toBe("failed");
 
             child.emitExit(null, "SIGKILL");

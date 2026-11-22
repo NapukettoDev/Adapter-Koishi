@@ -116,6 +116,25 @@ describe("buildDriverEvents", () => {
         expect(handleReady).toHaveBeenCalledTimes(1);
     });
 
+    it("onRelogin → 先解除动作绑定再开始新登录轮次", () => {
+        const { host, clearClient } = createHost();
+        const events = buildDriverEvents(host);
+        events.onRelogin?.();
+        expect(clearClient).toHaveBeenCalledOnce();
+        expect(host.handleLoginRestart).toHaveBeenCalledOnce();
+        expect(
+            (clearClient.mock.invocationCallOrder[0] ?? Infinity) <
+                (vi.mocked(host.handleLoginRestart).mock.invocationCallOrder[0] ?? Infinity),
+        ).toBe(true);
+    });
+
+    it("onReassembled → 重新执行 ready 身份校验", () => {
+        const { host, handleReady } = createHost();
+        const events = buildDriverEvents(host);
+        events.onReassembled?.();
+        expect(handleReady).toHaveBeenCalledOnce();
+    });
+
     it("onExit 主动断开（isDisconnected=true）→ login.onExit，不 offline", () => {
         const { host, login, clearClient, offline } = createHost({ isDisconnected: () => true });
         const events = buildDriverEvents(host);

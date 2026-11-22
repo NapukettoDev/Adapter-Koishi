@@ -106,6 +106,10 @@ export interface DriverEvents {
     onEvent?(payload: IpcEventPayload): void;
     /** 新子进程开始订阅，或已就绪子进程开始软重登重装配。 */
     onEventSubscription?(): void;
+    /** 已就绪子进程进入软重登装配（旧会话的身份/动作/事件必须暂停）。 */
+    onRelogin?(): void;
+    /** 软重登装配后的 ready；上层需重新校验身份再恢复动作与事件。 */
+    onReassembled?(): void;
     /** 结构化日志转发。 */
     onLog?(payload: IpcLogPayload): void;
     /** 就绪（每轮就绪回调，客户端实例随重启更换）。 */

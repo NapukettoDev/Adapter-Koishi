@@ -50,6 +50,11 @@
 `import.meta.resolve` 不可用。显式 override 为相对路径时按 `process.cwd()` 展开。解析失败会抛出
 带“确认依赖已安装 / 手动指定入口”的提示。
 
+可选路径配置先经 `normalizeOptionalPath` 归一化：空串与纯空白视为省略；相对路径保留并按
+`process.cwd()` 展开；路径存在时按 loader 契约校验类型（`stubDir` / `dataDir` 为目录，
+`qqPath` / `linuxStubPath` / `winNodePath` / `selfHostEntry` 与入口覆盖为文件）。类型错误只点名
+配置项，不回显完整路径。入口解析失败同样以配置项名报错；OB11 入口失败保持 fail-soft 降级。
+
 `buildLaunch` 等待 `launchSelfHost()` 完成平台预检和宿主启动，再将子进程交给 driver。
 
 ## driver：状态与事件
@@ -80,11 +85,17 @@ interface DriverOptions {
 | `onQr` | 收到 `qr` |
 | `onEvent` | 收到 kernel / OB11 `event` |
 | `onLog` | 收到子进程结构化 `log` |
-| `onReady` | 每轮就绪（重播的 ready 被幂等守卫忽略）；上层在此更新 client 引用并 `online()` |
+| `onReady` | 每轮就绪（重播的 ready 被幂等守卫忽略）；上层在此校验身份后才更新 client 引用并 `online()` |
+| `onRelogin` | 已就绪宿主进入软重登 `sessioning`：上层清空旧身份、动作绑定与派发闸门 |
+| `onReassembled` | 软重登后的 `ready`：上层重新校验身份后再恢复动作与事件 |
 | `onExit` | 子进程确认退出或启动失败（crash / stale / stop / spawn-error） |
 | `onError` | 启动失败、引导失败、发送信号失败、无法确认退出或重试达上限 |
 | `onIpcWriteError` | 每轮首个 stdin 写入故障，记录原始错误类别 |
 | `onIpcError` | 入站行超限、客户端消息订阅者异常等 IPC 诊断（warn 日志） |
+
+已就绪宿主软重登时，`client-events` 检测 `status.sessioning`（与上次 phase 不同）并触发
+`onRelogin` + `onEventSubscription`，再在随后的 `ready` 触发 `onReassembled`。这期间 driver
+仍是 ready、client 仍连接，但上层必须关闭身份/动作/派发闸门，直到新会话完成身份校验。
 
 spawn 流程：
 
@@ -121,15 +132,19 @@ spawn 流程：
 - 控制台请求重启时，driver 发送 `control restart`，立即关闭旧 IPC，复用停止流程的分级终止期限。
   确认旧宿主退出后启动新宿主。手动重启独立于崩溃重试配额，停用 Bot 会取消尚未执行的重启。
 - 子进程崩溃或失联退出：`restartCount >= maxRetries` → `failed` + `onError`；否则
-  `restarting`，等待 `backoffDelay(attempt)` 后再次 spawn。
+  `restarting`，等待 `backoffDelay(attempt)` 后再次 spawn。重复调度会先取消旧计时器，只保留
+  最新一次，避免同一 driver 同时 spawn 两个宿主。
 - `restartCount` 在每次进入 ready 时清零。
 - 主动停止清除重启计时器并停止心跳，先给可用 IPC 发送 `control stop`，等待 5s 后发送 `SIGTERM`。
   `SIGTERM` 发出后再等 5s，仍未退出则发 `SIGKILL`。异步启动期间收到停止请求时，拿到子进程后从
   `SIGTERM` 开始处理。已在终止的进程继续使用原有期限，停止请求取消后续重启。
 - 每次发出信号后仍保留旧进程的所有权。强制终止后 5s 仍无法确认退出时报告 PID 和处理建议，进入
   `failed`，禁用自动重启。迟到的退出事件只回收旧实例。启动失败但尚未创建进程时可直接释放所有权。
-- 同一 Koishi 进程内，插件重载时，新 driver 等待正在停止的同账号宿主退出。停止期限内未确认退出时，
-  该账号保持占用，直到旧进程发出退出事件。
+- `failed` 且宿主仍存活时再次 `stop()` 会重新进入有界终止流程（SIGTERM → SIGKILL → 超时），
+  而不是立即返回“已停止”；确认退出前账号目录始终保留占用。
+- 同一 Koishi 进程内，插件重载时，新 driver 等待正在 `stopping` / `terminating` / 仍持有进程的
+  `failed` 同账号宿主退出。等待受既有终止期限约束；期限内未确认退出时，该账号保持占用，
+  直到旧进程发出退出事件，新 driver 不抢占账号目录。
 - Bot 的 `stop()` 在发起停止时立即解除 driver 引用并递增停止序号；重复 `stop()` 串联等待停止任务，
   `start()` 与 `stop()` 重叠时先等待停止任务与旧 driver 结束，再创建新一轮 driver。停止期间本轮
   driver 的 `onExit` / `onError` 仍会处理；新 `start()` 递增轮次后，旧 driver 的迟到回调才失效。
