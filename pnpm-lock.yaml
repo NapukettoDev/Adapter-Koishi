@@ -173,8 +173,8 @@ importers:
         specifier: ^0.16.4
         version: 0.16.4
       '@napuketto/loader':
-        specifier: ^0.10.9
-        version: 0.10.9
+        specifier: ^0.11.0
+        version: 0.11.0
       '@napuketto/media':
         specifier: ^0.2.3
         version: 0.2.3(supports-color@8.1.1)
@@ -434,8 +434,8 @@ packages:
     resolution: {integrity: sha512-F3C6iSG8g07lPQcZE7Km8UEIYgOhLZclLBdW/fhQWNkX+9vv9kekX/77bxyplbpNXai9jzQLghw0tot4KRHKrg==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/loader@0.10.9':
-    resolution: {integrity: sha512-lsljnjKxtXB/PStziIlpZI5JgQdKBBU9HtigFhv6jq/H/u4CyRTbEqgI3qFActXP8CMRMbHKYXbLT7yYV6aeaw==}
+  '@napuketto/loader@0.11.0':
+    resolution: {integrity: sha512-bU0nsAiUCZJbktIxoGspAJ9OcnsxJRIwdmBnIkGgkKSDnZ3IhPlVPkTR7XMJEuHU4mrnHJUXUK13FSFX9omkdg==}
     engines: {node: '>=22.12.0'}
 
   '@napuketto/media@0.2.3':
@@ -2270,7 +2270,7 @@ snapshots:
       pino: 10.4.0
       smol-toml: 1.9.1
 
-  '@napuketto/loader@0.10.9':
+  '@napuketto/loader@0.11.0':
     dependencies:
       zod: 4.6.7
 

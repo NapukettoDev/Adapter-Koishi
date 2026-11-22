@@ -65,7 +65,7 @@
     "dependencies": {
         "@napuketto/adapter": "^0.19.0",
         "@napuketto/kernel": "^0.16.4",
-        "@napuketto/loader": "^0.10.9",
+        "@napuketto/loader": "^0.11.0",
         "@napuketto/media": "^0.2.3",
         "@napuketto/network": "^0.5.0"
     },
