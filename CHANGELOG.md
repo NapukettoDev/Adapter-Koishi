@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.60
+
+### Patch Changes
+
+- 移除 Koishi 插件详情页的静态用法说明。
+
 ## 0.0.59
 
 ### Patch Changes
