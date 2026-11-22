@@ -8,13 +8,13 @@
 | 层 | 文件 | 职责 |
 | :--- | :--- | :--- |
 | launch | `src/bot/launch.ts` | 组装 `launchSelfHost` 选项、解析包入口、每次 spawn 调用一次 |
-| driver | `src/driver/driver.ts` | 子进程生命周期与状态转换 |
-| heartbeat | `src/driver/heartbeat.ts` | 轮询最近消息时间，判定失联 |
-| account lock | `src/driver/account-lock.ts` | 按账号目录管理宿主所有权 |
-| restart | `src/driver/restart.ts` | 重启计数、指数退避和取消 |
-| resync | `src/driver/boot-resync.ts` | 引导期事件暂存、回放与状态重查 |
-| termination | `src/driver/terminator.ts` | 进程监听、分级终止和退出错误 |
-| ipc | `src/ipc/` | JSON 行编解码、传输、请求匹配、事件订阅 |
+| driver | `src/runtime/driver/driver.ts` | 子进程生命周期与状态转换 |
+| heartbeat | `src/runtime/driver/supervision.ts` | 轮询最近消息时间，判定失联 |
+| account lock | `src/runtime/driver/driver.ts` | 按账号目录管理宿主所有权 |
+| restart | `src/runtime/driver/supervision.ts` | 重启计数、指数退避和取消 |
+| resync | `src/runtime/driver/boot-resync.ts` | 引导期事件暂存、回放与状态重查 |
+| termination | `src/runtime/driver/terminator.ts` | 进程监听、分级终止和退出错误 |
+| ipc | `src/runtime/ipc/` | JSON 行编解码、传输、请求匹配、事件订阅 |
 
 ## launch：组装子进程
 
@@ -144,7 +144,7 @@ spawn 流程：
 ## IPC 协议
 
 协议版本 `IPC_VERSION = 1`。消息类型、payload schema、`IPC_VERSION` 都由
-`@napuketto/loader` 提供（插件侧 `src/ipc/index.ts` 直接 re-export），避免两端各写一份漂移。
+`@napuketto/loader` 提供（插件侧 `src/runtime/ipc/index.ts` 直接 re-export），避免两端各写一份漂移。
 编码为一行一条 JSON，`\n` 结尾。
 
 ```
@@ -165,7 +165,7 @@ spawn 流程：
 
 ## 传输与客户端
 
-**传输**（`src/ipc/transport.ts`）：
+**传输**（`src/runtime/ipc/transport.ts`）：
 
 - `ChildProcessIpcTransport`：stdout 用 readline 逐行读取，stdin 写行。
 - stdout/stderr 都先经过 `isNativeNoiseLine()` 过滤 wrapper 的原生噪音；stderr 其余内容以
@@ -177,7 +177,7 @@ spawn 流程：
 - IPC 关闭后宿主仍由 driver 持有。退出、心跳失联、停止和重启沿用 driver 的进程确认流程。
 - `BaseLineTransport` 统一订阅管理与 `close()` 幂等；`MemoryLinePair` 是测试用内存双端。
 
-**客户端**（`src/ipc/client.ts`）：
+**客户端**（`src/runtime/ipc/client.ts`）：
 
 - `request(action, params?, timeoutMs?)`：单调递增 id，`PendingRequests` 记录超时（默认 60s）。
 - 成功 `result` resolve；失败 `result` reject 为 `IpcError("动作 <name> 失败: <message>", code)`
@@ -213,6 +213,6 @@ spawn 流程：
 
 ## 测试设施
 
-- `src/__test-utils__/ipc.ts`：`MemoryLinePair`（一端 write → 对端收到）、`captureAction`。
-- `src/__test-utils__/driver.ts`：`FakeChild`（可触发 exit/error）+ `createHarness`（记录 spawn 与 pair）。
+- `tests/helpers/ipc.ts`：`MemoryLinePair`（一端 write → 对端收到）、`captureAction`。
+- `tests/helpers/driver.ts`：`FakeChild`（可触发 exit/error）+ `createHarness`（记录 spawn 与 pair）。
 - driver/IPC 单测不启动真实子进程，也不需要 QQ 环境。

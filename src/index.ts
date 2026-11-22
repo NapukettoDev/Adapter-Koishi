@@ -10,23 +10,35 @@
  *
  * 运行时 import koishi（Session 声明扩展）——本文件不进单测（docs/guides/development.md 单测边界）。
  */
-import { NapukettoBot } from "./bot/index.js";
+import { NapukettoBot } from "./bot/bot.js";
 import { napukettoConfigSchema as Config } from "./config.js";
 
 export {
-    type MessageListResponse,
-    NapukettoInternal,
-    type NapukettoInternalOptions,
-    type PeerTarget,
-    parseChannelId,
-    type RequestFn,
-    toCanonicalElements,
-} from "./actions/index.js";
-export * from "./bot/index.js";
-export * from "./events/index.js";
-
-// NapukettoBot 经 export * from "./bot/index.js" 已导出；这里只补 Config
-// （bot.ts namespace 声明合并成员，不走 barrel 链）。
-export { Config };
+    buildLaunch,
+    type ResolvedLaunch,
+    resolveEntry,
+    resolveLaunchOptions,
+} from "./bot/launch.js";
+export { NapukettoMessageEncoder } from "./bot/message.js";
+export { parseChannelId } from "./bridge/actions/codecs.js";
+export { toCanonicalElements } from "./bridge/actions/elements.js";
+export { NapukettoInternal } from "./bridge/actions/internal.js";
+export type {
+    MessageListResponse,
+    NapukettoInternalOptions,
+    PeerTarget,
+    RequestFn,
+} from "./bridge/actions/types.js";
+export { adaptRawMessage, adaptRawMessageWithMedia } from "./bridge/events/adapt.js";
+export { NapukettoEventBridge } from "./bridge/events/bridge.js";
+export type {
+    EventBridge,
+    EventBridgeOptions,
+    NapukettoSessionFields,
+    Ob11EventPayload,
+} from "./bridge/events/types.js";
+export { enrichReceiveVoice, resolveNtFile } from "./bridge/events/voice-decode.js";
+export { toKoishiElements } from "./shared.js";
+export { Config, NapukettoBot };
 
 export default NapukettoBot;

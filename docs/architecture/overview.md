@@ -48,9 +48,9 @@ Koishi 主进程（Node）
 | :--- | :--- | :--- |
 | `koishi`（peer） | Bot / MessageEncoder / Schema / Universal 类型 | `src/bot/`、`src/config.ts`、`src/index.ts` |
 | `@koishijs/plugin-console`（peer） | `DataService` 与控制台前端运行时 | `src/console/provider.ts`、`client/` |
-| `@napuketto/kernel` | 数据根/配置路径解析、`RawMessage` / `CanonicalElement`、`LoginState` / `QrCodeData`、`KernelError`、`toCanonicalElements` | `src/bot/launch.ts`、`src/events/`、`src/actions/`、`src/ipc/transport.ts` |
-| `@napuketto/loader` | `launchSelfHost`、QQ 文件解析、stub 目录、IPC 消息 schema、原生噪音过滤 | `src/bot/launch.ts`、`src/ipc/` |
-| `@napuketto/media` | silk 编解码、视频信息/抽帧 | `src/actions/media/transcode.ts`、`src/events/voice-decode.ts` |
+| `@napuketto/kernel` | 数据根/配置路径解析、`RawMessage` / `CanonicalElement`、`LoginState` / `QrCodeData`、`KernelError`、`toCanonicalElements` | `src/bot/launch.ts`、`src/bridge/events/`、`src/bridge/actions/`、`src/runtime/ipc/transport.ts` |
+| `@napuketto/loader` | `launchSelfHost`、QQ 文件解析、stub 目录、IPC 消息 schema、原生噪音过滤 | `src/bot/launch.ts`、`src/runtime/ipc/` |
+| `@napuketto/media` | silk 编解码、视频信息/抽帧 | `src/bridge/actions/media/transcode.ts`、`src/bridge/events/voice-decode.ts` |
 | `@napuketto/adapter` / `@napuketto/network` | **不在插件源码中 import**；仅把磁盘入口路径传给子进程，由 loader 在子进程内动态装配 OneBot 11 动作面 | `src/bot/launch.ts`（`resolveEntry`） |
 
 依赖方向单向：插件 → 上游包；上游包不知道适配器存在。`@napuketto/*` 是真实 `dependencies`
@@ -62,56 +62,55 @@ Koishi 主进程（Node）
 src/
 ├── index.ts                 插件入口：默认导出 NapukettoBot，导出 Config
 ├── config.ts                Config 接口 + koishi Schema
-├── shared/                  协议约定、媒体策略、路径校验、IPC 错误和串行队列
-├── __test-utils__/           IPC、driver 与事件桥共享测试夹具
+├── shared.ts                协议约定、媒体策略、路径校验和 IPC 错误
 ├── bot/                     Koishi Bot 集成
 │   ├── bot.ts               NapukettoBot（Koishi 插件与 Universal 动作接口）
 │   ├── message.ts           NapukettoMessageEncoder（发送编码器）
 │   ├── launch.ts            launch 工厂（launchSelfHost 组装 + 入口解析）
 │   ├── assembly.ts          构造期组件工厂
 │   ├── driver-events.ts     driver 事件接线工厂
-│   ├── identity.ts          账号一致性判定与拒绝动作
 │   ├── lifecycle.ts         Bot 启停、账号校验与轮次管理
 │   ├── dispatcher.ts        session 字段应用、预热与派发
-│   ├── metadata.ts          插件元数据、日志等级与头像 URL
+│   ├── database.ts          channel/user 预热与串行队列
 │   └── transform.ts         kernel → Universal 形状映射
-├── driver/                  子进程生命周期
-│   ├── driver.ts            NapukettoDriver（spawn/重启/停止/状态重查）
-│   ├── heartbeat.ts         HeartbeatMonitor
-│   ├── account-lock.ts     账号目录所有权
-│   ├── restart.ts           重启计数、退避与取消
-│   ├── boot-resync.ts       引导期事件缓存与状态重查
-│   ├── terminator.ts        宿主退出监听与分级终止
-│   ├── client-events.ts     IPC 客户端创建与事件接线
-│   └── types.ts             DriverOptions / DriverEvents / DriverState 等
-├── ipc/                     JSON 行协议（插件侧）
-│   ├── client.ts            NapukettoIpcClient（线路处理/请求匹配/心跳）
-│   ├── transport.ts         IpcLineTransport + ChildProcessIpcTransport
-│   ├── pending.ts           PendingRequests（id/超时/批量 reject）
-│   └── codec.ts             encode/decode（zod 校验）
-├── login/                   登录状态观察
-│   ├── machine.ts           NapukettoLoginState
-│   └── types.ts             LoginView / LoginSnapshot
-├── events/                  收方向（QQ → Koishi）
-│   ├── bridge.ts            NapukettoEventBridge
-│   ├── adapt.ts             RawMessage → session 字段
-│   ├── voice-decode.ts      silk → WAV
-│   └── types.ts             NapukettoSessionFields / EventBridgeOptions
-├── actions/                 发方向（Koishi → QQ）
-│   ├── internal.ts          NapukettoInternal（bot.internal）
-│   ├── elements.ts          koishi 元素 → canonical
-│   ├── channel.ts           channelId → chatType/peerUin
-│   ├── media/               媒体获取、转码、白名单和发送准备
-│   └── types.ts             RequestFn / PeerTarget
-├── console/                 控制台面板后端
-│   ├── entry.ts             控制台前端入口注册
-│   ├── login-panel.ts       控制台面板装配
-│   ├── login-actions.ts     重登与强制扫码决策
-│   ├── provider.ts          NapukettoLoginProvider（DataService）
-│   ├── payload.ts           快照 → payload 纯函数
-│   └── types.ts             LoginPanelPayload
-└── database/                channel/user 预热
-    └── index.ts             NapukettoDatabase
+├── runtime/                 子进程生命周期与 IPC
+│   ├── driver/
+│   │   ├── driver.ts        驱动状态转换与账号目录所有权
+│   │   ├── supervision.ts   心跳、重启与退避
+│   │   ├── boot-resync.ts   引导期事件暂存与状态重查
+│   │   ├── terminator.ts    宿主退出监听与分级终止
+│   │   ├── client-events.ts IPC 客户端创建与事件接线
+│   │   └── types.ts         驱动状态、选项与回调
+│   └── ipc/
+│       ├── index.ts         IPC 契约 re-export
+│       ├── client.ts        消息编解码、请求匹配与心跳
+│       ├── transport.ts     stdio 行传输
+│       └── pending.ts       请求超时与关闭清理
+├── bridge/                  Koishi 与 QQ 的语义转换
+│   ├── actions/
+│   │   ├── internal.ts      NapukettoInternal（bot.internal）
+│   │   ├── codecs.ts        频道 ID 解析与历史消息转换
+│   │   ├── elements.ts      Koishi 元素 → canonical
+│   │   ├── ob11-resources.ts OneBot 11 资源动作
+│   │   ├── media/           媒体获取、转码、白名单和发送准备
+│   │   └── types.ts         动作桥类型
+│   └── events/
+│       ├── bridge.ts        NapukettoEventBridge
+│       ├── adapt.ts         RawMessage → session 字段
+│       ├── notices.ts       OneBot 11 通知和请求转换
+│       ├── voice-decode.ts  silk → WAV
+│       └── types.ts         事件桥类型
+└── console/                 控制台面板后端
+    ├── entry.ts             控制台前端入口注册
+    ├── login-state.ts       登录状态机与快照
+    ├── panel.ts             面板装配、重登与强制扫码
+    ├── provider.ts          NapukettoLoginProvider（DataService）
+    └── model.ts             payload 转换与鉴权规则
+
+tests/
+├── helpers/                 IPC、driver 与事件桥共享测试夹具
+├── unit/                    按 src 目录组织的单测
+└── integration/             模拟宿主与控制台的集成测试
 
 client/                      控制台前端（由本仓 vite.config.client.ts 构建）
 ├── index.ts                 plugin-details slot 注册

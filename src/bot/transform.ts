@@ -7,8 +7,10 @@
  * 职责：好友/群/频道/登录信息的形状映射，bot.ts 的 override 方法只做
  * 「internal 调用 + 委托本模块翻译」。
  */
-import type { Universal } from "koishi";
-import { PRIVATE_PREFIX } from "../shared/protocol.js";
+import type { Bot, Universal } from "koishi";
+import type { NapukettoInternal } from "../bridge/actions/internal.js";
+import type { LoginSnapshot } from "../console/login-state.js";
+import { PRIVATE_PREFIX } from "../shared.js";
 
 /** kernel 好友原始形状（宽松结构，来自 IPC 响应）。 */
 export interface RawFriend {
@@ -81,4 +83,38 @@ export function toUserFields(partial: {
         fields.name = partial.nick;
     }
     return fields;
+}
+
+type LoginBot = Pick<Bot, "selfId" | "user" | "toJSON"> & {
+    internal: Pick<NapukettoInternal, "getSelf">;
+};
+
+/** 登录推送已有自身信息时直接使用，缺省时才向宿主拉取。 */
+export async function resolveBotLogin(
+    bot: LoginBot,
+    self: LoginSnapshot["self"],
+): Promise<Universal.Login> {
+    if (self !== undefined) {
+        syncUser(bot, { uin: self.uin, nick: self.nick });
+        bot.selfId = self.uin;
+    } else {
+        const data = (await bot.internal.getSelf()) as
+            | { uin?: string; nickname?: string }
+            | undefined;
+        if (data != null) {
+            if (typeof data.uin === "string" && data.uin !== "") {
+                bot.selfId = data.uin;
+            }
+            syncUser(bot, { uin: data.uin, nick: data.nickname });
+        }
+    }
+    return bot.toJSON();
+}
+
+export function syncUser(
+    bot: Pick<Bot, "user">,
+    partial: Parameters<typeof toUserFields>[0],
+): void {
+    bot.user ??= {} as Universal.User;
+    Object.assign(bot.user, toUserFields(partial));
 }

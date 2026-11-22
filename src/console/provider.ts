@@ -2,11 +2,11 @@ import { type Client, type Console, DataService, type Events } from "@koishijs/p
 import type { Context, Logger } from "koishi";
 import {
     type ConsoleAuthClient,
+    type LoginPanelPayload,
     loginPanelAccessOptions,
     passesLoginPanelAuthority,
     redactLoginPanelPayload,
-} from "./access.js";
-import type { LoginPanelPayload } from "./types.js";
+} from "./model.js";
 
 declare module "@koishijs/plugin-console" {
     namespace Console {

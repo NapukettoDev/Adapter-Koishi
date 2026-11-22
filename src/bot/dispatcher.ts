@@ -1,7 +1,7 @@
 import type { Bot, Logger } from "koishi";
-import type { NapukettoDatabase } from "../database/index.js";
-import type { NapukettoSessionFields } from "../events/index.js";
-import type { NapukettoIpcClient } from "../ipc/index.js";
+import type { NapukettoSessionFields } from "../bridge/events/types.js";
+import type { NapukettoIpcClient } from "../runtime/ipc/index.js";
+import type { NapukettoDatabase } from "./database.js";
 
 interface DispatchHost {
     bot: Pick<Bot, "session" | "dispatch">;

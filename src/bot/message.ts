@@ -11,7 +11,7 @@
  * 运行时 import koishi（MessageEncoder/h/Universal）——本文件不进单测。
  */
 import { type Bot, type Context, type h, MessageEncoder } from "koishi";
-import { PRIVATE_PREFIX } from "../shared/protocol.js";
+import { PRIVATE_PREFIX } from "../shared.js";
 
 /** 消息编码器：收集 koishi 元素 → flush 时经 internal.sendMessage 发送。 */
 export class NapukettoMessageEncoder<C extends Context = Context> extends MessageEncoder<

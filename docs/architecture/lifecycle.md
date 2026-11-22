@@ -100,7 +100,7 @@ idle ──onLogin(waiting_scan)──▶ waiting_scan ──onLogin(scanned)─
 4. `online()`。
 5. `getLogin()` 拉取/同步自身信息（失败只 warn）。
 
-账号不一致时的处置见 `src/bot/identity.ts`：
+账号不一致时的处置见 `src/bot/lifecycle.ts`：
 
 - 置 `identityMismatch` 闸门；后续所有 kernel 消息**拒绝派发**。
 - 输出可操作错误（把 `selfId` 改成实际 uin，或换回配置账号重新扫码）。
@@ -147,8 +147,7 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 
 ## 重新登录与强制扫码
 
-控制台面板的"重新登录 / 扫码登录 / 刷新二维码"最终由
-`src/console/login-actions.ts` 的纯函数决策，`src/console/login-panel.ts` 执行：
+`src/console/panel.ts` 根据面板操作和登录状态选择通道并执行。
 
 | 当前登录状态 | 操作 | 通道 |
 | :--- | :--- | :--- |
