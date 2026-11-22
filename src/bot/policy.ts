@@ -42,6 +42,8 @@ export type PolicyResolution<T> =
 interface GuardState {
     /** 函数是否访问过白名单外字段（即使它自己 catch 了异常）。 */
     unsafe: boolean;
+    /** 函数调用结束后，代理退化为普通只读快照，避免诊断/断言被 strict 陷阱打断。 */
+    done: boolean;
 }
 
 class UnsafePolicyAccess extends Error {}
@@ -69,17 +71,20 @@ function guardSession(session: object, state: GuardState): object {
     };
     return new Proxy(safe, {
         get(target, property, receiver) {
+            if (state.done) return Reflect.get(target, property, receiver);
             // 符号属性（inspect / toPrimitive 等）不是 session 业务字段，放行但不可写。
             if (typeof property === "symbol") return Reflect.get(target, property, receiver);
             if (!Object.hasOwn(target, property)) return deny(property);
             return Reflect.get(target, property, receiver);
         },
         has(target, property) {
+            if (state.done) return Reflect.has(target, property);
             if (typeof property === "symbol") return Reflect.has(target, property);
             if (!Object.hasOwn(target, property)) return deny(property);
             return true;
         },
         getOwnPropertyDescriptor(target, property) {
+            if (state.done) return Reflect.getOwnPropertyDescriptor(target, property);
             if (typeof property === "symbol") {
                 return Reflect.getOwnPropertyDescriptor(target, property);
             }
@@ -88,7 +93,7 @@ function guardSession(session: object, state: GuardState): object {
         },
         ownKeys(target) {
             // 枚举会暴露「哪些字段存在」的差异（例如 user 是否已延迟加载），不可信。
-            state.unsafe = true;
+            if (!state.done) state.unsafe = true;
             return Reflect.ownKeys(target);
         },
         set(_target, property) {
@@ -126,11 +131,17 @@ export function resolvePolicy<T>(
         return isValid(source) ? { kind: "resolved", value: source } : deferred();
     }
 
-    const state: GuardState = { unsafe: false };
+    const state: GuardState = { unsafe: false, done: false };
     try {
         // async 函数不符合 Computed 的同步契约；调用会提前触发副作用，直接跳过。
         if (source.constructor?.name === "AsyncFunction") return deferred();
-        const value: unknown = Reflect.apply(source, null, [guardSession(session, state)]);
+        let value: unknown;
+        try {
+            value = Reflect.apply(source, null, [guardSession(session, state)]);
+        } finally {
+            // 调用结束后允许诊断/断言读取同一代理，不再触发 strict 陷阱。
+            state.done = true;
+        }
         // 函数可能 catch 代理异常后返回兜底值；只要碰过白名单外字段就不能信。
         if (state.unsafe) return deferred();
         return isValid(value) ? { kind: "resolved", value } : deferred();

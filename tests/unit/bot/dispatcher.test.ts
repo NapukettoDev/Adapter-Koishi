@@ -161,6 +161,9 @@ describe("SessionDispatcher", () => {
         const autoAssign = vi.fn((session: SessionLike) => session.channelId === "10001");
         const { dispatcher, ensureChannel } = makeDispatcher({ autoAssign });
         await dispatcher.dispatch(fields);
+        expect(autoAssign).toHaveBeenCalledWith(
+            expect.objectContaining({ channelId: "10001", selfId: "10001" }),
+        );
         expect(ensureChannel).toHaveBeenCalledWith({
             platform: "onebot",
             id: "10001",
