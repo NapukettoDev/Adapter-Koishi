@@ -41,7 +41,7 @@
 runtime name 改成 `console.services.<serviceId>`，reggol 按名字查日志等级，插件 `logLevel` 对它无效，
 INFO 诊断会一直刷屏。Provider 使用当前 Bot 注入的 logger，诊断日志为 debug 级。
 
-payload 形状（`src/console/types.ts`）：
+payload 形状（`src/console/model.ts`）：
 
 ```ts
 interface LoginPanelPayload {
@@ -66,7 +66,7 @@ interface LoginPanelPayload {
 登录数据包含二维码（等价于登录凭证），三个控制事件会驱动 QQ 重新登录，因此面板统一要求
 **管理员**权限等级：
 
-- `LOGIN_PANEL_AUTHORITY = 3`（Koishi 权限系统 3 级 = 管理员），由 `src/console/access.ts`
+- `LOGIN_PANEL_AUTHORITY = 3`（Koishi 权限系统 3 级 = 管理员），由 `src/console/model.ts`
   的 `loginPanelAccessOptions()` 生成唯一的鉴权选项；
 - `DataService` 构造选项带 `authority`：数据推送（`refresh()` → `broadcast`）和连接时拉取
   （`Client.refresh()` 读取服务的 `options`）都走同一门槛；

@@ -20,7 +20,7 @@
             └─ args[0] → 成员变动和请求转换，同时保留 bot.onOb11() 原始订阅
 ```
 
-涉及代码：`src/events/bridge.ts`、`adapt.ts`、`notices.ts`、`src/shared/protocol.ts`、`voice-decode.ts`、`types.ts`；
+涉及代码：`src/bridge/events/bridge.ts`、`adapt.ts`、`notices.ts`、`src/shared.ts`、`voice-decode.ts`、`types.ts`；
 `src/bot/dispatcher.ts` 的 `SessionDispatcher`。
 
 ## kernel 事件入口

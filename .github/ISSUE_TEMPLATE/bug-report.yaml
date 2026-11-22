@@ -20,8 +20,8 @@ body:
       attributes:
           label: 受影响的区域
           description: |
-              填仓库内路径或模块名，可以填多个。例如 `src/events/`（收方向映射）、
-              `src/actions/`（发方向动作）、`src/driver/`（子进程编排）、`client/`（控制台面板）。
+              填仓库内路径或模块名，可以填多个。例如 `src/bridge/events/`（收方向映射）、
+              `src/bridge/actions/`（发方向动作）、`src/runtime/driver/`（子进程编排）、`client/`（控制台面板）。
           placeholder: "src/... 或 client/... 或 docs/..."
       validations:
           required: true

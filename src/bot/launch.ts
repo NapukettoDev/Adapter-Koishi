@@ -26,8 +26,8 @@ import {
     resolveQqInstall,
 } from "@napuketto/loader";
 import type { NapukettoBotConfig } from "../config.js";
-import type { DriverLauncher } from "../driver/index.js";
-import { requireSelfId } from "../shared/protocol.js";
+import type { DriverLauncher } from "../runtime/driver/types.js";
+import { requireSelfId } from "../shared.js";
 
 /**
  * 解析包入口（override 优先；否则 createRequire.resolve——CJS 产物下

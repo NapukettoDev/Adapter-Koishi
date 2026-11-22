@@ -14,7 +14,7 @@ body:
               的「范围禁区」）：**Satori 动作面、`session.onebot.*` 驼峰兼容糖、把群通知/请求事件
               硬翻成 koishi `notice` / `request`、HTTP/WebSocket 服务**都不在路线内，相关请求会被
               关闭并说明原因。
-              新能力优先落在适配层：`src/events/`、`src/actions/`、`src/driver/`、`src/console/`、
+              新能力优先落在适配层：`src/bridge/events/`、`src/bridge/actions/`、`src/runtime/driver/`、`src/console/`、
               `client/`。需要子进程动作表本身新增能力时，由上游 `@napuketto/*` 提供，本仓不硬造。
 
     - type: dropdown

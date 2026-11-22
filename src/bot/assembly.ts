@@ -7,26 +7,24 @@ import {
     type Logger,
     type Universal,
 } from "koishi";
-import { NapukettoInternal } from "../actions/index.js";
-import type { NapukettoInternalOptions } from "../actions/types.js";
+import { NapukettoInternal } from "../bridge/actions/internal.js";
+import type { NapukettoInternalOptions } from "../bridge/actions/types.js";
+import { NapukettoEventBridge } from "../bridge/events/bridge.js";
+import type { NapukettoSessionFields } from "../bridge/events/types.js";
+import { enrichReceiveVoice } from "../bridge/events/voice-decode.js";
 import type { NapukettoBotConfig } from "../config.js";
-import { type LoginPanelDeps, NapukettoLoginPanel } from "../console/index.js";
-import { NapukettoDatabase } from "../database/index.js";
-import { NapukettoDriver } from "../driver/index.js";
-import type { DriverEvents } from "../driver/types.js";
-import {
-    enrichReceiveVoice,
-    NapukettoEventBridge,
-    type NapukettoSessionFields,
-} from "../events/index.js";
-import type { NapukettoIpcClient } from "../ipc/index.js";
-import { type LoginSnapshot, NapukettoLoginState } from "../login/index.js";
-import { IpcError } from "../shared/errors.js";
-import { bindKoishiH, requireSelfId } from "../shared/protocol.js";
+import { NapukettoLoginState } from "../console/login-state.js";
+import { type LoginPanelDeps, NapukettoLoginPanel } from "../console/panel.js";
+import { bindLoginProvider } from "../console/provider.js";
+import { NapukettoDriver } from "../runtime/driver/driver.js";
+import type { DriverEvents } from "../runtime/driver/types.js";
+import type { NapukettoIpcClient } from "../runtime/ipc/index.js";
+import { bindKoishiH, IpcError, requireSelfId } from "../shared.js";
+import { NapukettoDatabase } from "./database.js";
 import { SessionDispatcher } from "./dispatcher.js";
 import { buildLaunch } from "./launch.js";
 import { BotLifecycleController } from "./lifecycle.js";
-import { toUserFields } from "./transform.js";
+import { syncUser, toUserFields } from "./transform.js";
 
 /** 登录状态机装配依赖。 */
 export interface LoginStateHost {
@@ -73,7 +71,7 @@ export interface PanelHost {
     restart: LoginPanelDeps["restart"];
 }
 
-/** 装配控制台登录面板（login-panel.ts：装配/reload 去重/连接回放/指令上行）。 */
+/** 装配控制台登录面板（panel.ts：装配/reload 去重/连接回放/指令上行）。 */
 export function createPanel(host: PanelHost): NapukettoLoginPanel {
     const sendControl: LoginPanelDeps["sendControl"] = (payload) => {
         const client = host.getClient();
@@ -83,20 +81,23 @@ export function createPanel(host: PanelHost): NapukettoLoginPanel {
         client.sendControl(payload);
         return true;
     };
-    return new NapukettoLoginPanel({
-        selfId: host.selfId,
-        getSnapshot: () => host.getLogin().snapshot,
-        sendControl,
-        request: async (action, params) => {
-            const client = host.getClient();
-            if (client === null) {
-                throw new IpcError("Napuketto 子进程未就绪（等待驱动连接）", "CLOSED");
-            }
-            return client.request(action, params);
+    return new NapukettoLoginPanel(
+        {
+            selfId: host.selfId,
+            getSnapshot: () => host.getLogin().snapshot,
+            sendControl,
+            request: async (action, params) => {
+                const client = host.getClient();
+                if (client === null) {
+                    throw new IpcError("Napuketto 子进程未就绪（等待驱动连接）", "CLOSED");
+                }
+                return client.request(action, params);
+            },
+            restart: host.restart,
+            logger: host.logger,
         },
-        restart: host.restart,
-        logger: host.logger,
-    });
+        bindLoginProvider,
+    );
 }
 
 /**
@@ -210,37 +211,6 @@ function createDriver(
             );
         },
     });
-}
-
-type LoginBot = Pick<Bot, "selfId" | "user" | "toJSON"> & {
-    internal: Pick<NapukettoInternal, "getSelf">;
-};
-
-/** 登录推送已有自身信息时直接使用，缺省时才向宿主拉取。 */
-export async function resolveBotLogin(
-    bot: LoginBot,
-    self: LoginSnapshot["self"],
-): Promise<Universal.Login> {
-    if (self !== undefined) {
-        syncUser(bot, { uin: self.uin, nick: self.nick });
-        bot.selfId = self.uin;
-    } else {
-        const data = (await bot.internal.getSelf()) as
-            | { uin?: string; nickname?: string }
-            | undefined;
-        if (data != null) {
-            if (typeof data.uin === "string" && data.uin !== "") {
-                bot.selfId = data.uin;
-            }
-            syncUser(bot, { uin: data.uin, nick: data.nickname });
-        }
-    }
-    return bot.toJSON();
-}
-
-function syncUser(bot: Pick<Bot, "user">, partial: Parameters<typeof toUserFields>[0]): void {
-    bot.user ??= {} as Universal.User;
-    Object.assign(bot.user, toUserFields(partial));
 }
 
 export function createDispatcher(

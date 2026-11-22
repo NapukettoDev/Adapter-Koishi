@@ -4,7 +4,7 @@
 > 1. **按需读文档**：严禁开局通读 `docs/`！只按「文档地图」读当前改动涉及的那一篇；涉及跨层契约
 >    变更时才读 `docs/architecture/`。
 > 2. **禁止全量刷屏**：验证优先针对单个测试文件，用 `--reporter=dot` 压掉明细
->    （如 `pnpm exec vitest run src/events/__tests__/adapt.test.ts --reporter=dot`）；严禁无脑
+>    （如 `pnpm exec vitest run tests/unit/bridge/events/adapt.test.ts --reporter=dot`）；严禁无脑
 >    `pnpm test` 把几百行 Pass 日志灌进上下文。
 > 3. **不读生成物**：`lib/`、`dist/`、`node_modules/` 是构建产物与第三方代码，不要通读；行为以
 >    `src/`、`client/` 和配置文件为准，跨包契约看 `@napuketto/*` 的公开类型。
@@ -36,26 +36,26 @@
    - `@napuketto/adapter` / `@napuketto/network` **不在源码中 import**，只把磁盘入口路径交给子进程，
      由 loader 在子进程内装配 OB11 动作面；
    - `driver` 不认识 loader（launch 由 Bot 注入）；`events` / `actions` 不 import koishi 运行时；
-     `console` 之外的层不依赖控制台；
+     `bot` 组装控制台，其他层不依赖 `console`；`console` 不依赖 `bot`、`runtime` 或 `bridge`；
    - 不提供 HTTP / WebSocket 服务，不监听网络端口。
 4. **IPC 契约单一来源**：消息类型、payload schema、`IPC_VERSION` 一律来自 `@napuketto/loader`，
-   插件侧 `src/ipc/index.ts` 只 re-export；**禁止复制定义或自造一套协议**。
+   插件侧 `src/runtime/ipc/index.ts` 只 re-export；**禁止复制定义或自造一套协议**。
 5. **发布形态**：`tsdown.config.ts` 设置 `deps.bundle: false`，`@napuketto/*` 与 koishi 生态全部
    external——子进程运行时要读磁盘上的 `self-host.cjs`、stub `QQNT.dll`、kernel 入口，bundle 会丢资产。
    产物固定为 `lib/index.cjs` + `lib/index.d.cts`、`dist/index.js` + `dist/index.css`；控制台产物文件名
    不可改（`src/console/entry.ts` 按清单复制，改名即 404）。`files` 只发布 `lib` / `client` / `dist`，不含 `src`。
 6. **配置与账号一致性**：配置 schema 唯一来源 `src/config.ts`（`selfId` 必填），schema 默认值与运行时
-   兜底必须一致。`selfId` 同时是账号数据目录边界；登录成其他 QQ 号必须拒绝上线（`src/bot/identity.ts`），
+   兜底必须一致。`selfId` 同时是账号数据目录边界；登录成其他 QQ 号必须拒绝上线（`src/bot/lifecycle.ts`），
    严禁“将就用实际 uin”。
 7. **测试边界**：单测**不加载 koishi 运行时**（会初始化 loader 并直接崩溃）。可测逻辑必须是纯函数 /
-   依赖注入；`bot.ts`、`message.ts`、`login-panel.ts`、`assembly.ts`、`config.ts`、`console/provider.ts`、
+   依赖注入；`bot.ts`、`message.ts`、`assembly.ts`、`config.ts`、`console/provider.ts`、
    `index.ts` 不进单测（见 `docs/guides/development.md#测试边界`）。
 8. **范围禁区**：不引入 changesets；不做本地 `npm publish`；不新增 Satori 动作面；事件转换须有
    上游载荷与 Koishi 契约依据；不为扩展协议去改 `@napuketto/network` / `kernel` 行为。
 
 ## 代码风格与红线
 
-- **Biome（仅 `src/**`）**：4 空格、LF、100 列、双引号、分号、尾逗号；`noFloatingPromises = error`；
+- **Biome（`src/` 源码与 `tests/` 下的 TypeScript）**：4 空格、LF、100 列、双引号、分号、尾逗号；`noFloatingPromises = error`；
   import 组织走 Biome assist。`client/` 与根配置文件不在 Biome 范围。
 - **TS 两套 strict**（根 `tsconfig.json` / `client/tsconfig.json`）：`noUncheckedIndexedAccess`、
   `exactOptionalPropertyTypes`、`verbatimModuleSyntax`、`noUnusedLocals/Parameters`、
@@ -64,7 +64,7 @@
 - **可选属性**：`exactOptionalPropertyTypes` 下用条件展开
   `...(x !== undefined ? { x } : {})`，不要显式赋 `undefined`。
 - **`const enum` 不可用**：`Universal.Channel.Type` / `Universal.Status` 在 `verbatimModuleSyntax`
-  下无法访问，用 `src/shared/protocol.ts`（如 `BOT_STATUS`）或字面量。
+  下无法访问，用 `src/shared.ts`（如 `BOT_STATUS`）或字面量。
 - **barrel 最小化**：`index.ts` 只 re-export 有消费者的符号；内部类型让消费方直接从 `types.js` 引入，
   避免死导出。
 - **错误与日志**：业务抛类型化错误（`IpcError` / `KernelError` 等），禁止静默吞错；日志走 bot logger
@@ -95,11 +95,11 @@
 3. **扩展落点**：
    - 新配置项：`src/config.ts`（接口 + Schema）→ 涉及 launch 时同步 `src/bot/launch.ts` →
      更新 `docs/guides/configuration.md` → 补 `resolveLaunchOptions` 纯函数单测。
-   - 新发向动作 / 元素：`src/actions/elements.ts` / `internal.ts` → 用 mock request 断言动作名与参数 →
+   - 新发向动作 / 元素：`src/bridge/actions/elements.ts` / `internal.ts` → 用 mock request 断言动作名与参数 →
      更新 `docs/internals/actions.md`；子进程动作表没有的能力需上游提供，不在本仓硬造。
-   - 新收向元素：`src/shared/protocol.ts` 正向映射 + `src/actions/elements.ts` 反向映射，两个方向都要测，
+   - 新收向元素：`src/shared.ts` 正向映射 + `src/bridge/actions/elements.ts` 反向映射，两个方向都要测，
      并同步 `docs/internals/events.md` 与 `actions.md` 的表格。
-   - 新控制台事件：`src/console/provider.ts` → `src/console/login-panel.ts` → `client/settings.vue` 或子组件 →
+   - 新控制台事件：`src/console/provider.ts` → `src/console/panel.ts` → `client/settings.vue` 或子组件 →
      更新 `docs/internals/console.md`。
 4. **本地联调**：`pnpm build && pnpm build:client` → `pnpm pack` → 目标 Koishi 实例
    `pnpm add file:<tarball>`。**禁止用 workspace link 代替真实安装形态**（路径解析不同），验证完切回

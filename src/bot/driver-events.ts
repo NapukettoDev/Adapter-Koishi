@@ -1,9 +1,9 @@
 /** 把当前轮次的驱动事件接到登录状态、桥接和 Bot 回调。 */
 import type { Logger } from "koishi";
-import type { DriverEvents } from "../driver/types.js";
-import type { NapukettoEventBridge } from "../events/index.js";
-import type { IpcLoginPayload } from "../ipc/index.js";
-import type { NapukettoLoginState } from "../login/index.js";
+import type { NapukettoEventBridge } from "../bridge/events/bridge.js";
+import type { NapukettoLoginState } from "../console/login-state.js";
+import type { DriverEvents } from "../runtime/driver/types.js";
+import type { IpcLoginPayload } from "../runtime/ipc/index.js";
 
 /** driver events 主机（bot 层提供依赖，避免工厂直接依赖 NapukettoBot 全量）。 */
 export interface DriverEventsHost {

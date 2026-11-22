@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.57
+
+### Patch Changes
+
+- 收敛适配器源码目录，集中子进程运行时与收发桥接模块，将单测和集成测试迁入独立测试树。保留现有公开 API、IPC 契约与发布产物路径。
+
 ## 0.0.56
 
 ### Patch Changes

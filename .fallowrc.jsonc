@@ -18,10 +18,10 @@
     //    （start/stop/getMessageList/getLogin/getFriendList/getChannel/... 框架多态
     //    调用）+ MessageEncoder static（koishi 按 bot.constructor.MessageEncoder
     //    反射查找），静态分析无引用
-    //  - src/ipc/client.ts：alive/sendControl 被 driver.ts 和 terminator.ts 经
+    //  - src/runtime/ipc/client.ts：alive/sendControl 被 driver.ts 和 terminator.ts 经
     //    「null 联合类型 + 属性访问」调用，
     //    fallow 流分析漏报（实际有消费者）
-    //  - src/driver/driver.ts：restartAttempts 是测试断言（driver-restart.test.ts）
+    //  - src/runtime/driver/driver.ts：restartAttempts 是测试断言（driver-restart.test.ts）
     //    + 诊断用公共 getter
     //  - src/console/provider.ts：NapukettoLoginProvider.get 是 DataService 抽象
     //    方法实现（koishi 控制台 PULL 路径框架调用），fallow 继承感知只覆盖
@@ -30,20 +30,14 @@
         {
             "files": [
                 "src/bot/bot.ts",
-                "src/ipc/client.ts",
-                "src/driver/driver.ts",
+                "src/runtime/ipc/client.ts",
+                "src/runtime/driver/driver.ts",
                 "src/console/provider.ts"
             ],
             "rules": {
                 "unused-class-members": "off"
             }
         }
-    ],
-    // 公共 API 面豁免：
-    //  - src/login/index.ts：LoginObserver/LoginSnapshot/LoginView 是登录交互公共
-    //    类型（LoginView 供控制台与测试注入；见 docs/architecture/lifecycle.md）
-    "ignoreFindings": [
-        "src/login/index.ts"
     ],
     // class + namespace 声明合并（bot.ts `export class NapukettoBot` + 文件尾
     // `export namespace NapukettoBot`，napcat 同构模式：Config 常量/类型合并到类

@@ -3,7 +3,7 @@
 `NapukettoBot` 是插件的默认导出，注册为 koishi 平台 `onebot`。它把 driver、IPC、登录状态、
 事件桥、动作桥、控制台面板与数据库预热装配成 koishi 能驱动的 Bot。
 
-涉及代码：`src/bot/`（Bot 外壳、生命周期、派发、编码器、启动与组件装配）、`src/database/`、`src/index.ts`。
+涉及代码：`src/bot/`（Bot 外壳、生命周期、派发、编码器、启动与组件装配）、`src/bot/database.ts`、`src/index.ts`。
 
 ## 平台注册与类静态成员
 
@@ -164,14 +164,14 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
   channelId、guildId、isDirect 填到新的 session，`app.emit(session, "send", session)`；若有
   `event.message` 则 push 到 `results`；清空收集数组。
 
-元素到 canonical 的转换复用 `src/actions/elements.ts` 的 `toCanonicalElements()`，不重复实现。
+元素到 canonical 的转换复用 `src/bridge/actions/elements.ts` 的 `toCanonicalElements()`，不重复实现。
 
 ## 纯逻辑与单测边界
 
 这些文件运行时 import koishi，**不在单测中加载**：
 
-`src/index.ts`、`src/bot/bot.ts`、`src/bot/message.ts`、`src/console/login-panel.ts`、
-`src/bot/assembly.ts`、`src/console/entry.ts`、`src/config.ts`、
+`src/index.ts`、`src/bot/bot.ts`、`src/bot/message.ts`、
+`src/bot/assembly.ts`、`src/config.ts`、
 `src/console/provider.ts`。
 
 `src/bot/driver-events.ts` 是例外：全部为 type-only import，运行时零 koishi 依赖，可直接单测。
@@ -182,12 +182,11 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 
 | 文件 | 测试方式 |
 | :--- | :--- |
-| `identity.ts` | 纯判定 + 注入式拒绝动作 |
 | `dispatcher.ts` | 宽松 session 结构，直接断言字段 |
-| `lifecycle.ts` | 注入 driver 与 Bot 能力，验证启停重叠和旧轮次回调 |
-| `transform.ts` | 仅 import type `Universal` |
-| `console/login-actions.ts` | 纯决策表 + mock executor |
+| `lifecycle.ts` | 验证账号判定与拒绝上线，注入 driver 和 Bot 验证启停重叠及旧轮次回调 |
+| `transform.ts` | 断言 Universal 形状转换，无 Koishi 运行时 |
+| `src/console/panel.ts` | 纯决策表 + mock executor |
 | `bot/launch.ts` 的 `resolveLaunchOptions` | 注入假 `resolveQq`，不 spawn |
-| `actions/` / `events/` 的映射 | mock request / mock h |
+| `src/bridge/` 的动作与事件映射 | mock request / mock h |
 
 配置项与默认值见 [配置](../guides/configuration.md)。
