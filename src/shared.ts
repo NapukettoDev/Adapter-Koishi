@@ -8,6 +8,8 @@ export const PRIVATE_PREFIX = "private:";
 /** Status：CONNECT=2 / DISCONNECT=3（koishi Bot.status）。 */
 export const BOT_STATUS = { CONNECT: 2, DISCONNECT: 3 } as const;
 
+export const DEFAULT_LOG_LEVEL = "info";
+
 /** 与 Napuketto CLI 的账号格式一致，并保证账号目录名只有一个路径段。 */
 export const SELF_ID_PATTERN = /^[0-9]{5,11}$/;
 

@@ -200,9 +200,14 @@ describe("Bot 启停生命周期", () => {
         expect(bot["login"].snapshot.self?.uin).toBe(SELF_ID);
         expect(bot["login"].snapshot.qr).toBeUndefined();
     });
+    it("省略日志等级时使用 info", () => {
+        setupPanel();
+        expect(new Logger(`onebot-${SELF_ID}`).level).toBe(Logger.INFO);
+    });
+
     it.each([
-        ["默认 debug", SELF_ID, undefined, "10002", "silent"],
-        ["silent", "10002", "silent", SELF_ID, undefined],
+        ["debug", SELF_ID, "debug", "10002", "silent"],
+        ["silent", "10002", "silent", SELF_ID, "debug"],
     ] as const)(
         "先启动 %s 时，两个账号的日志等级仍独立",
         async (_, firstId, firstLevel, secondId, secondLevel) => {

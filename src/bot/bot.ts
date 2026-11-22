@@ -6,7 +6,7 @@ import type { Ob11EventPayload } from "../bridge/events/types.js";
 import { type LogLevel, type NapukettoBotConfig, napukettoConfigSchema } from "../config.js";
 import type { NapukettoLoginState } from "../console/login-state.js";
 import type { NapukettoLoginPanel } from "../console/panel.js";
-import { IpcError, PRIVATE_PREFIX, requireSelfId } from "../shared.js";
+import { DEFAULT_LOG_LEVEL, IpcError, PRIVATE_PREFIX, requireSelfId } from "../shared.js";
 import {
     createBridge,
     createDispatcher,
@@ -79,7 +79,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         // reggol 按名称共享等级，账号需要独立的 logger 名称。
         const logger = ctx.logger(`${this.logger.name}-${selfId}`);
         this.logger = logger;
-        logger.level = LOG_LEVEL_MAP[config.logLevel ?? "debug"];
+        logger.level = LOG_LEVEL_MAP[config.logLevel ?? DEFAULT_LOG_LEVEL];
         this.selfId = selfId;
         this.user ??= {} as Universal.User;
         this.user.avatar = avatarUrl(selfId);
