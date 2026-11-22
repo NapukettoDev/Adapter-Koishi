@@ -86,6 +86,11 @@ function guardSession(session: object, state: GuardState): object {
             if (!Object.hasOwn(target, property)) return deny(property);
             return Reflect.getOwnPropertyDescriptor(target, property);
         },
+        ownKeys(target) {
+            // 枚举会暴露「哪些字段存在」的差异（例如 user 是否已延迟加载），不可信。
+            state.unsafe = true;
+            return Reflect.ownKeys(target);
+        },
         set(_target, property) {
             return deny(property);
         },

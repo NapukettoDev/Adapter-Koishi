@@ -111,6 +111,13 @@ describe("resolvePolicy", () => {
         ).toEqual({ kind: "deferred" });
     });
 
+    it("函数枚举 session → deferred（避免利用字段存在性差异）", () => {
+        const source = (value: typeof session) => (Object.keys(value).length > 0 ? 0 : 1);
+        expect(
+            resolvePolicy(source as unknown as Computed<number>, session, isAuthorizePolicy),
+        ).toEqual({ kind: "deferred" });
+    });
+
     it("函数使用 in 操作符探测延迟字段 → deferred", () => {
         const source = (value: typeof session) => ("user" in value ? 0 : 1);
         expect(
