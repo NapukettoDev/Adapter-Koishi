@@ -1,5 +1,7 @@
 
 *.test.ts linguist-detectable=false
+tests/** linguist-detectable=false
+tooling/** linguist-detectable=false
 
 * text eol=lf
 
