@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    truncateSync,
+    writeFileSync,
+} from "node:fs";
+import { mkdir, symlink, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import type { CanonicalElement } from "@napuketto/kernel";
@@ -57,7 +65,9 @@ describe("prepareOutboundMedia", () => {
     it.each(["#!SILK_V3", "\x02#!SILK_V3"])("已有 SILK %s 保留原路径", async (header) => {
         const silk = join(dir, "voice.silk");
         writeFileSync(silk, header);
-        const result = await prepareOutboundMedia([{ type: "voice", path: silk }]);
+        const result = await prepareOutboundMedia([{ type: "voice", path: silk }], {
+            localFilePolicy: "legacy",
+        });
         expect(pathOf(result.elements[0])).toBe(silk);
         expect(encode).not.toHaveBeenCalled();
         await result.cleanup();
@@ -79,8 +89,8 @@ describe("prepareOutboundMedia", () => {
         });
         const elements: CanonicalElement[] = [{ type: "voice", path: ogg }];
         const [first, second] = await Promise.all([
-            prepareOutboundMedia(elements),
-            prepareOutboundMedia(elements),
+            prepareOutboundMedia(elements, { localFilePolicy: "legacy" }),
+            prepareOutboundMedia(elements, { localFilePolicy: "legacy" }),
         ]);
         const a = pathOf(first.elements[0]);
         const b = pathOf(second.elements[0]);
@@ -106,6 +116,7 @@ describe("prepareOutboundMedia", () => {
         });
         const warn = vi.fn();
         const result = await prepareOutboundMedia([{ type: "voice", path: source }], {
+            localFilePolicy: "legacy",
             logger: { warn },
         });
         expect(pathOf(result.elements[0])).toBe(source);
@@ -113,6 +124,64 @@ describe("prepareOutboundMedia", () => {
         await result.cleanup();
         expect(existsSync(partial)).toBe(false);
         expect(readFileSync(source, "utf8")).toBe("OggS");
+    });
+
+    it("在分配临时目录前拒绝超量媒体，也累计重复引用的字节", async () => {
+        const path = join(dir, "large.png");
+        writeFileSync(path, "");
+        truncateSync(path, 30 * 1024 * 1024);
+        const image = { type: "image", path } as const;
+        await expect(prepareOutboundMedia(Array.from({ length: 17 }, () => image))).rejects.toThrow(
+            "16 项",
+        );
+        expect(workspaceCreated).not.toHaveBeenCalled();
+        await expect(
+            prepareOutboundMedia(
+                Array.from({ length: 5 }, () => image),
+                {
+                    localFilePolicy: "legacy",
+                },
+            ),
+        ).rejects.toThrow("累计字节");
+    });
+
+    it("仅回收过期且所属进程已退出的工作目录", async () => {
+        const outboundRoot = join(dir, "outbound-media");
+        const orphan = join(outboundRoot, "send-2000000000-past42");
+        const live = join(outboundRoot, `send-${process.pid}-live42`);
+        const unrelated = join(outboundRoot, "unrelated");
+        const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
+        for (const path of [orphan, live, unrelated]) {
+            await mkdir(path, { recursive: true, mode: 0o700 });
+            await utimes(path, old, old);
+        }
+        const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+            throw Object.assign(new Error("fixture process already exited"), { code: "ESRCH" });
+        });
+        try {
+            const result = await prepareOutboundMedia(
+                [{ type: "image", path: "data:image/png;base64,YQ==" }],
+                { outboundRoot },
+            );
+            await result.cleanup();
+            expect(existsSync(orphan)).toBe(false);
+            expect(existsSync(live)).toBe(true);
+            expect(existsSync(unrelated)).toBe(true);
+        } finally {
+            kill.mockRestore();
+        }
+    });
+
+    it("拒绝被重定向的出站临时根", async () => {
+        const outboundRoot = join(dir, "outbound-media");
+        const other = join(dir, "other");
+        await mkdir(other);
+        await symlink(other, outboundRoot, process.platform === "win32" ? "junction" : "dir");
+        await expect(
+            prepareOutboundMedia([{ type: "image", path: "data:image/png;base64,YQ==" }], {
+                outboundRoot,
+            }),
+        ).rejects.toMatchObject({ code: "INVALID_STATE" });
     });
 
     it("允许白名单外的适配器 data URL 产物并保留二进制字节", async () => {
@@ -187,8 +256,11 @@ describe("prepareOutboundMedia", () => {
             return output;
         });
         const source = join(dir, "a.mp4");
+        writeFileSync(source, "video");
         const text: CanonicalElement = { type: "text", text: "hi" };
-        const result = await prepareOutboundMedia([{ type: "video", path: source }, text]);
+        const result = await prepareOutboundMedia([{ type: "video", path: source }, text], {
+            localFilePolicy: "legacy",
+        });
         const [video, rest] = result.elements;
         expect(video).toMatchObject({
             type: "video",

@@ -41,7 +41,7 @@ function setup() {
     const lifecycle = new BotLifecycleController({
         bot,
         login,
-        logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         getBridge: () => bridge,
         getSelfId: () => SELF.uin,
         stopBot: async () => {

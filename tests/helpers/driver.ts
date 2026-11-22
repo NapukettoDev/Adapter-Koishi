@@ -54,7 +54,7 @@ export function createHarness(
     events: DriverEvents = {},
     options: {
         restart?: { maxRetries?: number; backoffMs?: number; backoffFactor?: number };
-        onJunkLine?: (line: string) => void;
+        onJunkLine?: () => void;
         accountDir?: string;
     } = {},
 ): DriverHarness {

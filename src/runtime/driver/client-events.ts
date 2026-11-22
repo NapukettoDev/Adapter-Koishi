@@ -39,6 +39,7 @@ export function connectHost(
                       (error) => events.onIpcWriteError?.(error),
                       {
                           onOversizeLine: (error) => events.onIpcError?.(error),
+                          ...(events.onStderr === undefined ? {} : { onStderr: events.onStderr }),
                       },
                   );
     } catch (error) {

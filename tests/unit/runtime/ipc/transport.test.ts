@@ -228,15 +228,20 @@ describe("ChildProcessIpcTransport", () => {
         }
     });
 
-    it("stderr 透传：原生噪音行过滤、其余带前缀透传", async () => {
+    it("持续排空 stderr，只上报一次无内容的提示", async () => {
         const child = new FakeChildProcess({ stderr: true });
         const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-        const transport = new ChildProcessIpcTransport(child as unknown as ChildProcess);
-        child.stderr?.write("wine: could not load qq.exe\n");
-        child.stderr?.write("<MMKV> close finish, remains = 0\n");
+        const onStderr = vi.fn();
+        const transport = new ChildProcessIpcTransport(
+            child as unknown as ChildProcess,
+            undefined,
+            { onStderr },
+        );
+        child.stderr?.write("fixture-credential");
+        child.stderr?.write("fixture-qr\n");
         await flushStreams();
-        expect(stderrSpy).toHaveBeenCalledTimes(1);
-        expect(stderrSpy).toHaveBeenCalledWith("[napuketto 子进程] wine: could not load qq.exe\n");
+        expect(onStderr).toHaveBeenCalledExactlyOnceWith();
+        expect(stderrSpy).not.toHaveBeenCalled();
         stderrSpy.mockRestore();
         transport.close();
     });

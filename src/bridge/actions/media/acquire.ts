@@ -47,15 +47,6 @@ export interface AcquireMediaOptions extends OutboundMediaPolicy {
     maxBytes?: number;
 }
 
-function publicDownloader(): typeof media.downloadUrl {
-    // 新入口由上游发布提供。检查导出能力，旧版本不会静默退回兼容网络策略。
-    const downloader = Reflect.get(media, "downloadPublicUrl");
-    if (typeof downloader !== "function") {
-        throw new IpcError("当前 @napuketto/media 不支持公网下载策略", "UNSUPPORTED");
-    }
-    return downloader as typeof media.downloadUrl;
-}
-
 async function download(
     url: URL,
     createFile: MediaFileFactory,
@@ -64,13 +55,13 @@ async function download(
 ): Promise<string> {
     const downloader =
         (options.remoteMediaPolicy ?? DEFAULT_REMOTE_MEDIA_POLICY) === "public-only"
-            ? publicDownloader()
+            ? media.downloadPublicUrl
             : media.downloadUrl;
     const suffix = media.inferExtension(null, url.href);
     const path = await createFile(suffix);
     await downloader(url.href, path, {
         timeoutMs: options.timeoutMs ?? REMOTE_TIMEOUT_MS,
-        maxBytes: options.maxBytes ?? maxBytes,
+        maxBytes,
     });
     // 发布版下载器只返回字节数。用文件魔数补足无扩展名的 CDN URL。
     const detected = await media.detectFileType(path).catch(() => undefined);

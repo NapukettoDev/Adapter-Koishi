@@ -78,7 +78,7 @@ export interface DriverOptions {
     /** 心跳超时（毫秒，默认 45s）。 */
     heartbeatTimeoutMs?: number;
     /** IPC 通道脏行回调（子进程 stdout 被并发输出撕裂/污染时的诊断留痕，接 logger）。 */
-    onJunkLine?: (line: string) => void;
+    onJunkLine?: () => void;
 }
 
 /** 传输工厂（默认 ChildProcessIpcTransport；测试注入内存双端）。 */
@@ -112,6 +112,7 @@ export interface DriverEvents {
     onReassembled?(): void;
     /** 结构化日志转发。 */
     onLog?(payload: IpcLogPayload): void;
+    onStderr?(): void;
     /** 就绪（每轮就绪回调，客户端实例随重启更换）。 */
     onReady?(): void;
     /** 手动重启登录开始（旧宿主退出前）。 */

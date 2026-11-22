@@ -35,7 +35,7 @@ const info = await bot.internal._request("get_login_info")
 
 OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见下文。
 适配器的控制台只提供登录控制。部署若向低信任调用方提供消息发送，应在该入口校验调用方和目标，
-只委托标准发送，并按 [配置指南](../guides/configuration.md#出站媒体策略) 设置文件与下载策略。
+只委托标准发送。聊天指令、Webhook 或第三方 API 的权限和目标限制由部署者负责，禁止把用户输入直接转交原始动作接口。按 [配置指南](../guides/configuration.md#出站媒体策略) 设置文件与下载策略。
 
 ## 高层方法
 
@@ -142,9 +142,12 @@ Koishi `sendMessage()` 为图片（`img` / `image`）、语音（`audio`）和�
 4. 非 SILK 语音在适配器独占目录中调用 `encodePcmToSilk`。转码失败继续使用原音频并记录告警。
    已有的 SILK（含 QQ 的前导字节变体）原样使用。
 5. 视频尝试提取缩略图、宽高和时长，再调用 `msg.sendMessage`。探测或抽帧失败会继续尝试发送。
-   准备失败或 IPC 请求结束后回收适配器为本次发送创建的目录，调用方文件由调用方管理。
+   标准发送一次最多 16 项媒体（重复引用也计入），媒体输入、转码和缩略图合计最多 120 MiB。
+   文件在账号目录下的 `outbound-media` 独占子目录中准备，宿主确认结果后清理。IPC 超时或连接断开时为宿主留出
+   2 分钟消费窗口，再尝试清理。后续创建工作目录时回收已退出进程留下超过 24 小时的目录。调用方文件由调用方管理。
 
-OB11 的发送消息、下载、头像、群公告图和闪传等根据上游动作处理媒体。
+OB11 的发送消息、下载、头像、群公告图和闪传等由上游动作执行媒体授权、单文件限制及缓存管理。
+标准发送的单消息预算只用于 Koishi 媒体准备。OB11 的单消息预算由[上游跟踪](https://github.com/NapukettoDev/NapukettoQQ/issues/181)。
 `ob11Actions: false` 关闭 OB11 桥，原始 kernel 动作仍由 `_request()` 调用。
 
 ## 子进程侧的动作实现
@@ -163,7 +166,9 @@ kernel 动作面（launch 已就绪）：
 | `login.refreshQr` | 登录期即可用；调用 kernel `refreshQr()`，返回是否触发了新码 |
 
 `diag.*` 动作是原生调用诊断入口（`diag.sessionCall`、`diag.engineCall`、`diag.richMediaTmpPaths` 等），
-由宿主注册，供受信任的进程内诊断使用。部署入口的诊断授权与媒体配置独立，向低信任调用方提供服务时应排除整个诊断动作空间。
+默认关闭，`_request()` 始终拒绝它们。受信任的进程内插件可在指定账号开启 `diagnostics: true`，
+再迁移到 `bot.internal.requestDiagnostic()`。宿主另行限制可调用的原生方法；不要把这个方法暴露给部署入口。
+包括原始 `msg.sendMessage` 在内的 kernel 动作按原始参数执行，可绕过标准发送的媒体准备。保留给受信任的进程内集成。
 
 ## OneBot 11 动作面
 
@@ -174,8 +179,8 @@ kernel 动作面（launch 已就绪）：
    `NAPUTO_ADAPTER_ENTRY` / `NAPUTO_NETWORK_ENTRY`。任一入口解析失败 → 记录降级，子进程不挂载。
 2. 子进程登录成功后，loader 动态 import adapter 的 `onebot11` / `core` 子路径与 network 入口，
    实例化 `NapukettoOneBot11Adapter`，只调用 `subscribeOnly()`：接收链路生效，**不启动 HTTP/WS**。
-3. loader 将已安装的 OneBot 11 注册表整表挂到 IPC。随 `@napuketto/adapter@0.18.22` 安装时有 81 个注册名，
-   含别名变体。`OB11 动作名` 与 kernel 点分名空间分开。
+3. loader 将已安装的 OneBot 11 注册表（含别名）挂到 IPC，并读取当前 QQ 账号的 `onebot11.media`。
+   适配器用 Koishi 的远程策略和显式目录生成该账号配置。OB11 保留上游按文件限制及缓存生命周期。`OB11 动作名` 与 kernel 点分名空间分开。
 4. OB11 事件经桥适配器 → `event { service: "ob11", name: post_type, args: [event] }`。
 5. 动态 import / 构造 / 挂载失败只打日志，保留纯 kernel 动作面，登录链路不受影响。
 

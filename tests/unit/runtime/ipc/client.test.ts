@@ -447,10 +447,8 @@ describe("NapukettoIpcClient 事件分发", () => {
 
     it("无法解析的行 → onJunkLine 回调且不影响后续消息", () => {
         const pair = new MemoryLinePair();
-        const junk: string[] = [];
-        const client = new NapukettoIpcClient(pair, {
-            onJunkLine: (line) => junk.push(line),
-        });
+        const onJunkLine = vi.fn();
+        const client = new NapukettoIpcClient(pair, { onJunkLine });
         const phases: string[] = [];
         client.on("status", (message) => phases.push(message.payload.phase));
 
@@ -459,7 +457,7 @@ describe("NapukettoIpcClient 事件分发", () => {
         pair.peer.write(
             encodeIpcMessage({ v: IPC_VERSION, type: "status", payload: { phase: "booting" } }),
         );
-        expect(junk).toEqual([torn]);
+        expect(onJunkLine).toHaveBeenCalledExactlyOnceWith();
         expect(phases).toEqual(["booting"]);
         client.close();
     });

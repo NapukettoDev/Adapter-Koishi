@@ -86,7 +86,7 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 | `onReady` | `handleReady()` |
 | `onExit` | `login.onExit()` + 非主动断开时 `offline()` |
 | `onError` | warn + `offline(error)` |
-| `onLog` | debug 日志（`[napuketto 子进程]`） |
+| `onLog` | 按宿主帧级别记录安全摘要 |
 
 所有回调先经过 `isCurrent()` 轮次校验。停止期间仍处理本轮的退出或超时，创建新驱动后才丢弃旧驱动回调。
 
@@ -118,7 +118,7 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 2. 普通消息按需调用 `preheat(fields)` 预热 channel / user（见下节），失败不阻断。
 3. `this.session({ type, subtype?, selfId, platform, timestamp, member? })`。
 4. `applySessionFields(session, fields)`（见 [事件桥](events.md#session-写入规则)）。
-5. 输出 info 日志。只有普通消息记录渲染文本。
+5. 输出 info 级会话元数据和元素数量。消息正文、URL 与元素属性留在 session 中。
 6. `this.dispatch(session)`。
 
 ## 数据库预热

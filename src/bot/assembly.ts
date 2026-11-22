@@ -51,8 +51,8 @@ export function createLoginState(host: LoginStateHost): NapukettoLoginState {
             host.logger.debug("[napuketto] 二维码更新");
             host.getPanel().push();
         },
-        onError: (error) => {
-            host.logger.warn("[napuketto] 登录错误: %o", error);
+        onError: () => {
+            host.logger.warn("[napuketto] 宿主报告登录失败");
             host.getPanel().push();
         },
     });
@@ -148,6 +148,7 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
 /** 动作桥装配依赖。 */
 export interface InternalHost {
     config: NapukettoBotConfig;
+    dataRoot: string;
     /** 当前 IPC 客户端（null = 子进程未就绪，request 抛错）。 */
     getClient: () => NapukettoIpcClient | null;
     getSelfIdentity: NonNullable<NapukettoInternalOptions["getSelfIdentity"]>;
@@ -159,6 +160,8 @@ export interface InternalHost {
 export function createInternal(host: InternalHost): NapukettoInternal {
     return new NapukettoInternal({
         h: koishiH,
+        diagnostics: host.config.diagnostics === true,
+        outboundRoot: join(host.dataRoot, requireSelfId(host.config.selfId), "outbound-media"),
         ...(host.config.remoteMediaPolicy === undefined
             ? {}
             : { remoteMediaPolicy: host.config.remoteMediaPolicy }),
@@ -203,11 +206,8 @@ function createDriver(
         ...(config.heartbeatTimeoutMs !== undefined
             ? { heartbeatTimeoutMs: config.heartbeatTimeoutMs }
             : {}),
-        onJunkLine: (line) => {
-            logger.debug(
-                "[napuketto] IPC 收到无法解析的行（可能被并发输出撕裂）: %s",
-                line.slice(0, 200),
-            );
+        onJunkLine: () => {
+            logger.debug("[napuketto] IPC 丢弃一条无法解析的行");
         },
     });
 }

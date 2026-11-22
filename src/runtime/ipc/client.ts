@@ -32,7 +32,7 @@ interface IpcClientOptions {
     maxLineBytes?: number;
     /** 无法解析的行回调（诊断：stdout 被并发输出撕裂/原生 printf 污染时留痕，
      * 不再静默丢弃——调用方接 logger，见 driver 的 onJunkLine 接线）。 */
-    onJunkLine?: (line: string) => void;
+    onJunkLine?: () => void;
     /** 单条消息订阅者抛错时的诊断回调；不影响同类型其余订阅者。 */
     onHandlerError?: (error: unknown, type: IpcMessage["type"]) => void;
 }
@@ -217,7 +217,7 @@ export class NapukettoIpcClient {
         if (message === null) {
             // 非法行：不静默丢弃（撕裂/污染留痕，调用方可接日志）
             try {
-                this.options.onJunkLine?.(line);
+                this.options.onJunkLine?.();
             } catch {
                 // 诊断回调异常不得中断后续 IPC 行。
             }

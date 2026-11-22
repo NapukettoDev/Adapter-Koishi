@@ -23,15 +23,18 @@ bots:
 
 ## 出站媒体策略
 
-- `remoteMediaPolicy: compatible`（默认）允许本机和 LAN 媒体服务，逐跳拒绝链路本地等特殊字面地址。
+- `remoteMediaPolicy: compatible`（显式兼容）允许本机和 LAN 媒体服务，逐跳拒绝链路本地等特殊字面地址。
   保持这项配置的部署通常使用受信任的媒体 URL，并可用网络出口规则约束域名、代理及内网访问。
-- `remoteMediaPolicy: public-only` 逐跳只允许公网目标，验证实际连接使用的地址，
+- `remoteMediaPolicy: public-only`（默认）逐跳只允许公网目标，验证实际连接使用的地址，
   并保留 HTTPS 证书验证。`@napuketto/media` 从 0.2.3 起提供该下载入口，远程下载失败时回退为占位文本。
-- `localFilePolicy: legacy`（默认）保留部署现有的本地媒体路径和 `file://` 用法。
-  向低信任调用者提供标准发送时，使用 `allowlist` 和 `public-only`。空 `localMediaRoots` 拒绝所有调用方本地路径，
-  仍可使用有效的 HTTP(S) 和 data URL。动作入口的授权见 [动作桥](../internals/actions.md#动作入口与调用方)。
+- `localFilePolicy: allowlist`（默认）限制标准发送的本地路径和 `file://`。空 `localMediaRoots` 拒绝调用方本地路径，
+  仍可使用有效的 HTTP(S) 和 data URL。标准发送的 `legacy` 供可信集成显式使用，允许白名单外的普通文件，保留大小限制。
+- OB11 IPC 与标准发送共享出站网络模式和 `localMediaRoots`。即使标准发送选择 `legacy`，OB11 也始终要求显式目录。
+  旧配置省略两个策略时，升级后默认收紧。局域网媒体仅在信任所有调用方时显式设为 `compatible`。
+  动作入口的授权见 [动作桥](../internals/actions.md#动作入口与调用方)。
 - 受信任本地媒体用 `localMediaRoots` 显式列出专用导出目录，例如 Windows 的
-  `D:/koishi/media` 或 Linux 的 `/srv/koishi/media`。相对根和相对媒体路径以 Koishi 工作目录解析。
+  `D:/koishi/media` 或 Linux 的 `/srv/koishi/media`。相对配置根及标准发送的相对文件路径以 Koishi 工作目录解析。
+  OB11 的绝对文件路径需位于指定目录内，相对文件路径由上游按各白名单根查找。
   白名单解析链接后核对文件身份，再从已打开的句柄复制到 Koishi 的临时目录。多硬链接的文件会被拒绝。
   临时目录须由运行 Koishi 的账户控制。将配置根及其上级目录的重命名和重定向权限留给受信任进程。
   Linux 还通过 `/proc/self/fd` 核对已打开句柄的路径。Windows 使用路径复核和文件身份比对，须通过 ACL
@@ -41,9 +44,9 @@ bots:
 ## 配置项
 
 控制台把 QQ 号和日志等级放在「基础设置」。适配器的控制台入口加载后，「功能与媒体策略」
-「进程保活与重启」和「运行环境与路径」默认折叠，点击各组标题展开。切换本地媒体策略到白名单模式时
-可编辑目录列表。入站图片自动下载补丁可选「自动」「强制开启」或「强制关闭」，其中「自动」对应 YAML
-省略 `nativeMediaPatch`。
+「进程保活与重启」和「运行环境与路径」默认折叠，点击各组标题展开。在「功能与媒体策略」可编辑目录列表。
+选择标准发送兼容模式时，该列表继续约束 OB11 IPC。入站图片自动下载补丁可选「自动」「强制开启」或「强制关闭」，
+其中「自动」对应 YAML 省略 `nativeMediaPatch`。
 包入口覆盖可在 YAML 中填写，控制台表单隐藏这些字段。
 
 | 配置项 | 类型 | 默认值 | 说明 |
@@ -61,10 +64,11 @@ bots:
 | `networkEntry` | `string` | 依赖自动解析 | OB11 动作桥 network 入口覆盖（高级项） |
 | `heartbeatTimeoutMs` | `number` | `45000` | 子进程心跳超时（毫秒），超时判定失联并重启。至少 5000，步进 1000 |
 | `ob11Actions` | `boolean` | `true` | 是否挂载 OneBot 11 动作、原始订阅和标准成员变动 / 请求事件。消息与撤回仍通过 kernel IPC 提供 |
-| `remoteMediaPolicy` | `compatible` \| `public-only` | `compatible` | 出站 HTTP(S) 媒体下载策略 |
-| `localFilePolicy` | `legacy` \| `allowlist` | `legacy` | 出站本地媒体路径策略 |
-| `localMediaRoots` | `string[]` | `[]` | 本地媒体白名单目录，供 `allowlist` 使用 |
-| `logLevel` | `debug` \| `info` \| `error` \| `silent` | `info` | 当前账号的 Bot 日志等级 |
+| `remoteMediaPolicy` | `compatible` \| `public-only` | `public-only` | 出站 HTTP(S) 媒体下载策略 |
+| `localFilePolicy` | `legacy` \| `allowlist` | `allowlist` | 出站本地媒体路径策略 |
+| `localMediaRoots` | `string[]` | `[]` | OB11 IPC 与标准发送白名单模式允许的本地媒体目录 |
+| `diagnostics` | `boolean` | `false` | 允许受信任进程内插件经专用方法调用宿主诊断。父进程诊断环境变量不能启用该账号 |
+| `logLevel` | `debug` \| `info` \| `error` \| `silent` | `info` | 当前账号的 Bot 与宿主日志等级 |
 | `restart.maxRetries` | `number` | `3` | 子进程崩溃或失联时的最大重启次数，取 0 到 20 的整数，`0` 表示不重启 |
 | `restart.backoffMs` | `number` | `1000` | 首次退避基数（毫秒），至少 100，步进 100 |
 | `restart.backoffFactor` | `number` | `2` | 退避倍率，取 1 到 10，步进 0.5 |
@@ -116,7 +120,9 @@ YAML 中请给 QQ 号加引号以保留字符串原值。登录成其他 QQ 号�
 `logLevel` 按 `selfId` 设置对应的 Koishi/reggol logger `onebot-<selfId>`，不同账号可独立设置。
 等级为 debug=3 / info=2 / error=1 / silent=0。
 
-- 子进程 `log` 转发、driver 状态、事件转发等使用 `debug` 级，排查时可显式开启。
+- 子进程 `log` 只保留级别摘要。driver 状态、事件调度与首个 stderr 提示使用 `debug`。
+- 宿主内联配置按当前账号生成 OB11 媒体段，保留主配置的 `[log]` 设置，并关闭未绑定消息正文日志。
+  父进程 `NAPUKETTO_LOG_LEVEL` 由账号的 `logLevel` 覆盖。旧 TOML 或内联配置中的 OB11 媒体策略应迁移到 Koishi 配置。
 - 默认 `info` 保留消息派发日志、警告和错误。
 - 登录面板、控制台 provider 和收发媒体都通过对应账号的 Bot logger 将日志交给 Koishi。
 

@@ -251,11 +251,6 @@ describe("Bot 启停生命周期", () => {
             const firstChild = await startBot(first.bot);
             const second = setupPanel(secondId, shared, secondLevel);
             const secondChild = await startBot(second.bot);
-            vi.stubGlobal(
-                "fetch",
-                vi.fn(async () => new Response(null, { status: 404 })),
-            );
-
             for (const [account, child, selfId] of [
                 [first, firstChild, firstId],
                 [second, secondChild, secondId],
@@ -265,7 +260,7 @@ describe("Bot 启停生命周期", () => {
                 child.send({
                     v: IPC_VERSION,
                     type: "log",
-                    payload: { level: "info", message: "宿主就绪" },
+                    payload: { level: "info", message: "fixture-host-private" },
                 });
                 child.receiveMessage();
                 await vi.advanceTimersByTimeAsync(0);
@@ -278,7 +273,7 @@ describe("Bot 启停生命周期", () => {
                 await account.bot.internal.sendMessage("private:20001", [
                     {
                         type: "img",
-                        attrs: { src: "https://example.com/image.png?token=media-token" },
+                        attrs: { src: "http://127.0.0.1/image.png?token=media-token" },
                     },
                 ]);
             }
@@ -292,14 +287,14 @@ describe("Bot 启停生命周期", () => {
                 expect.arrayContaining([
                     "debug: [napuketto] 二维码更新",
                     "debug: [napuketto] 引导阶段: ready",
-                    "debug: [napuketto 子进程] 宿主就绪",
+                    "info: [napuketto 子进程] 收到 info 级别的日志",
                     "debug: [napuketto] 控制台客户端权限不足，返回脱敏登录快照",
                     expect.stringContaining("info: [napuketto] dispatch:"),
                     expect.stringContaining("warn: [napuketto] 远程媒体下载失败"),
                 ]),
             );
             expect(logRecords.map(({ content }) => content).join("\n")).not.toMatch(
-                /qr-ticket|cWgtc2VjcmV0|media-token/,
+                /qr-ticket|cWgtc2VjcmV0|media-token|fixture-host-private|msg=/,
             );
         },
     );

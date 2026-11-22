@@ -15,7 +15,7 @@ type LifecycleDriver = Pick<
 
 interface LifecycleHost {
     bot: Pick<Bot, "status" | "isActive" | "online" | "offline" | "getLogin">;
-    logger: Pick<Logger, "debug" | "warn" | "error">;
+    logger: Pick<Logger, "debug" | "info" | "warn" | "error">;
     login: Pick<
         NapukettoLoginState,
         | "snapshot"

@@ -53,6 +53,17 @@ export class NapukettoInternal {
      *   `const res = await internal._request("send_like", { user_id, times })`。
      */
     _request(action: string, params?: Record<string, unknown>): Promise<unknown> {
+        if (action.startsWith("diag.")) {
+            return Promise.reject(new IpcError("诊断动作需要调用 requestDiagnostic", "NOT_FOUND"));
+        }
+        return this.options.request(action, params);
+    }
+
+    /** 仅供启用了诊断的受信任进程内集成调用。 */
+    requestDiagnostic(action: string, params?: Record<string, unknown>): Promise<unknown> {
+        if (this.options.diagnostics !== true || !action.startsWith("diag.")) {
+            return Promise.reject(new IpcError("诊断动作不可用", "NOT_FOUND"));
+        }
         return this.options.request(action, params);
     }
 
@@ -64,6 +75,7 @@ export class NapukettoInternal {
             return []; // 空内容：不发请求
         }
         const prepared = await prepareOutboundMedia(elements, this.options);
+        let uncertain = false;
         try {
             const result = await this.options.request("msg.sendMessage", {
                 ...peer,
@@ -71,8 +83,13 @@ export class NapukettoInternal {
             });
             const msgId = (result as { msgId?: string } | null | undefined)?.msgId;
             return msgId === undefined || msgId === "" ? [] : [msgId];
+        } catch (error) {
+            uncertain =
+                error instanceof IpcError &&
+                ["TIMEOUT", "CLOSED", "IPC_SEND_FAILED"].includes(error.code);
+            throw error;
         } finally {
-            await prepared.cleanup();
+            await prepared.cleanup(uncertain);
         }
     }
 

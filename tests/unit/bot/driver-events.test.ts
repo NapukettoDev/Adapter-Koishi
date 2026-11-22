@@ -14,7 +14,7 @@ import { buildDriverEvents, type DriverEventsHost } from "../../../src/bot/drive
 
 /** 构造 mock host，返回 host + 可断言的 mock 引用。 */
 function createHost(overrides: { isDisconnected?: () => boolean; isCurrent?: () => boolean } = {}) {
-    const logger = { debug: vi.fn(), warn: vi.fn() };
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const login = { onLogin: vi.fn(), onQr: vi.fn(), onExit: vi.fn() };
     const bridge = { handle: vi.fn(), resetMessageBaseline: vi.fn() };
     const handleReady = vi.fn();
@@ -182,11 +182,19 @@ describe("buildDriverEvents", () => {
         expect(offline).not.toHaveBeenCalled();
     });
 
-    it("onLog → logger.debug 带子进程消息", () => {
+    it("onLog 按级别记录且不带宿主文本", () => {
         const { host, logger } = createHost();
         const events = buildDriverEvents(host);
         events.onLog?.({ level: "debug", message: "kernel ready" });
-        expect(logger.debug).toHaveBeenCalledWith("[napuketto 子进程] %s", "kernel ready");
+        expect(logger.debug).toHaveBeenCalledExactlyOnceWith(
+            "[napuketto 子进程] 收到 %s 级别的日志",
+            "debug",
+        );
+        events.onLog?.({ level: "fatal", message: "fixture-qr" });
+        expect(logger.error).toHaveBeenCalledExactlyOnceWith(
+            "[napuketto 子进程] 收到 %s 级别的日志",
+            "fatal",
+        );
     });
 
     it("isCurrent=false 时丢弃旧 driver 的全部迟到回调", () => {

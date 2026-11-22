@@ -16,6 +16,9 @@ export type RequestFn = (action: string, params?: Record<string, unknown>) => Pr
 export interface NapukettoInternalOptions extends OutboundMediaPolicy {
     /** 传输抽象（IPC 动作请求）。 */
     request: RequestFn;
+    diagnostics?: boolean;
+    /** 运行 Koishi 的账户控制的临时文件根。 */
+    outboundRoot?: string;
     /** 登录返回的身份，用于私聊自身时直接获取 UID。 */
     getSelfIdentity?: () => Pick<SelfInfo, "uin" | "uid"> | undefined;
     /** Koishi 元素工厂，历史查询时使用。 */

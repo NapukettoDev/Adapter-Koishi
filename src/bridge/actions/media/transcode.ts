@@ -21,6 +21,7 @@ async function isSilk(path: string): Promise<boolean> {
 export async function ensureSilk(
     path: string,
     createFile: MediaFileFactory,
+    staged: boolean,
     logger?: OutboundLogger,
 ): Promise<string> {
     try {
@@ -28,8 +29,11 @@ export async function ensureSilk(
         if (!info.isFile() || info.size > MAX_AUDIO_INPUT_BYTES || (await isSilk(path))) {
             return path;
         }
-        // 0.2.2 将 SILK 写入输入同目录。复制到独占位置，避免覆盖任何调用方文件。
+        // 媒体包在输入旁生成 SILK，只能对独占文件使用原位转换。
         const suffix = extname(path);
+        if (staged && suffix.toLowerCase() !== ".silk") {
+            return await media.encodePcmToSilk(path);
+        }
         const input = await createFile(
             SAFE_EXTENSION.test(suffix) && suffix.toLowerCase() !== ".silk" ? suffix : ".bin",
         );

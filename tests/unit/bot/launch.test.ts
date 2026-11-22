@@ -97,6 +97,60 @@ describe("resolveLaunchOptions", () => {
         expect(options.nativeMediaPatch).toBeUndefined();
     });
 
+    it("升级配置使用安全默认值，显式兼容仅作用于对应账号", async () => {
+        vi.stubEnv("NAPUKETTO_DIAG", "1");
+        vi.stubEnv(
+            "NAPUKETTO_CONFIG_JSON",
+            JSON.stringify({
+                accounts: [
+                    {
+                        qq: "10000",
+                        password: "fixture-password",
+                        onebot11: { media: { outboundPolicy: "compat" } },
+                    },
+                ],
+                log: { timestamp: "local", unboundReceive: true },
+            }),
+        );
+        try {
+            const defaults = await resolveLaunchOptions(makeConfig(), { resolveQq: fakeResolveQq });
+            expect(defaults.diagnostics).toBe(false);
+            expect(defaults.log).toEqual({ level: "info" });
+            expect(JSON.parse(defaults.extraEnv["NAPUKETTO_CONFIG_JSON"] ?? "")).toEqual({
+                log: { timestamp: "local", unboundReceive: false },
+                accounts: [
+                    {
+                        qq: "123456789",
+                        onebot11: { media: { outboundPolicy: "public-only", localMediaRoots: [] } },
+                    },
+                ],
+            });
+            const trusted = await resolveLaunchOptions(
+                makeConfig({
+                    selfId: "10002",
+                    diagnostics: true,
+                    logLevel: "error",
+                    localFilePolicy: "legacy",
+                    localMediaRoots: [" ./media "],
+                    remoteMediaPolicy: "compatible",
+                }),
+                { resolveQq: fakeResolveQq },
+            );
+            expect(trusted.diagnostics).toBe(true);
+            expect(trusted.log).toEqual({ level: "error" });
+            expect(JSON.parse(trusted.extraEnv["NAPUKETTO_CONFIG_JSON"] ?? "").accounts).toEqual([
+                {
+                    qq: "10002",
+                    onebot11: {
+                        media: { outboundPolicy: "compat", localMediaRoots: [resolve("media")] },
+                    },
+                },
+            ]);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
     it.each([true, false])("保留宿主覆盖及 nativeMediaPatch=%s", async (nativeMediaPatch) => {
         const options = await resolveLaunchOptions(
             makeConfig({
@@ -213,7 +267,7 @@ describe("resolveLaunchOptions", () => {
         });
         expect(options.cwd.replaceAll("\\", "/")).toBe(dataDir);
         expect(options.cfgDir.replaceAll("\\", "/")).toBe(`${dataDir}/123456789`);
-        expect(options.extraEnv).toEqual({
+        expect(options.extraEnv).toMatchObject({
             NAPUKETTO_DATA_ROOT: options.cwd,
             NAPUKETTO_DATA: options.cwd,
         });
