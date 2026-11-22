@@ -104,8 +104,8 @@ export function createPanel(host: PanelHost): NapukettoLoginPanel {
  * 读取 autoAssign/autoAuthorize 原始配置。
  *
  * koishi 的这两项配置支持 Computed 函数 / Eval 表达式（per-session 计算）。这里
- * 只补配置缺省值，不求值：动态值由 dispatcher 跳过预热、交给 koishi 在 dispatch
- * 时按真实 session 计算，避免写入默认权限或错误 assignee。
+ * 只补配置缺省值，不在构造期求值：dispatcher 对可安全求值的函数按真实 session
+ * 预热，其余交给 koishi 在 dispatch 时计算，避免写入默认权限或错误 assignee。
  */
 function resolveAssignPolicy(ctx: KoishiContext): {
     autoAssign: Computed<boolean>;
