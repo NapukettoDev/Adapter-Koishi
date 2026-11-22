@@ -22,6 +22,9 @@
 
 只跑某个测试文件：`pnpm exec vitest run tests/unit/bridge/events/adapt.test.ts --reporter=dot`。
 
+`tooling/` 的 TypeScript 脚本由 Node 24 直接运行。可用 `node tooling/sync-napuketto-deps.ts --verify`
+检查锁文件中的 Napuketto 发布组。
+
 ## 产物与依赖形态
 
 ```
@@ -48,11 +51,11 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 
 | 工具 | 范围 | 说明 |
 | :--- | :--- | :--- |
-| Biome | `src/` 源码与 `tests/` 下的 TypeScript | 4 空格、100 列、双引号、尾逗号；`client/` 与根配置文件不在范围内 |
-| `tsc`（根） | `src/**`、`tests/**` | strict 全家桶 + `exactOptionalPropertyTypes` + `verbatimModuleSyntax` + `noUncheckedIndexedAccess` |
+| Biome | `src/` 源码与 `tests/`、`tooling/` 下的 TypeScript | 4 空格、100 列、双引号、尾逗号；`client/` 与根配置文件不在范围内 |
+| `tsc`（根） | `src/**`、`tests/**`、`tooling/**` | strict 全家桶 + `exactOptionalPropertyTypes` + `verbatimModuleSyntax` + `noUncheckedIndexedAccess` |
 | `tsc`（client） | `client/**` | 独立 `client/tsconfig.json`：`moduleResolution: bundler`、`types: []`、`paths` 把 `@koishijs/client` 指向本地 shim |
 | ESLint | `client/**/*.vue` | `vue/no-undef-components` 等模板语义检查；**当前不可用**——`@typescript-eslint/parser` 尚不支持 TS 7，命令直接报错。它不在 `pnpm check` 中 |
-| Vitest | `tests/unit/`、`tests/integration/` | 见下节 |
+| Vitest | `tests/unit/`、`tests/integration/`、`tooling/*.test.ts` | 见下节 |
 
 `biome.json` 的 `$schema` 版本可能落后于本地 CLI（只提示 info，不影响检查）；需要时执行
 `pnpm exec biome migrate`，不要手改规则。

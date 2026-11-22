@@ -35,7 +35,7 @@ jobs:
             - id: resolve
               name: 解析整组 npm latest
               run: |
-                  node tooling/sync-napuketto-deps.mjs --update
+                  node tooling/sync-napuketto-deps.ts --update
                   if git diff --quiet -- package.json pnpm-lock.yaml; then
                       echo 'changed=false' >> "$GITHUB_OUTPUT"
                   else

@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.58
+
+### Patch Changes
+
+- 将 Napuketto 依赖同步脚本及其测试迁移到 TypeScript，由 Node 24 直接执行脚本，并将 `tooling/` 纳入类型与格式检查。
+
 ## 0.0.57
 
 ### Patch Changes
