@@ -127,40 +127,117 @@ describe("SessionDispatcher", () => {
         });
     });
 
-    it("静态 autoAuthorize=0 → 仍调用 ensureUser（由数据库层跳过落库）", async () => {
+    it("静态 autoAuthorize=0 → 不预热 user（detached）", async () => {
         const { dispatcher, ensureChannel, ensureUser } = makeDispatcher({ autoAuthorize: 0 });
         await dispatcher.dispatch(fields);
         expect(ensureChannel).toHaveBeenCalledOnce();
-        expect(ensureUser).toHaveBeenCalledWith({
-            platform: "onebot",
-            userId: "20001",
-            authority: 0,
-        });
+        expect(ensureUser).not.toHaveBeenCalled();
     });
 
-    it("动态 autoAssign（函数）→ 跳过 channel 预热，不写默认 assignee", async () => {
-        const autoAssign = vi.fn(() => false);
+    it("动态 autoAssign（函数返回 false）→ 函数按真实 session 求值，跳过 channel 预热", async () => {
+        let seen: Record<string, unknown> | undefined;
+        const autoAssign = vi.fn((session: SessionLike) => {
+            seen = {
+                selfId: session.selfId,
+                channelId: session.channelId,
+                userId: session.userId,
+            };
+            return false;
+        });
         const { dispatcher, dispatch, ensureChannel, ensureUser } = makeDispatcher({ autoAssign });
         await dispatcher.dispatch(fields);
-        expect(autoAssign).not.toHaveBeenCalled();
+        expect(autoAssign).toHaveBeenCalledOnce();
+        expect(seen).toEqual({
+            selfId: "10001",
+            channelId: "10001",
+            userId: "20001",
+        });
         expect(ensureChannel).not.toHaveBeenCalled();
         expect(ensureUser).toHaveBeenCalledOnce();
         expect(dispatch).toHaveBeenCalledOnce();
     });
 
-    it("动态 autoAuthorize（函数返回 0）→ 跳过 user 预热，不写默认权限", async () => {
-        const autoAuthorize = vi.fn(() => 0);
+    it("动态 autoAssign（安全读取 session 字段）→ 按求值结果预热 channel", async () => {
+        const autoAssign = vi.fn((session: SessionLike) => session.channelId === "10001");
+        const { dispatcher, ensureChannel } = makeDispatcher({ autoAssign });
+        await dispatcher.dispatch(fields);
+        expect(ensureChannel).toHaveBeenCalledWith({
+            platform: "onebot",
+            id: "10001",
+            guildId: "10001",
+            assignee: "10001",
+        });
+    });
+
+    it("动态 autoAuthorize（函数返回 0）→ 函数按真实 session 求值，不预热 user", async () => {
+        const autoAuthorize = vi.fn((_session: SessionLike) => 0);
         const { dispatcher, dispatch, ensureChannel, ensureUser } = makeDispatcher({
             autoAuthorize,
         });
         await dispatcher.dispatch(fields);
-        expect(autoAuthorize).not.toHaveBeenCalled();
+        expect(autoAuthorize).toHaveBeenCalledOnce();
         expect(ensureChannel).toHaveBeenCalledOnce();
         expect(ensureUser).not.toHaveBeenCalled();
         expect(dispatch).toHaveBeenCalledOnce();
     });
 
-    it("动态 autoAuthorize（Eval 表达式）→ 同样跳过 user 预热", async () => {
+    it("动态 autoAuthorize（安全读取 session 字段）→ 按求值结果预热 user", async () => {
+        const autoAuthorize = vi.fn((session: SessionLike) => (session.isDirect === true ? 0 : 3));
+        const { dispatcher, ensureUser } = makeDispatcher({ autoAuthorize });
+        await dispatcher.dispatch(fields);
+        expect(ensureUser).toHaveBeenCalledWith({
+            platform: "onebot",
+            userId: "20001",
+            authority: 3,
+        });
+    });
+
+    it("动态函数读取 user 等延迟字段 → 放弃预热，不写错误 assignment", async () => {
+        const autoAuthorize = vi.fn((session: SessionLike) => {
+            const withUser = session as SessionLike & { user?: unknown };
+            return withUser.user ? 0 : 1;
+        });
+        const { dispatcher, dispatch, ensureChannel, ensureUser } = makeDispatcher({
+            autoAuthorize,
+        });
+        await dispatcher.dispatch(fields);
+        expect(autoAuthorize).toHaveBeenCalledOnce();
+        expect(ensureChannel).toHaveBeenCalledOnce();
+        expect(ensureUser).not.toHaveBeenCalled();
+        expect(dispatch).toHaveBeenCalledOnce();
+    });
+
+    it("动态函数抛错或返回非法类型 → 放弃对应预热，仍派发", async () => {
+        const assign = vi.fn(() => {
+            throw new Error("boom");
+        });
+        const authorize = vi.fn(() => "3" as unknown as number);
+        const { dispatcher, dispatch, ensureChannel, ensureUser } = makeDispatcher({
+            autoAssign: assign,
+            autoAuthorize: authorize,
+        });
+        await dispatcher.dispatch(fields);
+        expect(ensureChannel).not.toHaveBeenCalled();
+        expect(ensureUser).not.toHaveBeenCalled();
+        expect(dispatch).toHaveBeenCalledOnce();
+    });
+
+    it("动态 async 函数 → 不符合同步 Computed 契约，不调用", async () => {
+        let called = false;
+        const autoAssign = async () => {
+            called = true;
+            return true;
+        };
+        const { dispatcher, dispatch, ensureChannel } = makeDispatcher({
+            autoAssign: autoAssign as unknown as Computed<boolean>,
+        });
+        await dispatcher.dispatch(fields);
+        expect(called).toBe(false);
+        expect(ensureChannel).not.toHaveBeenCalled();
+        expect(dispatch).toHaveBeenCalledOnce();
+    });
+
+    it("动态 autoAuthorize（Eval 表达式）→ 跳过 user 预热", async () => {
         // biome-ignore lint/style/useNamingConvention: minato Eval 表达式使用 `$` 键
         const autoAuthorize = { $: "session.channelId" } as unknown as Computed<number>;
         const { dispatcher, dispatch, ensureChannel, ensureUser } = makeDispatcher({

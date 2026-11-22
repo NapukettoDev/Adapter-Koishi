@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- `autoAssign` / `autoAuthorize` 为函数或 Eval 表达式时不再按默认值预热：跳过对应写入并交由 Koishi 在 dispatch 时按真实 session 求值，动态返回 `false` / `0` 时保持 detached 语义；空 `selfId` 不写 channel。
+- `autoAssign` / `autoAuthorize` 为函数或 Eval 表达式时不再按默认值预热：只读取构造期已定 session 字段的纯函数按真实值预热，读取 user/channel/event 等延迟或可变数据、改写 session、抛错或 async 函数则跳过并交由 Koishi 在 dispatch 时求值；动态返回 `false` / `0` 时保持 detached 语义；空 `selfId` 不写 channel。
 - 同根上下文的多 Bot 共享按平台和记录键协调的预热队列；channel 改为单条原子 create，user 改为事务内 create user + create binding，主键冲突时回读赢家，避免并发 check-then-create 产生孤儿 user 或覆盖 binding.aid / assignee / createdAt。文档补充进程内多 Bot、跨 Koishi 实例与跨库的保证范围。
 - 预热失败告警按操作、平台和错误指纹去重并限频，保留不同故障的首次完整证据与累计摘要，替代全局一次性告警。
 

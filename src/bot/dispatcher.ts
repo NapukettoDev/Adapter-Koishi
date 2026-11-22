@@ -2,14 +2,15 @@ import type { Bot, Computed, Logger } from "koishi";
 import type { NapukettoSessionFields } from "../bridge/events/types.js";
 import type { NapukettoIpcClient } from "../runtime/ipc/index.js";
 import type { NapukettoDatabase } from "./database.js";
+import { isAssignPolicy, isAuthorizePolicy, resolvePolicy } from "./policy.js";
 
 interface DispatchHost {
     bot: Pick<Bot, "session" | "dispatch">;
     logger: Pick<Logger, "info" | "warn">;
     database: Pick<NapukettoDatabase, "ensureChannel" | "ensureUser">;
     /**
-     * 原始 autoAssign 配置：boolean 为静态值；函数 / Eval 表达式为动态值，
-     * 预热阶段不猜测其求值结果（见 preheat 注释）。
+     * 原始 autoAssign 配置：boolean 为静态值；函数只在仅读取不可变 session
+     * 字段时于预热阶段求值，Eval 表达式交给 Koishi（见 policy.ts）。
      */
     autoAssign: Computed<boolean>;
     /** 原始 autoAuthorize 配置，语义同 autoAssign。 */
@@ -26,18 +27,8 @@ export class SessionDispatcher {
         if (client === null) {
             return;
         }
-        // 预热避免 Koishi 并发创建同一 channel 或 binding 时触发唯一键冲突。
-        // 预热失败只影响落库优化，不能阻断消息派发（见 docs/internals/bot.md）。
-        if (fields.type === "message") {
-            try {
-                await this.preheat(fields);
-            } catch (error) {
-                this.host.logger.warn("[napuketto] 会话预热失败（继续派发）: %o", error);
-            }
-        }
-        if (this.host.getClient() !== client) {
-            return; // 预热期间子进程已退出或被替换
-        }
+        // 先建 session：动态 Computed 需要用真实 session 求值（见 policy.ts）。
+        // session 字段在 dispatch 前不会变，求值结果与 Koishi 后续求值一致。
         const session = this.host.bot.session({
             type: fields.type,
             // exactOptionalPropertyTypes：可选字段条件展开，不显式赋 undefined
@@ -48,6 +39,18 @@ export class SessionDispatcher {
             ...(fields.member === undefined ? {} : { member: fields.member }),
         });
         applySessionFields(session, fields);
+        // 预热避免 Koishi 并发创建同一 channel 或 binding 时触发唯一键冲突。
+        // 预热失败只影响落库优化，不能阻断消息派发（见 docs/internals/bot.md）。
+        if (fields.type === "message") {
+            try {
+                await this.preheat(fields, session);
+            } catch (error) {
+                this.host.logger.warn("[napuketto] 会话预热失败（继续派发）: %o", error);
+            }
+        }
+        if (this.host.getClient() !== client) {
+            return; // 预热期间子进程已退出或被替换
+        }
         // 消息路径关键日志（info，默认可见）：session 字段 + 渲染后文本
         this.host.logger.info(
             "[napuketto] dispatch: type=%s self=%s channel=%s user=%s isDirect=%s msg=%s",
@@ -61,14 +64,14 @@ export class SessionDispatcher {
         this.host.bot.dispatch(session);
     }
 
-    private async preheat(fields: NapukettoSessionFields): Promise<void> {
-        // 动态 Computed 的结果依赖真实 session（甚至 Koishi 在 dispatch 期间才延迟
-        // 加载的 user/channel）。预热阶段无法安全等价求值，因此跳过对应预热，让
-        // Koishi 在 dispatch 时按真实 session 求值：动态返回 false / 0 时它会走
-        // detached 分支，绝不会被这里的默认值写成错误 assignee 或默认权限。
+    private async preheat(fields: NapukettoSessionFields, session: object): Promise<void> {
+        // 动态 Computed 只在「仅读取不可变 session 字段」时可安全等价求值；读取
+        // user/channel 等延迟字段、调用 session 方法或抛错时，policy.ts 返回
+        // deferred，对应预热跳过，由 Koishi 在 dispatch 时按真实 session 求值。
+        const assign = resolvePolicy(this.host.autoAssign, session, isAssignPolicy);
         if (
-            typeof this.host.autoAssign === "boolean" &&
-            this.host.autoAssign &&
+            assign.kind === "resolved" &&
+            assign.value &&
             fields.channelId !== undefined &&
             // koishi getChannel：assignee 为空串时返回 detached，不落库。
             fields.selfId !== ""
@@ -80,16 +83,18 @@ export class SessionDispatcher {
                 assignee: fields.selfId,
             });
         }
+        const authorize = resolvePolicy(this.host.autoAuthorize, session, isAuthorizePolicy);
         if (
-            typeof this.host.autoAuthorize === "number" &&
+            authorize.kind === "resolved" &&
+            // 0 与 Koishi 一致：不落库（detached user），无需预热。
+            authorize.value !== 0 &&
             fields.userId !== undefined &&
             fields.userId !== ""
         ) {
             await this.host.database.ensureUser({
                 platform: fields.platform,
                 userId: fields.userId,
-                // 0 由 NapukettoDatabase 跳过；这里保留调用以维持既有降级语义。
-                authority: this.host.autoAuthorize,
+                authority: authorize.value,
             });
         }
     }

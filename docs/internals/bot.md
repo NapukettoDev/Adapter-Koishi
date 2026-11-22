@@ -152,15 +152,20 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 | :--- | :--- |
 | `autoAssign === false` | 跳过 channel 预热（保持 koishi 不落库语义） |
 | `selfId` 为空 | 跳过 channel 预热（koishi 走 detached，不落库） |
-| `autoAssign` 为函数 / Eval 表达式 | 跳过 channel 预热，由 koishi 在 dispatch 时按真实 session 求值 |
+| `autoAssign` 为 Eval 表达式 | 跳过 channel 预热，由 koishi 在 dispatch 时求值 |
+| `autoAssign` 为函数 | 只读取不可变 session 字段时按真实值预热；读取延迟字段、改写 session、抛错或返回非 boolean 时跳过 |
 | `autoAuthorize === 0` | 跳过 user 预热（detached user） |
-| `autoAuthorize` 为函数 / Eval 表达式 | 跳过 user 预热，由 koishi 在 dispatch 时按真实 session 求值 |
+| `autoAuthorize` 为 Eval 表达式 | 跳过 user 预热，由 koishi 在 dispatch 时求值 |
+| `autoAuthorize` 为函数 | 只读取不可变 session 字段时按真实值预热；读取延迟字段、改写 session、抛错或返回非 natural number 时跳过 |
 | `ctx.database` 不可用或写入失败 | 告警后跳过，由 koishi 兜底；**绝不阻塞 dispatch** |
 | 同一记录键的并发预热 | 同根上下文共享串行队列（key = `channel:<platform>:<id>` / `user:<platform>:<userId>`），不同 key 并行 |
 
-动态 Computed 的结果依赖真实 session（甚至 Koishi 在 dispatch 期间才延迟加载的 user / channel），
-预热阶段无法安全等价求值，因此不猜测、不写默认值；跳过对应预热后由 koishi 自己求值，动态返回
-`false` / `0` 时自然走 detached 分支。
+`policy.ts` 只把构造期已定字段（`selfId` / `platform` / `userId` / `channelId` / `guildId` /
+`isDirect` 等）暴露给 Computed 函数。函数读取 `user` / `channel` / `guild` / `argv` / `event` 等
+延迟或可被 dispatch 改写的数据、调用 session 方法或改写 session 时，代理会标记 unsafe 并让该次
+预热 deferred；即使函数自己 catch 了异常也不会采用它返回的兜底值。Eval 表达式与 async 函数一律
+deferred。deferred 后由 koishi 在 dispatch 时按真实 session 求值，动态返回 `false` / `0` 时自然走
+detached 分支。
 
 **并发保证范围**：
 
@@ -208,6 +213,7 @@ kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDi
 | 文件 | 测试方式 |
 | :--- | :--- |
 | `dispatcher.ts` | 宽松 session 结构，直接断言字段 / 预热策略 |
+| `policy.ts` | 注入 session 桩，验证静态值、纯函数求值与 unsafe/deferred 分支 |
 | `database.ts` | 有状态假数据库验证原子 create、事务回滚、冲突回读与共享队列 |
 | `failure-reporter.ts` | 注入时钟与 warn，验证去重、限频与证据保留 |
 | `lifecycle.ts` | 验证账号判定与拒绝上线，注入 driver 和 Bot 验证启停重叠及旧轮次回调 |
