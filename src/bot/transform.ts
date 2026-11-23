@@ -7,43 +7,35 @@
  * 职责：好友/群/频道/登录信息的形状映射，bot.ts 的 override 方法只做
  * 「internal 调用 + 委托本模块翻译」。
  */
+import { isRecord } from "@napuketto/kernel";
 import type { Bot, Universal } from "koishi";
 import type { NapukettoInternal } from "../bridge/actions/internal.js";
 import type { LoginSnapshot } from "../console/login-state.js";
-import { PRIVATE_PREFIX } from "../shared.js";
-
-/** kernel 好友原始形状（宽松结构，来自 IPC 响应）。 */
-export interface RawFriend {
-    uin?: string;
-    nickname?: string;
-}
-
-/** kernel 群原始形状（宽松结构，来自 IPC 响应）。 */
-export interface RawGroup {
-    groupCode?: string;
-    groupName?: string;
-}
+import { nonBlank, PRIVATE_PREFIX, qqId } from "../shared.js";
 
 /** kernel 好友列表 → koishi Universal.Friend 列表。 */
-export function toFriendList(raw: RawFriend[] | undefined): Universal.List<Universal.Friend> {
+export function toFriendList(raw: unknown): Universal.List<Universal.Friend> {
+    if (!Array.isArray(raw)) return { data: [] };
     return {
-        data: (raw ?? []).map((friend) => ({
-            user: {
-                id: friend.uin ?? "",
-                name: friend.nickname ?? friend.uin ?? "",
-            },
-            nick: friend.nickname ?? friend.uin ?? "",
-        })),
+        data: raw.flatMap((friend: unknown) => {
+            if (!isRecord(friend)) return [];
+            const id = qqId(friend["uin"]);
+            if (id === undefined) return [];
+            const name = nonBlank(friend["nickname"]) ?? id;
+            return [{ user: { id, name }, nick: nonBlank(friend["remark"]) ?? name }];
+        }),
     };
 }
 
 /** kernel 群列表 → koishi Universal.Guild 列表。 */
-export function toGuildList(raw: RawGroup[] | undefined): Universal.List<Universal.Guild> {
+export function toGuildList(raw: unknown): Universal.List<Universal.Guild> {
+    if (!Array.isArray(raw)) return { data: [] };
     return {
-        data: (raw ?? []).map((group) => ({
-            id: group.groupCode ?? "",
-            name: group.groupName ?? group.groupCode ?? "",
-        })),
+        data: raw.flatMap((group: unknown) => {
+            if (!isRecord(group)) return [];
+            const id = qqId(group["groupCode"]);
+            return id === undefined ? [] : [{ id, name: nonBlank(group["groupName"]) ?? id }];
+        }),
     };
 }
 
@@ -76,12 +68,10 @@ export function toUserFields(partial: {
     nick?: string | undefined;
 }): Partial<Universal.User> {
     const fields: Partial<Universal.User> = {};
-    if (partial.uin !== undefined && partial.uin !== "") {
-        fields.id = partial.uin;
-    }
-    if (partial.nick !== undefined && partial.nick !== "") {
-        fields.name = partial.nick;
-    }
+    const id = qqId(partial.uin);
+    const name = nonBlank(partial.nick);
+    if (id !== undefined) fields.id = id;
+    if (name !== undefined) fields.name = name;
     return fields;
 }
 
@@ -114,11 +104,12 @@ export async function resolveBotLogin(
         }
         if (data != null) {
             // 查询结果与配置账号不一致时保留既有身份；账号闸门负责拒绝上线。
-            if (typeof data.uin === "string" && data.uin !== "" && data.uin !== bot.selfId) {
+            const id = qqId(data.uin);
+            if (id !== undefined && id !== bot.selfId) {
                 return bot.toJSON();
             }
-            if (typeof data.uin === "string" && data.uin !== "") {
-                bot.selfId = data.uin;
+            if (id !== undefined) {
+                bot.selfId = id;
             }
             syncUser(bot, { uin: data.uin, nick: data.nickname });
         }

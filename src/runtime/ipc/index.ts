@@ -8,9 +8,12 @@
 export {
     IPC_VERSION,
     type IpcEventPayload,
+    type IpcGroupRequest,
+    IpcGroupRequestSchema,
     type IpcLoginPayload,
     type IpcLogPayload,
     type IpcMessage,
+    IpcRespondToGroupRequestParamsSchema,
     type IpcStatusPayload,
 } from "@napuketto/loader";
 export { decodeIpcMessage, encodeIpcMessage, NapukettoIpcClient } from "./client.js";

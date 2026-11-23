@@ -29,6 +29,7 @@ export function makeRawMessage(overrides: Partial<RawMessage> = {}): RawMessage 
 export type MockHElement = {
     type: string;
     attrs: Record<string, unknown>;
+    children?: unknown[];
     toString(): string;
 };
 
@@ -37,23 +38,29 @@ export type MockHFn = HFn<MockHElement> & {
     text(content: string): MockHElement;
 };
 
+function escapeMarkup(value: unknown, attribute = false): string {
+    const text = String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return attribute ? text.replace(/"/g, "&quot;") : text;
+}
+
 /** 内存 h() 工厂（koishi h 的宽松替代，对齐 satorijs element 渲染语义）。 */
 export function mockH(): MockHFn {
     const factory: HFn<MockHElement> = (type, attrs = {}, ...children) => {
         const attrsStr = Object.entries(attrs)
-            .map(([key, value]) => ` ${key}="${String(value)}"`)
+            .map(([key, value]) => ` ${key}="${escapeMarkup(value, true)}"`)
             .join("");
         const content = children.map((child) => String(child)).join("");
         const element: MockHElement = {
             type,
             attrs,
+            ...(children.length === 0 ? {} : { children }),
             // satorijs Element.toString：text 元素（attrs.content）返回纯文本；
             // 其他元素无 children 时自闭合（`<quote id="…"/>`），有 children 时
             // 渲染 XML 标签（真实行为，2026-08-09 对齐——旧实现全部渲染标签
             // 掩盖了 text 结构错误）。
             toString: () => {
                 if (type === "text" && "content" in attrs) {
-                    return String(attrs["content"] ?? "");
+                    return escapeMarkup(attrs["content"] ?? "");
                 }
                 if (content === "") {
                     return `<${type}${attrsStr}/>`;

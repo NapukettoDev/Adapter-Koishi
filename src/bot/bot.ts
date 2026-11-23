@@ -1,5 +1,6 @@
 import { resolveDataRoot } from "@napuketto/kernel";
 import { Bot, type Context as KoishiContext, type MessageEncoder, type Universal } from "koishi";
+import { parseChannelId } from "../bridge/actions/codecs.js";
 import { requireFirstPage } from "../bridge/actions/ob11-resources.js";
 import type { NapukettoEventBridge } from "../bridge/events/bridge.js";
 import type { Ob11EventPayload } from "../bridge/events/types.js";
@@ -18,8 +19,6 @@ import {
 import type { BotLifecycleController } from "./lifecycle.js";
 import { NapukettoMessageEncoder } from "./message.js";
 import {
-    type RawFriend,
-    type RawGroup,
     resolveBotLogin,
     toDirectChannel,
     toFriendList,
@@ -141,6 +140,14 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         await this.internal.handleFriendRequest(messageId, approve, comment);
     }
 
+    override handleGuildRequest(
+        messageId: string,
+        approve: boolean,
+        comment?: string,
+    ): Promise<void> {
+        return this.internal.handleGuildRequest(messageId, approve, comment);
+    }
+
     override async handleGuildMemberRequest(
         messageId: string,
         approve: boolean,
@@ -194,11 +201,11 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
     }
 
     override async getFriendList(): Promise<Universal.List<Universal.Friend>> {
-        return toFriendList((await this.internal.getFriendList()) as RawFriend[] | undefined);
+        return toFriendList(await this.internal.getFriendList());
     }
 
     override async getGuildList(): Promise<Universal.List<Universal.Guild>> {
-        return toGuildList((await this.internal.getGroupList()) as RawGroup[] | undefined);
+        return toGuildList(await this.internal.getGroupList());
     }
 
     override async getGuild(guildId: string): Promise<Universal.Guild> {
@@ -212,8 +219,8 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
 
     override async getChannel(channelId: string): Promise<Universal.Channel> {
         if (channelId.startsWith(PRIVATE_PREFIX)) {
-            const userId = channelId.slice(PRIVATE_PREFIX.length);
-            return toDirectChannel(userId);
+            const { peerUin } = parseChannelId(channelId);
+            return { ...toDirectChannel(peerUin), id: channelId };
         }
         const guild = await this.getGuild(channelId);
         return toTextChannel(channelId, guild.name);

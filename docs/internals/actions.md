@@ -41,7 +41,7 @@ OB11 动作面由配置 `ob11Actions`（默认 `true`）控制，装配细节见
 
 | 方法 | IPC 动作 | 参数/返回 |
 | :--- | :--- | :--- |
-| `sendMessage(channelId, content, guildId?)` | `msg.sendMessage` | `{ chatType, peerUin 或 peerUid, elements }`；返回 `string[]`（0 或 1 个 msgId） |
+| `sendMessage(channelId, content, guildId?)` | `msg.sendMessage` | `{ chatType, peerUin 或 peerUid, elements }`；返回 `string[]`，每条确认发送的消息保留其 msgId |
 | `deleteMessage(channelId, messageId)` | `msg.recallMessage` | `{ chatType, peerUin 或 peerUid, msgIds: [messageId] }` |
 | `getMessageList(channelId, next?, direction?, limit?, order?)` | `msg.fetchMessages` | `{ chatType, peerUin 或 peerUid, count, msgId? }`；返回 `Universal.BidiList<Universal.Message>` |
 | `markAsRead(channelId)` | `msg.markRead` | `{ chatType, peerUin 或 peerUid }` |
@@ -74,18 +74,17 @@ IPC 参数使用 OB11 要求的安全整数。查询响应的数据或标识不�
 
 ### 消息历史
 
-- 群聊使用群号，好友私聊使用 `private:<对端 QQ 号>`。接口没有临时会话所需的群上下文。
+- 群聊使用群号，好友私聊使用 `private:<对端 QQ 号>`，临时会话使用 `private:temp:<对端 QQ 号>`。历史、撤回、标记已读共用同一会话寻址。
 - 每条消息使用 QQ NT 的 `msgId`。发送者来自消息本身，频道来自查询目标，因此本人发出的私聊也在对端频道里。
-  群聊带 `guild`。内容通过 [收向元素映射](events.md#元素映射canonical--koishi) 生成，引用同时以
-  `quote.id` 和引用元素返回。发送时间统一为毫秒，非法或缺失时省略时间字段。
+  群聊带 `guild`。内容通过 [收向元素映射](events.md#元素映射canonical--koishi) 生成，引用通过结构化 `quote` 返回。发送时间统一为毫秒，非法或缺失时省略时间字段。
 - `direction` 缺省为 `before`。IPC 只支持从最新消息或给定锚点向更早查找，`after` 和 `around`
   返回 `UNSUPPORTED`。`order` 缺省为 `asc`（旧到新），也可用 `desc`（新到旧）。
 - `limit` 缺省为 20，须为正整数。适配器会额外读取一条来确认还可翻页，续页也额外留出锚点位置，
   IPC 的请求条数限制在有符号 32 位整数范围内。
-  当前页排除锚点。还有更早消息时，`next` 和 `prev` 都是当前页最早的消息 ID，与显示顺序无关。
+  当前页排除锚点和重复 ID。还有更早消息时，`next` 和 `prev` 都是当前页最早的消息 ID，与显示顺序无关。
 - 直接构造 `NapukettoInternal` 时，调用历史查询需要传入 Koishi 元素工厂 `h`。Bot 会自动装配该选项。
 
-当前 IPC 未提供 Koishi `getMessage` 和 `createReaction` 所需的原生 ID 动作。`msg.fetchMessages` 按锚点读历史，
+当前标准 Bot 没有接入 `getMessage` 和 `createReaction`。`msg.fetchMessages` 按锚点读历史，
 没有按 ID 精确取回锚点消息的契约。OB11 `get_msg` 和 `set_msg_emoji_like` 使用子进程分配的 `message_id`；
 Koishi 实时消息、历史和撤回使用原生 `msgId`。表态的原生调用还需要该消息的 `msgSeq` 和 QQ 表情 ID。
 上游分别跟进[按原生 ID 查消息](https://github.com/NapukettoDev/NapukettoQQ/issues/172)
@@ -99,9 +98,10 @@ Koishi 实时消息、历史和撤回使用原生 `msgId`。表态的原生调�
 | :--- | :--- | :--- | :--- |
 | 群号（不以 `private:` 开头） | 任意 | `2`（GROUP） | channelId |
 | `private:<uin>` | 未提供或空 | `1`（C2C） | uin |
-| `private:<uin>` | 有值 | `100`（TEMP 临时会话） | uin |
+| `private:temp:<uin>` | 任意 | `100`（TEMP 临时会话） | uin |
+| `private:<uin>` | 有值（仅发送兼容） | `100`（TEMP 临时会话） | uin |
 
-与事件桥的会话映射互为逆运算。
+临时路由按 loader 的 `chatType` 与对端 UIN 寻址。当前公开 `Peer` 未提供临时来源群字段；能否按同一对端区分多个来源群需上游与真机确认。旧调用方可迁移到 `private:temp:<uin>`。
 
 ## 元素反向映射
 
@@ -110,19 +110,23 @@ Koishi 实时消息、历史和撤回使用原生 `msgId`。表态的原生调�
 - `string` → 单个 text（空串 → `[]`）。
 - 数组 → 逐项递归并展平。
 - 带 `type` 的对象（h 实例）→ 按下表转换。
-- 其他非空值 → `String(value)` 作为 text；`null`/`undefined` → `[]`。
+- 数字和布尔值转换成文本；其余非元素值跳过。
 
 | koishi | canonical | 说明 |
 | :--- | :--- | :--- |
 | `text` | `{ type: "text", text }` | 内容取 `attrs.content` 优先，children join 兜底 |
 | `br` | `{ type: "text", text: "\n" }` | |
-| `at` | `{ type: "at", target }` | `attrs.id`；`id="all"` 原样；空 id 降级为原元素文本 |
+| `at` | `{ type: "at", target }` | `type="all"` 与旧 `id="all"` 都映射为全体，用户提及使用 `id` |
 | `img` / `image` | `{ type: "image", path }` | `attrs.src`；`file://` → `fileURLToPath`；本地路径转正斜杠；http(s) 透传，发送前下载 |
 | `face` | `{ type: "face", id }` | |
 | `audio` | `{ type: "voice", path }` | 与 img 相同的 src 处理 |
 | `video` | `{ type: "video", path }` | 发送前补缩略图/宽高/时长 |
 | `quote` | `{ type: "reply", messageId }` | |
-| 其他（`p`/`file`/…） | `{ type: "text", text: toString() }` | 保内容不丢 |
+| `p` | 子元素 | 与相邻内容之间补一处换行 |
+| `message` | 消息边界 | 先发送前面的内容，再递归处理容器里的独立消息，空容器只分隔消息 |
+| 其他 | 文本、子元素或类型占位 | 保留格式容器的子元素，不序列化未知标签或属性。转发元信息不作为普通消息重放。 |
+
+发向的图片、音频及视频必须有非空字符串 `src`，否则返回 `INVALID_PARAM`。
 
 **路径规范化**：本地媒体路径统一把 `\` 转成 `/`。NT 的 rich media 服务按 URL 语义解析路径，
 反斜杠路径会读不到文件（表现为 `rich media transfer failed`）。
@@ -192,11 +196,13 @@ kernel 动作面（launch 已就绪）：
 
 ## 审批好友与入群申请
 
-`bot.handleFriendRequest(messageId, approve, comment?)` 和
-`bot.handleGuildMemberRequest(messageId, approve, comment?)` 消费对应请求 Session 的 `messageId`。
-适配器将它作为 OB11 `flag` 原样传给 `set_friend_add_request` 或 `set_group_add_request`。
-同意好友请求时，`comment` 用作好友备注，拒绝时省略备注。群申请的 `comment` 作为审批说明传递。
-好友请求的标识来自 QQ 的 `reqTime`，入群申请来自群通知 `seq`。标识也可能超出 JavaScript 安全整数范围，
-审批时保持字符串。过期、权限不足及其他 OB11 失败会拒绝 Promise。
+| 标准事件 | 审批方法 |
+| :--- | :--- |
+| `friend-request` | `bot.handleFriendRequest(messageId, approve, comment?)` 调用 OB11 `set_friend_add_request`，同意时可设置好友备注。 |
+| `guild-request` | `bot.handleGuildRequest(messageId, approve, comment?)` 处理当前 Bot 收到的群邀请。 |
+| `guild-member-request` | `bot.handleGuildMemberRequest(messageId, approve, comment?)` 处理管理员队列里的入群请求。 |
 
-**明确不支持**：Satori 动作面、`session.onebot.*` 驼峰兼容糖、网络传输与心跳/生命周期广播。
+调用方应原样传入对应事件的 `session.messageId`。新版群请求的 ID 是不透明引用，记录发布事件的账号、群号、类型、队列和原始字符串序号。
+适配器按 [loader 的公开 IPC 契约](https://github.com/NapukettoDev/NapukettoQQ/blob/da84db076c1bdfadb97faca041cb869e01d42eea/packages/loader/docs/design.md#ipc-群请求与好友身份)
+调用 `group.respondToRequest`，由宿主校验当前账号并执行审批。旧的裸 flag 继续可传给 `handleGuildMemberRequest`，经 OB11 审批。
+原始 OB11 订阅的集成继续使用 OB11 的原始请求字段，多个队列匹配同一序号时同时传入 `doubt`、`group_id` 和 `request_kind`。

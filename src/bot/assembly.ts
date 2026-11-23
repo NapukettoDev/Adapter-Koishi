@@ -136,6 +136,8 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
         // 事件桥同步接收事件，预热与派发由下游异步处理；Promise 拒绝由桥统一诊断。
         dispatch: (session) => host.dispatchSession(session),
         selfId: () => host.getLogin().snapshot.self?.uin ?? host.config.selfId,
+        selfUid: () => host.getLogin().snapshot.self?.uid,
+        ob11Actions: host.config.ob11Actions ?? true,
         // koishi h 可调用（Element 工厂）；绑定生产 h
         h: bindKoishiH(koishiH),
         platform: "onebot",

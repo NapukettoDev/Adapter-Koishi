@@ -11,6 +11,7 @@
  * 运行时 import koishi（MessageEncoder/h/Universal）——本文件不进单测。
  */
 import { type Bot, type Context, type h, MessageEncoder } from "koishi";
+import type { NapukettoInternal } from "../bridge/actions/internal.js";
 import { PRIVATE_PREFIX } from "../shared.js";
 
 /** 消息编码器：收集 koishi 元素 → flush 时经 internal.sendMessage 发送。 */
@@ -42,26 +43,22 @@ export class NapukettoMessageEncoder<C extends Context = Context> extends Messag
         if (this.children.length === 0) {
             return;
         }
-        const session = this.bot.session();
-        session.content = "";
-        const ids = await this.bot.internal.sendMessage(
-            this.channelId,
-            this.children,
-            this.session.guildId,
-        );
-        session.messageId = ids[0] ?? "";
-        session.userId = this.bot.selfId;
-        if (this.session.channelId !== undefined) {
-            session.channelId = this.session.channelId;
-        }
-        if (this.session.guildId !== undefined) {
-            session.guildId = this.session.guildId;
-        }
-        session.isDirect = this.session.isDirect;
-        session.app.emit(session, "send", session);
-        if (session.event.message !== undefined) {
-            this.results.push(session.event.message);
-        }
-        this.children.length = 0;
+        const children = this.children.splice(0);
+        const internal = this.bot.internal as NapukettoInternal;
+        await internal.sendMessage(this.channelId, children, this.session.guildId, (id) => {
+            const session = this.bot.session({ type: "send" });
+            session.content = "";
+            session.messageId = id;
+            session.userId = this.bot.selfId;
+            session.channelId = this.channelId;
+            if (this.session.guildId !== undefined) {
+                session.guildId = this.session.guildId;
+            }
+            session.isDirect = this.session.isDirect;
+            session.app.emit(session, "send", session);
+            if (session.event.message !== undefined) {
+                this.results.push(session.event.message);
+            }
+        });
     }
 }

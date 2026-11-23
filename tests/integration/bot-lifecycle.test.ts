@@ -330,9 +330,11 @@ describe("Bot 启停生命周期", () => {
             expect(bot.dispatch).toHaveBeenCalledExactlyOnceWith(
                 expect.objectContaining({
                     messageId: "with-video",
-                    elements: ["前缀", "[video]", "后缀"].map((content) =>
-                        expect.objectContaining({ type: "text", attrs: { content } }),
-                    ),
+                    elements: [
+                        { type: "text", attrs: { content: "前缀" } },
+                        { type: "video", attrs: { src: "video.mp4" } },
+                        { type: "text", attrs: { content: "后缀" } },
+                    ],
                 }),
             );
         },

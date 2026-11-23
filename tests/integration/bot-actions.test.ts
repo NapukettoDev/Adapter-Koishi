@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { IPC_VERSION } from "../../src/runtime/ipc/index.js";
-import { makeRawMessage } from "../helpers/events.js";
+import { IPC_VERSION, type IpcGroupRequest } from "../../src/runtime/ipc/index.js";
+import { makeRawMessage, mockH } from "../helpers/events.js";
 import { SELF_ID, setupPanel, startBot } from "./harness.js";
 
 describe("Koishi 标准动作到子进程 IPC 的接线", () => {
@@ -40,6 +40,84 @@ describe("Koishi 标准动作到子进程 IPC 的接线", () => {
         };
         return { bot, child, respond, expectAction };
     }
+
+    it("已就绪的 Bot 接收群邀请，原样回传账号、类型和队列", async () => {
+        const { bot, child, expectAction } = await startReadyBot();
+        const invitation: IpcGroupRequest = {
+            selfUin: SELF_ID,
+            request: {
+                seq: "90071992547409933",
+                groupCode: groupId,
+                kind: "invitation",
+                doubt: true,
+            },
+            initiatorUin: userId,
+        };
+        child.actionResponses.set("group.respondToRequest", null);
+        child.send({
+            v: IPC_VERSION,
+            type: "event",
+            payload: { service: "Group", name: "onRequest", args: [invitation] },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(bot.dispatch).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                type: "guild-request",
+                guildId: groupId,
+                userId,
+            }),
+        );
+        const id = vi.mocked(bot.dispatch).mock.calls[0]?.[0].messageId;
+        expect(id).toBeDefined();
+        await expect(bot.handleGuildRequest(id ?? "", true)).resolves.toBeUndefined();
+        expectAction("group.respondToRequest", {
+            selfUin: SELF_ID,
+            request: invitation.request,
+            approve: true,
+        });
+    });
+
+    it("宿主没给消息 ID 时 Encoder 不发 send 事件", async () => {
+        const { bot, child } = await startReadyBot();
+        const { NapukettoMessageEncoder } = await import("../../src/bot/message.js");
+        const encoder = new NapukettoMessageEncoder(
+            bot as unknown as ConstructorParameters<typeof NapukettoMessageEncoder>[0],
+            groupId,
+        );
+        const text = (value: string) =>
+            mockH().text(value) as unknown as Parameters<typeof encoder.visit>[0];
+        const emitted = vi.fn();
+        const event = { message: { id: "" } };
+        const outgoing = {
+            app: { emit: emitted },
+            event,
+            set messageId(id: string) {
+                event.message.id = id;
+            },
+        };
+        vi.spyOn(bot, "session").mockReturnValue(
+            outgoing as unknown as ReturnType<typeof bot.session>,
+        );
+        // The harness mocks the Koishi base encoder, including its constructor state.
+        Object.assign(encoder, {
+            bot,
+            channelId: groupId,
+            session: { isDirect: false },
+            results: [],
+        });
+
+        child.actionResponses.set("msg.sendMessage", { msgId: "" });
+        await encoder.visit(text("未确认"));
+        await encoder.flush();
+        expect(emitted).not.toHaveBeenCalled();
+        expect(encoder.results).toEqual([]);
+
+        child.actionResponses.set("msg.sendMessage", { msgId: "confirmed" });
+        await encoder.visit(text("已确认"));
+        await encoder.flush();
+        expect(emitted).toHaveBeenCalledExactlyOnceWith(outgoing, "send", outgoing);
+        expect(encoder.results).toEqual([{ id: "confirmed" }]);
+    });
 
     it("读取用户资料或指定群内的用户，保留 QQ 号和昵称", async () => {
         const { bot, respond, expectAction } = await startReadyBot();

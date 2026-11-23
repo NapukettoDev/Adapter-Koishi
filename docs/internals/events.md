@@ -27,18 +27,20 @@
 
 ## kernel 事件入口
 
-`bridge.handle(payload)` 只处理两类：
+`bridge.handle(payload)` 处理以下事件：
 
 1. `service === "Msg"` 且 `name === "onRecvMsg"`：`args[0]` 是 `RawMessage` 或 `RawMessage[]`
    （QQ 会批量推送）。逐条校验并处理，非对象或结构非法的条目跳过。
 2. `service === "ob11"`：`args[0]` 是 OneBot 11 原始事件对象，成员变动和请求可以生成标准事件。
    原始对象仍交给 `onOb11` 订阅者。
 
+3. `Group/onRequest` 使用 loader 公开 schema 转换群邀请及待审批的入群请求，独立于 OB11 桥。
+
 其他 service/name 由子进程透传，适配器不转换。
 
 **结构校验**：元素转换前先确认适配器实际依赖的字段——`msgId` 非空字符串、`chatType` 是
 kernel `ChatType` 的整数、`elements` 是数组且每个元素带整数 `elementType`；`senderUin` /
-`peerUin` 若出现必须是字符串（缺省沿用空串兜底）。校验函数是纯函数（`validate.ts`），读取字段
+`peerUin` 若出现必须是字符串（缺省时由可验证的同一 UID 身份补足）。校验函数是纯函数（`validate.ts`），读取字段
 自身抛错也按无效事件处理。通过后才进入 `toCanonicalElements()`，避免把坏载荷变成未处理异常。
 
 **异常隔离与诊断**：单条坏消息、元素转换失败、富化失败、OB11 转换失败、OB11 订阅者异常以及
@@ -61,8 +63,8 @@ kernel `ChatType` 的整数、`elements` 是数组且每个元素带整数 `elem
 | 场景 | `type` | `subtype` | `userId` | `channelId` | `guildId` | `isDirect` |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 群聊（`chatType=2`） | `message` | `group` | `senderUin` | `peerUin`（群号） | `peerUin`（群号） | `false` |
-| 私聊（`chatType=1`） | `message` | `private` | `senderUin` | `private:<senderUin>` | 无 | `true` |
-| 临时会话（`chatType=100`） | `message` | `private` | `senderUin` | `private:<senderUin>` | `peerUin`（群号） | `true` |
+| 私聊（`chatType=1`） | `message` | `private` | `senderUin` | `private:<对端 QQ 号>` | 无 | `true` |
+| 临时会话（`chatType=100`） | `message` | `private` | `senderUin` | `private:temp:<对端 QQ 号>` | 未知，省略 | `true` |
 
 公共字段：
 
@@ -70,7 +72,9 @@ kernel `ChatType` 的整数、`elements` 是数组且每个元素带整数 `elem
 - `platform` = `"onebot"`。
 - `timestamp` 使用毫秒。QQ NT 的秒值乘以 1000，毫秒值保留原精度。
 - `messageId` = `msg.msgId`。
-- `elements` = 见下节。
+- 元素按下表映射。发送者昵称优先采用 `sendNickName`，Linux 昵称缺失时采用已观测的 `sendMemberName`，群消息也单独记录已知群名片。缺少可确认的发送者 QQ 号或频道时跳过。
+- 临时会话 `peerUin` 是对端账号。普通消息没有已确认的来源群字段，戳一戳的 `fromGrpCodeOfTmpChat` 仅属于对应通知。
+- 保留收到的自身消息及 `bot.onOb11()` 原始订阅。Koishi 4.18.11 的命令中间件过滤 `session.selfId === session.userId`。
 
 **为什么 `type` 是 `message` 而不是 `message.group`**：satorijs `Bot.dispatch` 按 `session.type`
 匹配事件别名组（如 `message` / `message-created`），再结合 subtype 派生具体事件。直接写
@@ -80,18 +84,19 @@ kernel `ChatType` 的整数、`elements` 是数组且每个元素带整数 `elem
 
 ## 元素映射：canonical → koishi
 
-| canonical | koishi | 说明 |
+| canonical | Koishi | 说明 |
 | :--- | :--- | :--- |
-| `{ type: "text", text }` | `h("text", { content: text })` | **content 必须放 attrs**：`Element.toString()` 对 `text + attrs.content` 返回纯文本；放 children 会渲染成 `<text>…</text>`，导致 `content` getter 返回 XML，指令系统提取不到文本 |
-| `{ type: "at", target }` | `h("at", { id: target })` | `target === "all"` 原样保留 |
-| `{ type: "image", url?, path }` | `h("img", { src: url ?? path })` | koishi 标准元素是 `img`；url 优先，path 兜底 |
-| `{ type: "face", id }` | `h("face", { id })` | QQ 表情码 |
-| `{ type: "voice", path, url? }` | `h("audio", { src: url ?? path })` | 收向会先把可解析的 silk 路径替换为 WAV |
-| `{ type: "reply", messageId }` | `h("quote", { id: messageId })` | |
-| 其他（video/file/forward/json/xml/unknown） | `h("text", { content: "[type]" })` | 占位，保证消息仍可派发 |
+| `text` | `text` | 通过 `attrs.content` 交给元素工厂转义 |
+| `at` | `at` | 全体用 `type="all"`。用户 ID 使用 QQ 号，从本条载荷的 UID/UIN 配对、登录身份及同一宿主已观察的配对确认。未解析的 UID 降级为提及文本。 |
+| `image` / `voice` / `video` / `file` | `img` / `audio` / `video` / `file` | 优先使用有效 URL，随后使用非空路径；本地绝对路径转为 `file:` URL。保留已知图片尺寸、媒体时长及附件名称。无来源的媒体显示类型占位文本。 |
+| `face` | `face` | QQ 表情码 |
+| `reply` | `session.quote` / `Message.quote` | 保留原生消息 ID、可确认的作者 QQ 号与引用时间；正文保留其余元素。 |
+| `forward` / `json` / `xml` / `unknown` | `text` | 固定类型占位文本，避免把卡片内容或未知标签当作标记渲染。 |
 
 `h` 通过 `HFn` 接口注入（生产 `bindKoishiH(koishiH)`，单测 `mockH()`），事件层不直接 import
 koishi 运行时。
+
+当前 loader 没有公开的任意 UID 批量查 UIN 动作。未观察到的第三方 UID 会保留原提及文本；需要上游发布该动作或在原生消息公开载荷中提供已解析的 QQ 号。
 
 ## session 写入规则
 
@@ -105,7 +110,7 @@ koishi 运行时。
    （`elements.join("")` 派生），而 setter 会用 `h.parse(value)` 覆盖 `elements`：结构化元素会丢失，
    内容含特殊字符时 `h.parse` 还可能抛错导致 dispatch 失败。
 4. 普通消息先做 channel/user 预热（见 [Bot 集成的数据库预热](bot.md#数据库预热)），失败不阻断派发。
-5. 输出 info 级 dispatch 日志，再 `this.dispatch(session)`。只有普通消息的日志包含渲染文本。
+5. 输出 info 级 dispatch 日志，再 `this.dispatch(session)`。日志只记录会话元数据。
 
 `isDirect` 必须设置：它驱动 `event.channel.type`（DIRECT/TEXT）；不设置时私聊会被当群聊路由。
 
@@ -147,26 +152,33 @@ const off = bot.onOb11((event) => {
 
 ## 标准通知与请求
 
-| Koishi 事件 | 输入 | `userId` | `channelId` / `guildId` | `messageId` | `ob11Actions: false` |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `message-deleted` | raw `Msg/onRecvMsg` 的撤回灰条 | 原消息发送者 QQ 号 | 群号 / 群号，或 `private:<对端 QQ 号>` | 原生 `msgId` | 可用 |
-| `guild-member-added` / `guild-member-removed` | OB11 `group_increase` / `group_decrease` | 加入或退出的成员 QQ 号 | 群号 / 群号 | 无 | 不可用 |
-| `guild-added` / `guild-removed` | 上述通知的目标是登录账号 | 登录账号 QQ 号 | 群号 / 群号 | 无 | 不可用 |
-| `friend-request` | OB11 `request_type=friend` | 申请人 QQ 号 | `private:<申请人 QQ 号>` | `flag`（`BuddyReq.reqTime`） | 不可用 |
-| `guild-member-request` | OB11 `request_type=group`、`sub_type=add` | 申请人 QQ 号 | 群号 / 群号 | `flag`（`GroupNotify.seq`） | 不可用 |
+| Koishi 事件 | 证据与身份 |
+| :--- | :--- |
+| `message-deleted` | 群聊优先使用 OB11 `group_recall.tip_message_id` 与 `operator_id`，原生灰条提供可证实的回退。好友及临时会话使用可证实作者和对端的灰条。所有入口按频道与原生消息 ID 去重。 |
+| `guild-member-added` / `guild-member-removed` | OB11 `group_increase` / `group_decrease` 给出群号、成员及可解析的操作者。目标为当前账号时派发 `guild-added` / `guild-removed`。 |
+| `friend-added` | OB11 `friend_add` 来自好友快照差异，使用通知中的 QQ 号构造 `friend.user`。 |
+| `guild-member-updated` | 收到 OB11 `group_card` 或 `group_title` 时，使用通知提供的成员名片或头衔。上游只在已有对应通知源时产生此类事件。 |
+| `friend-request` | 原始 OB11 `friend` 请求，审批保留字符串 `flag`。 |
+| `guild-request` | `Group/onRequest` 中的 `invitation`，邀请当前账号加入群。 |
+| `guild-member-request` | `Group/onRequest` 中的 `join_request` 或 `invited_join_request`，等待本账号审批成员加入。 |
 
-- 撤回使用 raw `msgId`，与实时消息和历史消息共享 ID。OB11 撤回的 `message_id` 是 `msgSeq`，
-  继续交给原始订阅者。私聊使用对端 QQ 号定位频道，包括机器人自己撤回的情况。
-  只能依据 raw 载荷确认操作者 QQ 号时才填写 `operatorId`，无法确认时省略。缺少原消息发送者、
-  频道或原生消息 ID 时跳过。
-- 群成员变动使用 OB11 已回填为 QQ 号的 `operator_id`。零值和无效 QQ 号视为缺失。
-  成员相关 Session 同时携带 `event.member.user.id`。Koishi 4.18.11 同时会分发 `guild-member-deleted` 和 `guild-deleted` 旧别名。
-- 请求留言使用文本元素承载，缺失时使用空串。将 `session.messageId` 原样传给
-  [审批方法](actions.md#审批好友与入群申请)。缺必要 ID 的事件只留在适用的原始入口。
-  OB11 的 `invite` 混合机器人受邀和需管理员批准的成员邀请，继续由原始订阅消费。
-- 每类标准事件只从一个入口产生。同一 Bot 的有界去重记录跨软重登保留。撤回按频道和原生消息 ID，
-  成员变动按事件类型、群号、成员及上游时间，请求按类型、申请人、群号（如有）和 flag。
-  标准去重不影响原始订阅。调用 `onOb11` 返回的函数可随时退订，进程更换无需重新注册。
-- 戳一戳针对用户，没有消息 ID，仅通过原始 OB11 订阅提供（桥装配成功时）。表情回应的 raw `732:16`
-  载荷包含群号、消息序号和表情，但缺可用的实际操作者。当前发布的 OB11 仅声明 `msg_emoji_like`，
-  没有该通知的接线。因此这两类载荷均不产生 Koishi `reaction-added` 或 `reaction-removed`。
+`Group/onRequest` 同时携带发起人、目标和审批引用。成员邀请使用目标成员作为 `member.user`，有可确认邀请人时写入 `operator`；
+缺成员 QQ 号且无法从同一宿主已知 UID/UIN 解析时，保留原始 OB11 订阅。新版群请求仍完整进入原始 OB11 回调。审批方式见 [动作桥](actions.md#审批好友与入群申请)。
+
+群撤回的 OB11 `message_id` 属于 OB11 消息表。Koishi 只消费可与原生消息 ID 合并的群撤回；缺少 OB11 时使用灰条，启用 OB11 时最多等待 500 毫秒以接纳可能补足的操作者。好友撤回 OB11 `user_id` 表示对端，缺少原作者及操作者语义，仍由原始订阅消费。无法关联的 ID 留在原始事件。标准事件去重独立于 `onOb11()`。
+
+### 仅原始入口的通知
+
+依据 [Satori 事件资源](https://satori.chat/zh-CN/protocol/events.html) 和 [上游 OB11 通知类型](https://github.com/NapukettoDev/NapukettoQQ/blob/da84db076c1bdfadb97faca041cb869e01d42eea/packages/adapter/src/onebot11/event/notice.ts)：
+
+| 来源 | 保持原始的依据 |
+| :--- | :--- |
+| `group_admin` | 只提供一项 QQ 管理员资格变化。标准 `guild-role-*` 描述角色资源变更，成员角色列表也无法从该通知重建。 |
+| `group_ban` | 提供 QQ 禁言或解禁时长；标准成员资源没有对应禁言状态和时长字段。 |
+| `group_upload` | 上传属于 QQ 群文件记录，通知缺少标准事件可表示的文件资源或可消费地址。普通消息含可靠文件路径时映射为文件元素。 |
+| `offline_file` | 提供 QQ 离线文件通知；缺少标准消息所需的原生消息 ID 及消息关系。 |
+| `group_essence` | QQ 加精与消息置顶是不同操作；OB11 消息 ID 也无法直接用于 Koishi 消息资源。 |
+| `notify.poke` / `notify.lucky_notify` / `notify.honor` | 分别是用户动作、红包结果和荣誉；标准事件没有对应资源。戳一戳的临时来源只保留在这个通知中。 |
+| `group_sign` | QQ 签到没有对应标准事件。 |
+| `msg_emoji_like` / raw `Msg/onRecvSysMsg` `732:16` | OB11 发布类型只有声明，当前无接线。已知 raw 格式缺可确认的操作者，无法生成标准表态。 |
+| 其他灰条及非请求群通知 | 缺少可验证的标准事件语义；已处理的群通知也不能作为新请求。 |

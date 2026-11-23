@@ -1,8 +1,15 @@
 /** raw IPC 和 OB11 事件到 Koishi Session 的分发入口。 */
-import type { RawMessage } from "@napuketto/kernel";
+import { ElementType, type RawMessage } from "@napuketto/kernel";
+import { IpcGroupRequestSchema } from "../../runtime/ipc/index.js";
 import { normalizeMessageTime } from "../../shared.js";
-import { adaptRawMessageWithMedia } from "./adapt.js";
-import { type AdaptedEvent, adaptOb11Event, adaptRecall, findSystemTip } from "./notices.js";
+import { adaptRawMessageWithMedia, messageIdentities } from "./adapt.js";
+import {
+    type AdaptedEvent,
+    adaptGroupRequest,
+    adaptOb11Event,
+    adaptRecall,
+    findSystemTip,
+} from "./notices.js";
 import type {
     EventBridge,
     EventBridgeOptions,
@@ -20,6 +27,7 @@ const SYSTEM_SENDER_UIN = "0";
 /** 兼容 QQ 服务端与宿主时钟偏差（NapukettoQQ #122）。 */
 const STARTUP_GRACE_SECONDS = 5;
 const MAX_RECENT_EVENTS = 4096;
+const RECALL_FALLBACK_MS = 500;
 
 /** 安全收窄 OB11 事件外壳（读取字段抛错按非法事件处理）。 */
 function asOb11Event(value: unknown): Ob11EventPayload | null {
@@ -40,7 +48,15 @@ export class NapukettoEventBridge implements EventBridge {
     private readonly ob11Listeners = new Set<(event: Ob11EventPayload) => void>();
     // 软重登会重建上游 OB11 订阅。保留 Bot 的去重记录以吸收未处理请求的重放。
     private readonly recentEvents = new Map<string, number>();
+    private readonly identities = new Map<string, string>();
+    private readonly recalls = new Map<
+        string,
+        { event: AdaptedEvent; timer: NodeJS.Timeout; fromOb11: boolean }
+    >();
     private minMessageTime = 0;
+
+    private readonly resolveUin = (uid: string) =>
+        uid === this.options.selfUid?.() ? this.options.selfId() : this.identities.get(uid);
 
     constructor(options: EventBridgeOptions) {
         this.options = options;
@@ -48,6 +64,11 @@ export class NapukettoEventBridge implements EventBridge {
 
     /** 在订阅或重新装配时记录基准，ready 回放沿用同一个值。 */
     resetMessageBaseline(): void {
+        this.identities.clear();
+        for (const { timer } of this.recalls.values()) {
+            clearTimeout(timer);
+        }
+        this.recalls.clear();
         this.minMessageTime = (Math.floor(Date.now() / 1000) - STARTUP_GRACE_SECONDS) * 1000;
     }
 
@@ -55,6 +76,26 @@ export class NapukettoEventBridge implements EventBridge {
     handle(payload: { service: string; name: string; args: unknown[] }): void {
         if (payload.service === "ob11") {
             this.dispatchOb11(payload.args[0]);
+            return;
+        }
+        if (payload.service === "Group" && payload.name === "onRequest") {
+            try {
+                const payloadResult = IpcGroupRequestSchema.safeParse(payload.args[0]);
+                if (!payloadResult.success) {
+                    this.report(new TypeError("群请求结构非法"), "群请求事件已丢弃");
+                    return;
+                }
+                const request = adaptGroupRequest(
+                    payloadResult.data,
+                    this.eventContext(),
+                    this.resolveUin,
+                );
+                if (request !== undefined) {
+                    this.dispatchOnce(request);
+                }
+            } catch (error) {
+                this.report(error, "群请求事件处理失败（已丢弃）");
+            }
             return;
         }
         if (payload.service !== "Msg" || payload.name !== MSG_RECV_EVENT) {
@@ -79,30 +120,74 @@ export class NapukettoEventBridge implements EventBridge {
     }
 
     private handleMessage(raw: RawMessage): void {
-        // ⚠️ 过滤系统占位消息（senderUin=0，2026-08-09 修复）：QQ 在群通知
-        // 等系统事件时会把多条无内容占位消息随 onRecvMsg 批量推送（元素为空、
-        // 无业务价值，群通知本身走 Group/onGroupNotifiesUpdated 专门事件）。
-        // 若 dispatch 成 message 事件，koishi attach 会对无价值消息
-        // get-or-create channel，多条同 tick 时撞 koishi get-or-create 的
-        // 并发竞态——实测同批 4 条 → 1 成功 + 3 次 `UNIQUE constraint
-        // failed: channel.id, channel.platform`（记录本身创建成功后续不复发，
-        // 纯日志噪音，但无意义；框架侧根因见 koishijs/koishi#1545，真实消息
-        // 批量到达的场景由 database 模块预热规避）。
         const timestamp = normalizeMessageTime(raw.msgTime);
         if (timestamp !== undefined && timestamp < this.minMessageTime) {
             return;
         }
+        for (const [uid, uin] of messageIdentities(raw)) {
+            this.identities.delete(uid);
+            const oldest = this.identities.keys().next().value;
+            if (this.identities.size >= MAX_RECENT_EVENTS && oldest !== undefined) {
+                this.identities.delete(oldest);
+            }
+            this.identities.set(uid, uin);
+        }
         const tip = findSystemTip(raw);
         if (tip !== undefined) {
-            const recall = adaptRecall(raw, tip, this.eventContext(), timestamp);
+            const recall = adaptRecall(raw, tip, this.eventContext(), timestamp, this.resolveUin);
             if (recall !== undefined) {
-                this.dispatchOnce(recall);
+                this.dispatchRecall(recall, false);
             }
             return;
         }
-        if (raw.senderUin !== SYSTEM_SENDER_UIN) {
+        const grayOnly =
+            raw.elements.length > 0 &&
+            raw.elements.every((element) => element.elementType === ElementType.GRAY_TIP);
+        if (raw.senderUin !== SYSTEM_SENDER_UIN && !grayOnly) {
             this.dispatchMessage(raw);
         }
+    }
+
+    private dispatchRecall(event: AdaptedEvent, fromOb11: boolean): void {
+        const { key, fields } = event;
+        if (fields.timestamp < this.minMessageTime || this.recentEvents.has(key)) {
+            return;
+        }
+        const pending = this.recalls.get(key);
+        if (pending !== undefined) {
+            const higher = fromOb11 ? fields : pending.event.fields;
+            const lower = fromOb11 ? pending.event.fields : fields;
+            const mixedSources = pending.fromOb11 !== fromOb11;
+            pending.event = { key, fields: { ...lower, ...higher } };
+            pending.fromOb11 ||= fromOb11;
+            if (
+                (mixedSources || fromOb11) &&
+                pending.event.fields.userId !== undefined &&
+                pending.event.fields.operatorId !== undefined
+            ) {
+                clearTimeout(pending.timer);
+                this.recalls.delete(key);
+                this.dispatchOnce(pending.event);
+            }
+            return;
+        }
+        // 启用 OB11 时，给异步通知短暂留出补齐作者或操作者的时间。
+        if (
+            fields.isDirect ||
+            (fromOb11 && fields.userId !== undefined && fields.operatorId !== undefined) ||
+            !this.options.ob11Actions ||
+            this.recalls.size >= MAX_RECENT_EVENTS
+        ) {
+            if (fields.userId !== undefined) this.dispatchOnce(event);
+            return;
+        }
+        const timer = setTimeout(() => {
+            const current = this.recalls.get(key);
+            this.recalls.delete(key);
+            if (current?.event.fields.userId !== undefined) this.dispatchOnce(current.event);
+        }, RECALL_FALLBACK_MS);
+        timer.unref();
+        this.recalls.set(key, { event, timer, fromOb11 });
     }
 
     private eventContext() {
@@ -140,6 +225,7 @@ export class NapukettoEventBridge implements EventBridge {
         try {
             session = await adaptRawMessageWithMedia(msg, {
                 ...this.eventContext(),
+                resolveUin: this.resolveUin,
                 ...(this.options.enrichElements !== undefined
                     ? { enrichElements: this.options.enrichElements }
                     : {}),
@@ -196,7 +282,9 @@ export class NapukettoEventBridge implements EventBridge {
                 this.report(error, "OB11 订阅者异常（已隔离）");
             }
         }
-        if (adapted !== undefined) {
+        if (adapted?.fields.type === "message-deleted") {
+            this.dispatchRecall(adapted, true);
+        } else if (adapted !== undefined) {
             this.dispatchOnce(adapted);
         }
     }

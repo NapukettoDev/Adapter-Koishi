@@ -1,5 +1,14 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.65
+
+### Patch Changes
+
+- 用户提及使用已确认的 QQ 号，全体提及使用标准 `type="all"`，兼容发向旧 `id="all"`。实时和历史消息保留结构化引用、已确认的发送者和媒体来源。
+- 接入 Napuketto 任务 10 发布契约。群邀请通过 `guild-request` 与 `handleGuildRequest` 处理，审批回传事件的完整请求引用。群撤回优先使用可关联的 OB11 通知，回退到原生灰条并按频道与原生 ID 去重。
+- 临时会话使用 `private:temp:<对端 QQ 号>`，用于发送、撤回、历史与已读。群来源未知时省略 `guildId`。
+- 保留消息边界和段落，跳过缺少 QQ 号的好友，好友备注写入 `nick`，空发送结果不触发 `send`。
+
 ## 0.0.64
 
 ### Patch Changes

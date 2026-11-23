@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { NapukettoEventBridge } from "../../../../src/bridge/events/bridge.js";
 import type { IpcEventPayload } from "../../../../src/runtime/ipc/index.js";
-import { mockH } from "../../../helpers/events.js";
+import { makeRawMessage, mockH } from "../../../helpers/events.js";
 
 /** 构造 Msg/onRecvMsg 事件 payload（消息数组或单条——bridge 兼容两者）。 */
 function recvPayload(messages: unknown): IpcEventPayload {
@@ -90,6 +90,44 @@ describe("NapukettoEventBridge", () => {
             }),
         );
         await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+    });
+
+    it("以同一宿主的已观察 UID 回填提及，保留自己的标准消息和 OB11 原始订阅", async () => {
+        const dispatch = vi.fn();
+        const bridge = new NapukettoEventBridge({
+            dispatch,
+            selfId: () => "10086",
+            selfUid: () => "u_self",
+            h: mockH(),
+        });
+        const listener = vi.fn();
+        bridge.onOb11(listener);
+        bridge.handle(
+            recvPayload([
+                makeRawMessage({ senderUid: "u_other", senderUin: "54321" }),
+                makeRawMessage({
+                    msgId: "own",
+                    senderUid: "u_self",
+                    senderUin: "",
+                    elements: [
+                        {
+                            elementType: 1,
+                            textElement: { atType: 2, atUid: "u_other", content: "@好友" },
+                        },
+                    ],
+                }),
+            ]),
+        );
+        const event = { post_type: "message_sent", self_id: 10086, user_id: 10086 };
+        bridge.handle({ service: "ob11", name: "message_sent", args: [event] });
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+        expect(dispatch.mock.calls[1]?.[0]).toMatchObject({
+            type: "message",
+            messageId: "own",
+            userId: "10086",
+            elements: [{ type: "at", attrs: { id: "54321", name: "好友" } }],
+        });
+        expect(listener).toHaveBeenCalledExactlyOnceWith(event);
     });
 
     it("非 Msg/onRecvMsg 事件忽略", () => {

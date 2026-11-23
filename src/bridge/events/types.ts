@@ -18,6 +18,9 @@ export interface NapukettoSessionFields {
     platform: string;
     timestamp: number;
     userId?: string;
+    user?: Universal.User;
+    friend?: Universal.Friend;
+    quote?: Universal.Message;
     operatorId?: string;
     member?: Universal.GuildMember;
     channelId?: string;
@@ -39,6 +42,8 @@ export interface EventBridgeOptions {
     dispatch: (session: NapukettoSessionFields) => void | Promise<void>;
     /** 登录账号 uin（selfId）。 */
     selfId: () => string;
+    selfUid?: () => string | undefined;
+    ob11Actions?: boolean;
     /** koishi h() 工厂（apply() 层传 bindKoishiH(h)）。 */
     h: HFn;
     /** 平台名（默认 "onebot"）。 */
