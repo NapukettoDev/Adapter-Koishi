@@ -100,7 +100,7 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 | `handleFriendRequest(messageId, approve, comment?)` | OB11 `set_friend_add_request` |
 | `handleGuildMemberRequest(messageId, approve, comment?)` | OB11 `set_group_add_request` |
 | `getLogin()` | 优先登录快照 `self`（同步 user、`selfId`）；否则 `internal.getSelf()` 兜底 |
-| `getFriendList()` | `internal.getFriendList()` → `Universal.Friend` 列表 |
+| `getFriendList()` | `internal.getFriendList()` → `Universal.Friend` 列表，昵称为 `user.name`，备注优先用于 `nick`。跳过缺失 QQ 号的条目，非数组返回空列表。 |
 | `getGuildList()` | `internal.getGroupList()` → `Universal.Guild` 列表 |
 | `getGuild(guildId)` | 从群列表查找，未命中抛错 |
 | `getChannel(channelId)` | `private:` → DIRECT 频道；否则按群号查 `getGuild` → TEXT 频道 |
@@ -190,9 +190,7 @@ detached 分支。
 - `prepare()`：channel 未带 `type` 时按 channelId 补（`private:` → DIRECT=1，否则 TEXT=0）；
   非私聊时 `guildId ??= channelId`。
 - `visit(element)`：把 h 实例收集到数组（text 内容在 `attrs.content`）。
-- `flush()`：一次性 `bot.internal.sendMessage(channelId, children, guildId)`；把 messageId、selfId、
-  channelId、guildId、isDirect 填到新的 session，`app.emit(session, "send", session)`；若有
-  `event.message` 则 push 到 `results`；清空收集数组。
+- `flush()` 调用 `bot.internal.sendMessage(channelId, children, guildId)`。每个有效消息 ID 各生成一次 `send` 事件并写入 `results`，空发送结果不生成事件。
 
 元素到 canonical 的转换复用 `src/bridge/actions/elements.ts` 的 `toCanonicalElements()`，不重复实现。
 

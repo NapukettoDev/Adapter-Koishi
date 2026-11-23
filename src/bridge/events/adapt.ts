@@ -1,106 +1,208 @@
-/**
- * adapt.ts：kernel RawMessage → koishi session 字段（纯函数，docs/internals/events.md）。
- *
- * 链路：IPC event.args（RawMessage）→ kernel toCanonicalElements（canonical 中间层）
- * → toKoishiElements（koishi 元素）→ session 字段。
- *
- * 会话标识映射（napcat/onebot 同构，§9.1）：
- *  - 群聊（chatType=2）：type=message + subtype=group，channelId=guildId=groupCode
- *  - 私聊（chatType=1）：type=message + subtype=private，channelId=private:+senderUin
- *  - 临时会话（chatType=100）：type=message + subtype=private，guildId=groupCode
- */
-
 import {
     type CanonicalElement,
     ChatType,
     type RawMessage,
     toCanonicalElements,
 } from "@napuketto/kernel";
-import { type HFn, normalizeMessageTime, PRIVATE_PREFIX, toKoishiElements } from "../../shared.js";
+import type { Universal } from "koishi";
+import {
+    type HFn,
+    nonBlank,
+    normalizeMessageTime,
+    PRIVATE_PREFIX,
+    qqId,
+    TEMP_PREFIX,
+    toKoishiElements,
+} from "../../shared.js";
 import type { EventDiagnostic, NapukettoSessionFields } from "./types.js";
 
-/** 适配选项。 */
-export interface AdaptOptions {
+// RawMessage.TextElement 公开字段 atType 的 AT_ME 值。
+const AT_ME = 4;
+
+export type ResolveUin = (uid: string) => string | undefined;
+
+interface AdaptOptions {
     selfId: string;
     platform: string;
-    /** koishi h() 工厂（生产传 bindKoishiH(h)，单测传 mock）。 */
     h: HFn;
-    /** 收向元素富化（voice NT silk → WAV 等，异步；缺省直通）。2026-09-08 T6。 */
+    resolveUin?: ResolveUin;
     enrichElements?: (elements: CanonicalElement[]) => Promise<CanonicalElement[]>;
-    /** 富化失败等可降级问题的诊断回调（不改变降级结果）。 */
     onError?: EventDiagnostic;
 }
 
-/** RawMessage → koishi session 字段。 */
-export function adaptRawMessage(msg: RawMessage, options: AdaptOptions): NapukettoSessionFields {
-    const { selfId, platform, h } = options;
-    const senderUin = msg.senderUin ?? "";
-    const groupCode = msg.peerUin ?? ""; // 群聊时 peerUin = 群号
-    const isGroup = msg.chatType === ChatType.GROUP;
-
-    // ⚠️ type 用 "message" + subtype（onebot 同构，2026-08-09 修复）：satorijs
-    // Bot.dispatch 按 session.type 匹配 eventAliases 决定 emit 事件名，别名组只有
-    // ["message-created","message"] 等，"message.group" 不匹配 → emit 事件名变成
-    // "message.group"，koishi 指令系统（监听 "message"）收不到（实测症状：连接绿色、
-    // dispatch 被调用但指令无响应）。
-    const session: NapukettoSessionFields = {
-        type: "message",
-        subtype: isGroup ? "group" : "private",
-        selfId,
-        platform,
-        timestamp: normalizeMessageTime(msg.msgTime) ?? Date.now(),
-        userId: senderUin,
-        messageId: msg.msgId,
-        // 群聊非私聊；私聊/临时会话 isDirect=true（驱动 event.channel.type）
-        isDirect: !isGroup,
-        ...(isGroup
-            ? { channelId: groupCode, guildId: groupCode }
-            : { channelId: `${PRIVATE_PREFIX}${senderUin}` }),
+export function messageIdentities(raw: RawMessage): Map<string, string> {
+    const ids = new Map<string, string>();
+    const add = (rawUid: unknown, rawUin: unknown) => {
+        const uid = nonBlank(rawUid);
+        const uin = qqId(rawUin);
+        if (uid !== undefined && uin !== undefined) {
+            ids.set(uid, uin);
+        }
     };
-    // 临时会话（群内私聊）带 guildId（群号）
-    if (msg.chatType === ChatType.C2C_TEMP && groupCode !== "") {
-        session.guildId = groupCode;
+    add(raw.senderUid, raw.senderUin);
+    if (raw.chatType === ChatType.C2C || raw.chatType === ChatType.C2C_TEMP) {
+        add(raw.peerUid, raw.peerUin);
     }
-
-    // NT RawElement → canonical → koishi 元素
-    // ⚠️ 只设 elements：satorijs Session.content 是 getter（elements.join("") 派生）；
-    // 若直接设 content 字段会走 setter → h.parse(value) 覆盖 elements（结构化元素丢失，
-    // 且 content 含特殊字符时 parse 可能抛错导致 dispatch 失败——onebot 实证规避）。
-    const elements = toKoishiElements(toCanonicalElements(msg), h);
-    session.elements = elements;
-
-    return session;
+    for (const element of raw.elements) {
+        add(element.replyElement?.senderUid, element.replyElement?.senderUin);
+    }
+    return ids;
 }
 
-/**
- * RawMessage → koishi session 字段（含收向媒体富化，异步）。
- * 富化（voice silk → WAV 等）在 canonical → koishi 元素之前应用；
- * dispatch 侧异步化（bridge void 消费），失败不阻塞消息派发。
- */
+export function messageChannel(raw: RawMessage, selfId: string, resolveUin?: ResolveUin) {
+    if (raw.chatType === ChatType.GROUP) {
+        const id = qqId(raw.peerUin) ?? qqId(raw.peerUid);
+        return id === undefined ? undefined : { channelId: id, guildId: id, isDirect: false };
+    }
+    if (raw.chatType !== ChatType.C2C && raw.chatType !== ChatType.C2C_TEMP) {
+        return undefined;
+    }
+    const senderId = messageSenderId(raw, resolveUin);
+    const peerId =
+        qqId(raw.peerUin) ??
+        qqId(raw.peerUid) ??
+        resolveUin?.(raw.peerUid) ??
+        (senderId === selfId ? undefined : senderId);
+    const prefix = raw.chatType === ChatType.C2C_TEMP ? TEMP_PREFIX : PRIVATE_PREFIX;
+    return peerId === undefined ? undefined : { channelId: `${prefix}${peerId}`, isDirect: true };
+}
+
+export function messageSenderId(raw: RawMessage, resolveUin?: ResolveUin) {
+    return qqId(raw.senderUin) ?? qqId(raw.senderUid) ?? resolveUin?.(raw.senderUid);
+}
+
+export function messageSender(
+    raw: RawMessage,
+    resolveUin?: ResolveUin,
+): Universal.User | undefined {
+    const id = messageSenderId(raw, resolveUin);
+    const name = nonBlank(raw.sendNickName) ?? nonBlank(raw.sendMemberName);
+    return id === undefined ? undefined : { id, ...(name === undefined ? {} : { name }) };
+}
+
+export function convertMessage(
+    raw: RawMessage,
+    resolveUin: ResolveUin,
+    selfId?: string,
+): CanonicalElement[] {
+    return toCanonicalElements(raw).map((element, index) => {
+        const native = raw.elements[index];
+        if (element.type === "image") {
+            const width = native?.picElement?.picWidth;
+            const height = native?.picElement?.picHeight;
+            return typeof width === "number" &&
+                typeof height === "number" &&
+                Number.isSafeInteger(width) &&
+                Number.isSafeInteger(height) &&
+                width > 0 &&
+                height > 0
+                ? { ...element, size: { width, height } }
+                : element;
+        }
+        const text = native?.textElement;
+        if (text?.atType === AT_ME && selfId !== undefined) {
+            const display = nonBlank(text.content)?.replace(/^@/, "");
+            return { type: "at", target: selfId, ...(display ? { display } : {}) };
+        }
+        if (element.type !== "at" || element.target === "all") {
+            return element;
+        }
+        const target = qqId(element.target) ?? resolveUin(element.target);
+        if (target !== undefined) {
+            return { ...element, target };
+        }
+        const original = nonBlank(text?.content);
+        return original === undefined ? element : { type: "text", text: original };
+    });
+}
+
+export function projectMessage<Element>(
+    raw: RawMessage,
+    canonical: CanonicalElement[],
+    h: HFn<Element>,
+    resolveUin?: ResolveUin,
+): { elements: Element[]; quote?: Universal.Message } {
+    const index = canonical.findIndex((item) => item.type === "reply" && nonBlank(item.messageId));
+    const reply = canonical[index];
+    if (reply?.type !== "reply") {
+        return { elements: toKoishiElements(canonical, h) };
+    }
+    const details = raw.elements.find(
+        (item) => item.replyElement?.replayMsgId === reply.messageId,
+    )?.replyElement;
+    const id =
+        qqId(reply.senderUin) ??
+        qqId(reply.senderUid) ??
+        (reply.senderUid === undefined ? undefined : resolveUin?.(reply.senderUid));
+    const timestamp = normalizeMessageTime(details?.replayMsgTime);
+    return {
+        elements: toKoishiElements(
+            canonical.filter((_, i) => i !== index),
+            h,
+        ),
+        quote: {
+            id: reply.messageId,
+            ...(id === undefined ? {} : { user: { id } }),
+            ...(timestamp === undefined ? {} : { timestamp, createdAt: timestamp }),
+        },
+    };
+}
+
+function messageContext(raw: RawMessage, options: AdaptOptions) {
+    const local = messageIdentities(raw);
+    const resolveUin: ResolveUin = (uid) => local.get(uid) ?? options.resolveUin?.(uid);
+    const channel = messageChannel(raw, options.selfId, resolveUin);
+    const user = messageSender(raw, resolveUin);
+    if (channel === undefined || user === undefined || qqId(options.selfId) === undefined) {
+        throw new TypeError("消息缺少可确认的账号、发送者或频道");
+    }
+    const nick = channel.isDirect ? undefined : nonBlank(raw.sendMemberName);
+    const fields: NapukettoSessionFields = {
+        type: "message",
+        subtype: channel.isDirect ? "private" : "group",
+        selfId: options.selfId,
+        platform: options.platform,
+        timestamp: normalizeMessageTime(raw.msgTime) ?? Date.now(),
+        messageId: raw.msgId,
+        userId: user.id,
+        user,
+        ...(nick === undefined ? {} : { member: { user, nick } }),
+        ...channel,
+    };
+    return { fields, resolveUin };
+}
+
+/** Pure conversion with optional media enrichment at the caller boundary. */
 export async function adaptRawMessageWithMedia(
-    msg: RawMessage,
+    raw: RawMessage,
     options: AdaptOptions,
 ): Promise<NapukettoSessionFields> {
-    const enrich = options.enrichElements;
-    if (enrich === undefined) {
-        return adaptRawMessage(msg, options);
-    }
-    const { h } = options;
-    // 元素转换失败不是富化问题：交给调用方统一诊断，不在这里伪装成降级。
-    const canonical = toCanonicalElements(msg);
-    let enriched: CanonicalElement[];
+    const { fields, resolveUin } = messageContext(raw, options);
+    const canonical = convertMessage(raw, resolveUin, options.selfId);
+    let enriched = canonical;
     try {
-        enriched = await enrich(canonical);
+        if (options.enrichElements !== undefined) {
+            enriched = await options.enrichElements(canonical);
+        }
     } catch (error) {
-        // 富化失败按无富化处理（fail-soft：消息必须派发），并留下安全诊断。
         try {
             options.onError?.(error, "收向元素富化失败（回退原始元素）");
         } catch {
-            // 诊断回调自身异常不得阻断降级派发。
+            // 诊断回调自身异常不影响原始消息派发。
         }
-        return adaptRawMessage(msg, options);
     }
-    const session = adaptRawMessage(msg, options);
-    session.elements = toKoishiElements(enriched, h);
-    return session;
+    return { ...fields, ...projectMessage(raw, enriched, options.h, resolveUin) };
+}
+
+export function adaptRawMessage(raw: RawMessage, options: AdaptOptions): NapukettoSessionFields {
+    const { fields, resolveUin } = messageContext(raw, options);
+    return {
+        ...fields,
+        ...projectMessage(
+            raw,
+            convertMessage(raw, resolveUin, options.selfId),
+            options.h,
+            resolveUin,
+        ),
+    };
 }

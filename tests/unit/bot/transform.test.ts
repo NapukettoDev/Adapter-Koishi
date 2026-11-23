@@ -34,6 +34,18 @@ describe("toFriendList", () => {
         });
     });
 
+    it("好友备注优先，非数组及缺 UIN 条目保留空列表语义", () => {
+        expect(toFriendList({ data: [] })).toEqual({ data: [] });
+        expect(
+            toFriendList([
+                null,
+                { uid: "u_unknown", uin: null, nickname: "未知 UIN" },
+                { uid: "u_bad", uin: " ", nickname: "空 UIN" },
+                { uid: "u_friend", uin: "34567", nickname: "昵称", remark: "备注" },
+            ]),
+        ).toEqual({ data: [{ user: { id: "34567", name: "昵称" }, nick: "备注" }] });
+    });
+
     it("缺 nickname → 用 uin 兜底", () => {
         expect(toFriendList([{ uin: "10002" }])).toEqual({
             data: [
@@ -54,6 +66,13 @@ describe("toGuildList", () => {
     it("正常数据映射 groupCode/groupName", () => {
         expect(toGuildList([{ groupCode: "888", groupName: "测试群" }])).toEqual({
             data: [{ id: "888", name: "测试群" }],
+        });
+    });
+
+    it("过滤无身份群条目，非数组时返回空列表", () => {
+        expect(toGuildList("bad")).toEqual({ data: [] });
+        expect(toGuildList([null, { groupCode: "" }, { groupCode: "888" }])).toEqual({
+            data: [{ id: "888", name: "888" }],
         });
     });
 

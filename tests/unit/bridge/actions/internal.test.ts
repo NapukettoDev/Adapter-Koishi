@@ -332,8 +332,8 @@ describe("getMessageList", () => {
                     user: { id: "20001", name: "小明" },
                     channel: { id: "10001", type: 0 },
                     guild: { id: "10001" },
-                    elements: [h("quote", { id: "original" }), h.text("你好")],
-                    content: '<quote id="original"/>你好',
+                    elements: [h.text("你好")],
+                    content: "你好",
                     quote: { id: "original" },
                     timestamp: 1_700_000_000_123,
                     createdAt: 1_700_000_000_123,
@@ -439,6 +439,80 @@ describe("getMessageList", () => {
     it.each([0, -1, 1.5, NaN, Infinity, 2 ** 31])("拒绝非法 limit %s", async (limit) => {
         const { internal, request } = createInternal();
         await expect(internal.getMessageList("123", undefined, limit)).rejects.toMatchObject({
+            code: "INVALID_PARAM",
+        });
+        expect(request).not.toHaveBeenCalled();
+    });
+});
+
+describe("Koishi 消息边界和路由", () => {
+    it.each([null, {}, { msgId: null }, { msgId: 12 }, { msgId: "" }, { msgId: " " }])(
+        "无有效 ID 的宿主结果 %j 不生成发送回调",
+        async (response) => {
+            const { internal } = createInternal(async () => response);
+            const onSent = vi.fn();
+            await expect(internal.sendMessage("123", "消息", undefined, onSent)).resolves.toEqual(
+                [],
+            );
+            expect(onSent).not.toHaveBeenCalled();
+        },
+    );
+
+    it("只回报带 ID 的分段发送，后段失败前仍交付已取得的 ID", async () => {
+        const { internal, request } = createInternal(async () => ({}));
+        request
+            .mockResolvedValueOnce({ msgId: "first" })
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error("send failed"));
+        const onSent = vi.fn();
+        const message = (text: string) => h("message", {}, h.text(text));
+        await expect(
+            internal.sendMessage(
+                "123",
+                [message("first"), message("empty"), message("third")],
+                undefined,
+                onSent,
+            ),
+        ).rejects.toThrow("send failed");
+        expect(onSent).toHaveBeenCalledExactlyOnceWith("first");
+        expect(request.mock.calls.map(([, params]) => params?.["elements"])).toEqual(
+            ["first", "empty", "third"].map((text) => [{ type: "text", text }]),
+        );
+    });
+
+    it("同一临时频道发送、撤回、历史、已读请求都走 TEMP", async () => {
+        const record = makeRawMessage({ chatType: 100, peerUin: "24680" });
+        const { internal, request } = createInternal(async (action) =>
+            action === "msg.fetchMessages" ? [record, record, null, { msgId: " " }] : {},
+        );
+        const channel = "private:temp:24680";
+        await internal.sendMessage(channel, "消息");
+        await internal.deleteMessage(channel, record.msgId);
+        const { data } = await internal.getMessageList(channel);
+        await internal.markAsRead(channel);
+        expect(data).toHaveLength(1);
+        expect(data[0]?.channel).toEqual({ id: channel, type: 1 });
+        expect(data[0]).not.toHaveProperty("guild");
+        expect(
+            request.mock.calls.map(([action, params]) => [
+                action,
+                params?.["chatType"],
+                params?.["peerUin"],
+            ]),
+        ).toEqual([
+            ["msg.sendMessage", 100, "24680"],
+            ["msg.recallMessage", 100, "24680"],
+            ["msg.fetchMessages", 100, "24680"],
+            ["msg.markRead", 100, "24680"],
+        ]);
+    });
+
+    it("空频道和空撤回 ID 在进入 IPC 之前被拒绝", async () => {
+        const { internal, request } = createInternal();
+        await expect(internal.markAsRead("private:temp:")).rejects.toMatchObject({
+            code: "INVALID_PARAM",
+        });
+        await expect(internal.deleteMessage("123", " ")).rejects.toMatchObject({
             code: "INVALID_PARAM",
         });
         expect(request).not.toHaveBeenCalled();

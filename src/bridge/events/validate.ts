@@ -32,7 +32,7 @@ function inspect(value: unknown): RawMessageValidation {
     if (!isRecord(value)) {
         return { ok: false, reason: "不是对象" };
     }
-    if (typeof value["msgId"] !== "string" || value["msgId"] === "") {
+    if (typeof value["msgId"] !== "string" || value["msgId"].trim() === "") {
         return { ok: false, reason: "缺少 msgId" };
     }
     if (
@@ -42,8 +42,7 @@ function inspect(value: unknown): RawMessageValidation {
     ) {
         return { ok: false, reason: "chatType 非法" };
     }
-    // senderUin / peerUin 由 adapt 以空串兜底（undefined 或 null），缺省不视为坏事件；
-    // 出现非空值时必须与 kernel 契约一致为字符串。
+    // 身份允许缺省，适配时只使用可确认的 QQ 号。
     if (value["senderUin"] != null && typeof value["senderUin"] !== "string") {
         return { ok: false, reason: "senderUin 不是字符串" };
     }

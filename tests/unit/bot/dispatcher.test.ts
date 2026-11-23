@@ -90,6 +90,22 @@ describe("SessionDispatcher", () => {
         elements: [{ type: "text", attrs: { content: "hi" } }],
     };
 
+    it("独立写入结构化 quote，保留正文元素与作者", async () => {
+        const { dispatcher, dispatch } = makeDispatcher();
+        await dispatcher.dispatch({
+            ...fields,
+            user: { id: "20001", name: "小明" },
+            quote: { id: "quoted", user: { id: "30001" } },
+        });
+        expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                quote: { id: "quoted", user: { id: "30001" } },
+                elements: fields.elements,
+            }),
+        );
+        expect(dispatch.mock.calls[0]?.[0]).not.toHaveProperty("content");
+    });
+
     it("预热失败只 warn，不阻断 session 派发", async () => {
         const { dispatcher, dispatch, warn, ensureUser } = makeDispatcher();
         const failure = new Error("数据库暂时不可写");

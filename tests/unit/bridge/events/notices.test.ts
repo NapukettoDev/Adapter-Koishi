@@ -16,6 +16,7 @@ import {
     encodeIpcMessage,
     IPC_VERSION,
     type IpcEventPayload,
+    type IpcGroupRequest,
 } from "../../../../src/runtime/ipc/index.js";
 import { createHarness, flush } from "../../../helpers/driver.js";
 import { makeRawMessage, mockH } from "../../../helpers/events.js";
@@ -142,9 +143,15 @@ function rawMembership(type: 1 | 3): IpcEventPayload {
     ]);
 }
 
-function setup() {
+function setup(ob11Actions = false) {
     const dispatch = vi.fn<(fields: NapukettoSessionFields) => void>();
-    const bridge = new NapukettoEventBridge({ dispatch, selfId: () => String(SELF), h: mockH() });
+    const bridge = new NapukettoEventBridge({
+        dispatch,
+        selfId: () => String(SELF),
+        selfUid: () => "u_self",
+        h: mockH(),
+        ob11Actions,
+    });
     const listener = vi.fn();
     const off = bridge.onOb11(listener);
     return { bridge, dispatch, listener, off };
@@ -416,5 +423,236 @@ describe("QQ 通知和请求", () => {
         expect(dispatch).toHaveBeenCalledTimes(6);
         expect(remainingListener).not.toHaveBeenCalled();
         unsubscribe();
+    });
+});
+
+describe("发布的任务 10 事件契约", () => {
+    const invitation: IpcGroupRequest = {
+        selfUin: String(SELF),
+        request: {
+            kind: "invitation",
+            groupCode: String(GROUP),
+            seq: "90071992547409930",
+            doubt: true,
+        },
+        initiatorUid: "u_member",
+        initiatorUin: String(MEMBER),
+        comment: "邀请 <at/>",
+    };
+
+    it("受邀 Bot 生成一次 guild-request，未经处理的 OB11 原始通知照常送达", async () => {
+        const { bridge, dispatch, listener } = setup(true);
+        const rawInvite = {
+            ...groupRequest,
+            sub_type: "invite",
+            request_kind: "invitation",
+            doubt: true,
+        };
+        bridge.handle(ob11(rawInvite));
+        bridge.handle(raw("Group", "onRequest", { ...invitation, selfUin: "99999" }));
+        bridge.handle(raw("Group", "onRequest", invitation));
+        bridge.handle(raw("Group", "onRequest", invitation));
+        bridge.handle(ob11(rawInvite));
+        expect(listener.mock.calls).toEqual([[rawInvite], [rawInvite]]);
+        expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                type: "guild-request",
+                guildId: String(GROUP),
+                userId: String(MEMBER),
+            }),
+        );
+        const messageId = dispatch.mock.calls[0]?.[0].messageId ?? "";
+        const request = vi.fn(async () => ({}));
+        const internal = new NapukettoInternal({ request });
+        await expect(internal.handleGuildMemberRequest(messageId, true)).rejects.toMatchObject({
+            code: "INVALID_PARAM",
+        });
+        await internal.handleGuildRequest(messageId, false, "理由");
+        expect(request).toHaveBeenCalledExactlyOnceWith("group.respondToRequest", {
+            selfUin: invitation.selfUin,
+            request: invitation.request,
+            approve: false,
+            reason: "理由",
+        });
+    });
+
+    it("管理员处理的成员邀请使用真实目标，保留邀请人和互不混淆的队列", async () => {
+        const { bridge, dispatch } = setup();
+        const payload: IpcGroupRequest = {
+            ...invitation,
+            request: { ...invitation.request, kind: "invited_join_request" },
+            targetUid: "u_target",
+        };
+        bridge.handle(raw("Group", "onRequest", payload));
+        expect(dispatch).not.toHaveBeenCalled();
+        bridge.handle(
+            raw(
+                "Msg",
+                "onRecvMsg",
+                makeRawMessage({
+                    senderUid: "u_target",
+                    senderUin: "43210",
+                }),
+            ),
+        );
+        await flush();
+        dispatch.mockClear();
+        bridge.handle(raw("Group", "onRequest", payload));
+        bridge.handle(
+            raw("Group", "onRequest", {
+                ...payload,
+                request: { ...payload.request, doubt: false },
+            }),
+        );
+        expect(dispatch).toHaveBeenCalledTimes(2);
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+            type: "guild-member-request",
+            userId: "43210",
+            operatorId: String(MEMBER),
+            member: { user: { id: "43210" } },
+        });
+        const firstId = dispatch.mock.calls[0]?.[0].messageId ?? "";
+        const secondId = dispatch.mock.calls[1]?.[0].messageId;
+        expect(firstId).not.toBe(secondId);
+        const request = vi.fn(async () => ({}));
+        const internal = new NapukettoInternal({ request });
+        await internal.handleGuildMemberRequest(firstId, true);
+        expect(request).toHaveBeenCalledExactlyOnceWith("group.respondToRequest", {
+            selfUin: payload.selfUin,
+            request: payload.request,
+            approve: true,
+        });
+    });
+
+    it.each([true, false])(
+        "灰条 / OB11 先后互换（OB11 先到 %s）仍保留原生 ID 和操作者",
+        (ob11First) => {
+            vi.useFakeTimers();
+            try {
+                const { bridge, dispatch, listener } = setup(true);
+                const recall = rawRecall(false);
+                if (recall.elements[0]?.grayTipElement?.revokeElement) {
+                    recall.elements[0].grayTipElement.revokeElement.operatorUid =
+                        "u_unresolved_admin";
+                }
+                const msg = raw("Msg", "onRecvMsg", [recall]);
+                const notice = { ...groupRecall, tip_message_id: RAW_MESSAGE_ID, message_id: 0 };
+                for (const event of ob11First ? [ob11(notice), msg] : [msg, msg, ob11(notice)]) {
+                    bridge.handle(event);
+                }
+                bridge.handle(ob11(notice));
+                vi.runOnlyPendingTimers();
+                expect(listener).toHaveBeenCalledTimes(2);
+                expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+                    expect.objectContaining({
+                        type: "message-deleted",
+                        userId: String(MEMBER),
+                        operatorId: String(ADMIN),
+                        channelId: String(GROUP),
+                        messageId: RAW_MESSAGE_ID,
+                    }),
+                );
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
+    it("OB11 缺操作者时保留灰条操作者；没有 OB11 时等待窗口后回退", () => {
+        vi.useFakeTimers();
+        try {
+            const { bridge, dispatch } = setup(true);
+            bridge.handle(ob11({ ...groupRecall, operator_id: 0, tip_message_id: RAW_MESSAGE_ID }));
+            bridge.handle(raw("Msg", "onRecvMsg", [rawRecall(false)]));
+            const fallback = "90071992547409933";
+            bridge.handle(raw("Msg", "onRecvMsg", [{ ...rawRecall(false), msgId: fallback }]));
+            expect(dispatch).toHaveBeenCalledOnce();
+            vi.advanceTimersByTime(500);
+            expect(
+                dispatch.mock.calls.map(([fields]) => [fields.messageId, fields.operatorId]),
+            ).toEqual([
+                [RAW_MESSAGE_ID, String(ADMIN)],
+                [fallback, String(ADMIN)],
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("合并仅有部分身份的撤回，保留任一入口确认的操作者", () => {
+        vi.useFakeTimers();
+        try {
+            const { bridge, dispatch } = setup(true);
+            const first = rawRecall(false);
+            bridge.handle(raw("Msg", "onRecvMsg", [first]));
+            bridge.handle(
+                ob11({
+                    ...groupRecall,
+                    tip_message_id: first.msgId,
+                    user_id: 0,
+                    operator_id: 88888,
+                }),
+            );
+            const second = { ...rawRecall(false), msgId: "90071992547409934", senderUin: "" };
+            bridge.resetMessageBaseline();
+            const time = Date.now();
+            bridge.handle(raw("Msg", "onRecvMsg", [{ ...second, msgTime: String(time) }]));
+            bridge.handle(
+                ob11({
+                    ...groupRecall,
+                    time,
+                    tip_message_id: second.msgId,
+                    operator_id: 0,
+                }),
+            );
+            expect(
+                dispatch.mock.calls.map(([fields]) => [
+                    fields.messageId,
+                    fields.userId,
+                    fields.operatorId,
+                ]),
+            ).toEqual([
+                [first.msgId, String(MEMBER), "88888"],
+                [second.msgId, String(MEMBER), String(ADMIN)],
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("临时会话灰条与普通私聊使用不同的频道；不把 OB11 私聊对端当作撤回作者", () => {
+        const { bridge, dispatch, listener } = setup(true);
+        const notice = { ...privateRecall, tip_message_id: RAW_MESSAGE_ID, user_id: MEMBER };
+        bridge.handle(ob11(notice));
+        bridge.handle(raw("Msg", "onRecvMsg", [{ ...rawRecall(true), chatType: 100 }]));
+        expect(listener).toHaveBeenCalledExactlyOnceWith(notice);
+        expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                type: "message-deleted",
+                messageId: RAW_MESSAGE_ID,
+                userId: String(SELF),
+                operatorId: String(SELF),
+                channelId: `private:temp:${MEMBER}`,
+            }),
+        );
+        expect(dispatch.mock.calls[0]?.[0]).not.toHaveProperty("guildId");
+    });
+
+    it("好友和群名片可映射，禁言、管理员、加精和表态各留原始订阅", () => {
+        const { bridge, dispatch, listener } = setup();
+        const notices = [
+            fixtureNotice("friend_add", {}),
+            fixtureNotice("group_card", { group_id: GROUP, card_new: "" }),
+            fixtureNotice("group_ban", { group_id: GROUP, duration: 30 }),
+            fixtureNotice("group_admin", { group_id: GROUP, sub_type: "set" }),
+            fixtureNotice("group_essence", { group_id: GROUP, message_id: 42 }),
+            fixtureNotice("msg_emoji_like", { group_id: GROUP, message_id: 42 }),
+        ];
+        for (const notice of notices) bridge.handle(ob11(notice));
+        expect(listener).toHaveBeenCalledTimes(notices.length);
+        expect(dispatch.mock.calls.map(([fields]) => fields)).toMatchObject([
+            { type: "friend-added", friend: { user: { id: String(MEMBER) } } },
+            { type: "guild-member-updated", member: { nick: "", user: { id: String(MEMBER) } } },
+        ]);
     });
 });

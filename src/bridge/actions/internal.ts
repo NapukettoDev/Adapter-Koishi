@@ -10,9 +10,10 @@
  */
 import { isRecord } from "@napuketto/kernel";
 import type { Universal } from "koishi";
-import { IpcError } from "../../shared.js";
-import { isHistoryMessage, parseChannelId, toHistoryMessage } from "./codecs.js";
-import { toCanonicalElements } from "./elements.js";
+import { IpcError, nonBlank } from "../../shared.js";
+import { groupRequestResponse } from "../group-request.js";
+import { parseChannelId, recentHistory, toHistoryMessage } from "./codecs.js";
+import { toCanonicalMessages } from "./elements.js";
 import { prepareOutboundMedia } from "./media/prepare.js";
 import {
     readOb11Member,
@@ -68,12 +69,28 @@ export class NapukettoInternal {
     }
 
     /** 发消息：koishi 元素 → canonical →（媒体策略及格式归一化）→ msg.sendMessage。返回消息 id 数组。 */
-    async sendMessage(channelId: string, content: unknown, guildId?: string): Promise<string[]> {
+    async sendMessage(
+        channelId: string,
+        content: unknown,
+        guildId?: string,
+        onSent?: (id: string) => void,
+    ): Promise<string[]> {
         const peer = this.resolveMessagePeer(channelId, guildId);
-        const elements = toCanonicalElements(content);
-        if (elements.length === 0) {
-            return []; // 空内容：不发请求
+        const ids: string[] = [];
+        for (const elements of toCanonicalMessages(content)) {
+            const id = await this.sendOne(peer, elements);
+            if (id !== undefined) {
+                ids.push(id);
+                onSent?.(id);
+            }
         }
+        return ids;
+    }
+
+    private async sendOne(
+        peer: ReturnType<NapukettoInternal["resolveMessagePeer"]>,
+        elements: Parameters<typeof prepareOutboundMedia>[0],
+    ): Promise<string | undefined> {
         const prepared = await prepareOutboundMedia(elements, this.options);
         let uncertain = false;
         try {
@@ -81,8 +98,7 @@ export class NapukettoInternal {
                 ...peer,
                 elements: prepared.elements,
             });
-            const msgId = (result as { msgId?: string } | null | undefined)?.msgId;
-            return msgId === undefined || msgId === "" ? [] : [msgId];
+            return isRecord(result) ? nonBlank(result["msgId"]) : undefined;
         } catch (error) {
             uncertain =
                 error instanceof IpcError &&
@@ -96,6 +112,9 @@ export class NapukettoInternal {
     /** 撤回消息（messageId → msg.recallMessage）。 */
     async deleteMessage(channelId: string, messageId: string): Promise<void> {
         const peer = this.resolveMessagePeer(channelId);
+        if (nonBlank(messageId) === undefined) {
+            throw new IpcError("撤回需要消息 ID", "INVALID_PARAM");
+        }
         await this.options.request("msg.recallMessage", {
             ...peer,
             msgIds: [messageId],
@@ -115,11 +134,24 @@ export class NapukettoInternal {
         });
     }
 
+    async handleGuildRequest(messageId: string, approve: boolean, comment?: string): Promise<void> {
+        const response = groupRequestResponse(messageId, true, approve, comment);
+        if (response === undefined) {
+            throw new IpcError("审批群邀请需要 guild-request 的 messageId", "INVALID_PARAM");
+        }
+        await this.options.request("group.respondToRequest", response);
+    }
+
     async handleGuildMemberRequest(
         messageId: string,
         approve: boolean,
         comment?: string,
     ): Promise<void> {
+        const response = groupRequestResponse(messageId, false, approve, comment);
+        if (response !== undefined) {
+            await this.options.request("group.respondToRequest", response);
+            return;
+        }
         this.validateRequestFlag(messageId);
         await this.requestOb11("set_group_add_request", {
             flag: messageId,
@@ -222,14 +254,13 @@ export class NapukettoInternal {
             count: limit + (anchor === undefined ? 1 : 2),
             ...(anchor === undefined ? {} : { msgId: anchor }),
         });
-        const messages = Array.isArray(raw)
-            ? raw.filter(isHistoryMessage).filter((message) => message.msgId !== anchor)
-            : [];
+        const messages = recentHistory(raw, anchor);
         const page = messages.slice(0, limit);
         const cursor = messages.length > limit ? page.at(-1)?.msgId : undefined;
         const channel: Universal.Channel = { id: channelId, type: peer.chatType === 2 ? 0 : 1 };
+        const self = this.options.getSelfIdentity?.();
         const data = (order === "desc" ? page : page.reverse()).map((message) =>
-            toHistoryMessage(message, channel, h),
+            toHistoryMessage(message, channel, h, self),
         );
         return { data, ...(cursor === undefined ? {} : { prev: cursor, next: cursor }) };
     }

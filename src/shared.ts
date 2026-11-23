@@ -1,9 +1,23 @@
 /** 跨模块使用的协议约定、媒体策略、路径校验和 IPC 错误。 */
+import { isAbsolute } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { CanonicalElement } from "@napuketto/kernel";
 import type { h } from "koishi";
 
 /** 私聊 channelId 前缀。 */
 export const PRIVATE_PREFIX = "private:";
+export const TEMP_PREFIX = `${PRIVATE_PREFIX}temp:`;
+
+export function qqId(value: unknown): string | undefined {
+    if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+        return String(value);
+    }
+    return typeof value === "string" && /^[1-9]\d*$/.test(value) ? value : undefined;
+}
+
+export function nonBlank(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
 
 /** Status：ONLINE=1 / CONNECT=2 / DISCONNECT=3（koishi Bot.status）。 */
 export const BOT_STATUS = { ONLINE: 1, CONNECT: 2, DISCONNECT: 3 } as const;
@@ -61,26 +75,61 @@ export function toKoishiElements<Element>(
 function toKoishiElement<Element>(element: CanonicalElement, h: HFn<Element>): Element {
     switch (element.type) {
         case "text":
-            // ⚠️ 标准 text 元素 = h("text", { content })（satorijs element 实证，
-            // 2026-08-09 修复）：attrs 必须带 content，toString 才返回纯文本；
-            // 之前 h("text", {}, text)（content 在 children）toString 走通用分支
-            // 渲染成 `<text>echo 1</text>`，content getter（elements.join）返回
-            // XML 标签 → koishi 指令系统提取不到纯文本，指令无响应。
             return h("text", { content: element.text });
-        case "at":
-            return h("at", { id: element.target });
+        case "at": {
+            if (element.target === "all") {
+                return h("at", { type: "all" });
+            }
+            const id = qqId(element.target);
+            const name = nonBlank(element.display);
+            return id === undefined
+                ? h("text", { content: name === undefined ? "[@]" : `@${name}` })
+                : h("at", { id, ...(name === undefined ? {} : { name }) });
+        }
         case "image":
-            // koishi 标准图片元素是 img（onebot 实证）；url 优先，path 兜底
-            return h("img", { src: element.url ?? element.path });
+        case "voice":
+        case "video":
+        case "file": {
+            const url = "url" in element ? nonBlank(element.url) : undefined;
+            const path = nonBlank(element.path);
+            const source = url ?? path;
+            if (source === undefined) {
+                return h("text", { content: `[${element.type}]` });
+            }
+            const src =
+                isAbsolute(source) && isLocalPath(source) ? pathToFileURL(source).href : source;
+            if (element.type === "image") {
+                return h("img", { src, ...element.size });
+            }
+            if (element.type === "voice" || element.type === "video") {
+                const duration =
+                    element.type === "voice" && element.durationMs !== undefined
+                        ? element.durationMs / 1000
+                        : element.type === "video"
+                          ? element.durationSec
+                          : undefined;
+                return h(element.type === "voice" ? "audio" : "video", {
+                    src,
+                    ...(typeof duration === "number" && Number.isFinite(duration) && duration > 0
+                        ? { duration }
+                        : {}),
+                });
+            }
+            const title = nonBlank(element.name);
+            return h("file", { src, ...(title === undefined ? {} : { title }) });
+        }
         case "face":
             return h("face", { id: element.id });
-        case "voice":
-            return h("audio", { src: element.url ?? element.path });
         case "reply":
-            return h("quote", { id: element.messageId });
-        default:
-            // video/file/forward/json/xml/unknown：占位（后续扩充）
+            return nonBlank(element.messageId) === undefined
+                ? h("text", { content: "[reply]" })
+                : h("quote", { id: element.messageId });
+        case "forward":
+        case "json":
+        case "xml":
             return h("text", { content: `[${element.type}]` });
+        default:
+            return h("text", { content: "[unknown]" });
     }
 }
 

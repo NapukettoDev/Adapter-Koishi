@@ -2,6 +2,7 @@
  * elements.test.ts：canonical 元素 → koishi 元素映射单测。
  */
 
+import { pathToFileURL } from "node:url";
 import type { CanonicalElement } from "@napuketto/kernel";
 import { describe, expect, it } from "vitest";
 import { toKoishiElements } from "../../../../src/shared.js";
@@ -18,12 +19,40 @@ describe("toKoishiElements", () => {
         expect(String(elements[0])).not.toContain("<text");
     });
 
-    it("at → h.at（target 原样，all 原样）", () => {
-        const at = toKoishiElements([{ type: "at", target: "u_123" }], h);
-        expect(String(at[0])).toContain('id="u_123"');
+    it("at 使用已确认的 QQ 号和全体类型，未知 UID 降为安全文本", () => {
+        const elements = toKoishiElements(
+            [
+                { type: "at", target: "20001", display: '名"<&' },
+                { type: "at", target: "all" },
+                { type: "at", target: "u_123", display: "<at/>" },
+            ],
+            h,
+        );
+        expect(elements.map(String)).toEqual([
+            '<at id="20001" name="名&quot;&lt;&amp;"/>',
+            '<at type="all"/>',
+            "@&lt;at/&gt;",
+        ]);
+    });
 
-        const all = toKoishiElements([{ type: "at", target: "all" }], h);
-        expect(String(all[0])).toContain('id="all"');
+    it("视频、文件与有来源的媒体保留类型，空来源降级", () => {
+        const elements = toKoishiElements(
+            [
+                { type: "video", path: "/a.mp4", url: " ", durationSec: 9 },
+                { type: "file", path: "/a.txt", name: "附件" },
+                { type: "image", path: "", url: " " },
+                { type: "voice", path: "" },
+                { type: "file", path: "", name: "未下载" },
+            ],
+            h,
+        );
+        expect(elements).toMatchObject([
+            { type: "video", attrs: { src: pathToFileURL("/a.mp4").href, duration: 9 } },
+            { type: "file", attrs: { src: pathToFileURL("/a.txt").href, title: "附件" } },
+            { type: "text", attrs: { content: "[image]" } },
+            { type: "text", attrs: { content: "[voice]" } },
+            { type: "text", attrs: { content: "[file]" } },
+        ]);
     });
 
     it("image → h('img')（koishi 标准元素；url 优先，path 兜底）", () => {
@@ -66,14 +95,14 @@ describe("toKoishiElements", () => {
         const elements = toKoishiElements(
             [
                 { type: "text", text: "早上好" },
-                { type: "at", target: "u_1" },
+                { type: "at", target: "20001" },
                 { type: "text", text: "！" },
             ],
             h,
         );
         const joined = elements.map(String).join("");
         // 顺序保留：text（纯文本）→ at → text（纯文本）
-        const atIndex = joined.indexOf('<at id="u_1"');
+        const atIndex = joined.indexOf('<at id="20001"');
         expect(atIndex).toBeGreaterThan(0);
         expect(joined.startsWith("早上好")).toBe(true);
         expect(joined.endsWith("！")).toBe(true);

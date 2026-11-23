@@ -1,4 +1,4 @@
-import type { Bot, Computed, Logger } from "koishi";
+import type { Bot, Computed, Logger, Universal } from "koishi";
 import type { NapukettoSessionFields } from "../bridge/events/types.js";
 import type { NapukettoIpcClient } from "../runtime/ipc/index.js";
 import type { NapukettoDatabase } from "./database.js";
@@ -36,6 +36,8 @@ export class SessionDispatcher {
             selfId: fields.selfId,
             platform: fields.platform,
             timestamp: fields.timestamp,
+            ...(fields.user === undefined ? {} : { user: fields.user }),
+            ...(fields.friend === undefined ? {} : { friend: fields.friend }),
             ...(fields.member === undefined ? {} : { member: fields.member }),
         });
         applySessionFields(session, fields);
@@ -111,6 +113,7 @@ export interface SessionLike {
     channelId?: string;
     guildId?: string;
     messageId?: string;
+    quote?: Universal.Message;
     isDirect?: boolean;
     elements?: unknown[] | undefined;
 }
@@ -147,6 +150,9 @@ export function applySessionFields(session: SessionLike, fields: NapukettoSessio
     }
     if (fields.messageId !== undefined) {
         session.messageId = fields.messageId;
+    }
+    if (fields.quote !== undefined) {
+        session.quote = fields.quote;
     }
     // 私聊/群聊判定（event.channel.type = DIRECT/TEXT；不设则 isDirect 恒 false，
     // 私聊消息会被当群聊路由——onebot 实证）

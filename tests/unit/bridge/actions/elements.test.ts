@@ -3,9 +3,11 @@
  */
 
 import { fileURLToPath } from "node:url";
-import type { CanonicalElement } from "@napuketto/kernel";
 import { describe, expect, it } from "vitest";
-import { toCanonicalElements } from "../../../../src/bridge/actions/elements.js";
+import {
+    toCanonicalElements,
+    toCanonicalMessages,
+} from "../../../../src/bridge/actions/elements.js";
 
 /** 内存 koishi 元素构造（mock h 同构，events/test-utils 模式）。 */
 function makeElement(
@@ -56,6 +58,8 @@ describe("toCanonicalElements", () => {
         expect(toCanonicalElements([at])).toEqual([{ type: "at", target: "u_1" }]);
 
         const all = makeElement("at", { id: "all" });
+        const standardAll = makeElement("at", { type: "all" });
+        expect(toCanonicalElements(standardAll)).toEqual([{ type: "at", target: "all" }]);
         expect(toCanonicalElements([all])).toEqual([{ type: "at", target: "all" }]);
     });
 
@@ -122,25 +126,28 @@ describe("toCanonicalElements", () => {
         ]);
     });
 
-    it("video 缺 src → 降级 text（不丢内容）", () => {
-        const broken = makeElement("video", {}, ["视频"]);
-        const out = toCanonicalElements([broken]) as CanonicalElement[];
-        expect(out[0]).toMatchObject({ type: "text" });
-        expect((out[0] as { text: string }).text).toContain("video");
+    it.each([undefined, "", " ", false])("video 缺有效 src %s → 拒绝", (src) => {
+        expect(() => toCanonicalElements(makeElement("video", { src }))).toThrow(
+            expect.objectContaining({ code: "INVALID_PARAM" }),
+        );
     });
 
-    it("未知元素 → 降级 text（toString 保内容）", () => {
-        const file = makeElement("file", { src: "x.zip" }, ["内容"]);
-        const out = toCanonicalElements([file]) as CanonicalElement[];
-        expect(out).toHaveLength(1);
-        expect(out[0]).toMatchObject({ type: "text" });
-        expect((out[0] as { text: string }).text).toContain("file");
-        expect((out[0] as { text: string }).text).toContain("内容");
+    it("未知元素保留孩子、忽略陌生属性及原始标记", () => {
+        const child = makeElement("text", { content: "<at/>" });
+        expect(
+            toCanonicalElements([
+                makeElement("custom", { unsafe: "secret" }, [child]),
+                makeElement("toString", { unsafe: "secret" }),
+            ]),
+        ).toEqual([
+            { type: "text", text: "<at/>" },
+            { type: "text", text: "[unsupported]" },
+        ]);
     });
 
     it("缺失关键 attrs → 降级 text", () => {
         const brokenAt = makeElement("at", {});
-        const out = toCanonicalElements([brokenAt]) as CanonicalElement[];
+        const out = toCanonicalElements([brokenAt]);
         expect(out[0]).toMatchObject({ type: "text" });
     });
 
@@ -155,5 +162,45 @@ describe("toCanonicalElements", () => {
             { type: "at", target: "u_1" },
             { type: "text", text: "！" },
         ]);
+    });
+});
+
+describe("消息容器及段落", () => {
+    it("空 message 分隔消息，段落换行只出现在同一条消息内", () => {
+        const paragraph = (text: string) => makeElement("p", {}, [text]);
+        expect(
+            toCanonicalMessages([
+                "开头",
+                makeElement("message", {}, [
+                    paragraph("第一段"),
+                    paragraph("第二段"),
+                    makeElement("br", {}),
+                    paragraph("第三段"),
+                ]),
+                "另起",
+                makeElement("message", {}, []),
+                "末尾",
+            ]),
+        ).toEqual([
+            [{ type: "text", text: "开头" }],
+            ["第一段", "\n", "第二段", "\n", "第三段"].map((text) => ({ type: "text", text })),
+            [{ type: "text", text: "另起" }],
+            [{ type: "text", text: "末尾" }],
+        ]);
+    });
+
+    it("嵌套 message 保留边界，转发与作者标记不被重放", () => {
+        const message = (...children: unknown[]) => makeElement("message", {}, children);
+        expect(
+            toCanonicalMessages(
+                message(
+                    makeElement("author", { id: "30000" }),
+                    "a",
+                    message("b"),
+                    makeElement("message", { forward: true, id: "id" }, ["私有转发内容"]),
+                    "c",
+                ),
+            ),
+        ).toEqual(["a", "b", "c"].map((text) => [{ type: "text", text }]));
     });
 });
