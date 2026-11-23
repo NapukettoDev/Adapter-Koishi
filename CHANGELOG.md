@@ -1,5 +1,13 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.64
+
+### Patch Changes
+
+- 标准发送默认使用本地目录白名单和仅公网下载，并对单次发送的媒体项与累计字节设上限。旧部署需要内网访问时可显式选择 `remoteMediaPolicy: compatible`，可信标准发送可选择 `localFilePolicy: legacy`。
+- OB11 IPC 从 Koishi 配置接收远程策略和显式本地目录。原始动作入口拒绝诊断动作，可信集成可在指定账号开启 `diagnostics` 并迁移到 `requestDiagnostic()`。
+- 日志仅记录会话和传输摘要。按账号传递宿主日志等级，使用 loader 的环境继承白名单。
+
 ## 0.0.63
 
 ### Patch Changes

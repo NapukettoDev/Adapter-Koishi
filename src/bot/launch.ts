@@ -15,10 +15,10 @@
  * 替换成 `{}` 报错，见 docs/guides/development.md 产物与依赖形态）；`launchSelfHost` 内部 `__dirname`
  * 定位 self-host.cjs 由 loader 包内 `files: ["dist", "native/..."]` 保证。
  */
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { resolveConfigPath, resolveDataRoot } from "@napuketto/kernel";
+import { isRecord, parseToml, resolveConfigPath, resolveDataRoot } from "@napuketto/kernel";
 import {
     type LaunchOptions,
     launchSelfHost,
@@ -28,7 +28,7 @@ import {
 } from "@napuketto/loader";
 import type { NapukettoBotConfig } from "../config.js";
 import type { DriverLauncher } from "../runtime/driver/types.js";
-import { requireSelfId } from "../shared.js";
+import { DEFAULT_LOG_LEVEL, isLocalPath, requireSelfId } from "../shared.js";
 
 /**
  * 解析包入口（override 优先；否则 createRequire.resolve——CJS 产物下
@@ -154,12 +154,55 @@ async function defaultResolveQq(
         return resolveQqInstall(resolve(opts.qqPath));
     }
     if (process.platform === "linux") {
-        return resolveQqFiles({
-            dataRoot: opts.dataRoot,
-            ...(onStage !== undefined ? { onStage } : {}),
-        });
+        onStage?.("正在准备平台原生文件");
+        return resolveQqFiles({ dataRoot: opts.dataRoot });
     }
     return resolveQqInstall();
+}
+
+/** 保留宿主的日志设置。IPC 的其他主配置只消费当前账号的 OB11 媒体段。 */
+function readHostLogConfig(configPath: string): Record<string, unknown> {
+    const inline = process.env["NAPUKETTO_CONFIG_JSON"] ?? process.env["NAPKETTO_CONFIG_JSON"];
+    if (inline) {
+        try {
+            const doc: unknown = JSON.parse(inline);
+            if (isRecord(doc)) {
+                const log = doc["log"];
+                return isRecord(log) ? log : {};
+            }
+        } catch {
+            // 与宿主一样从无效内联配置回退到 TOML。解析错误可能包含配置原文。
+        }
+    }
+    try {
+        const log = parseToml(readFileSync(configPath, "utf8"))["log"];
+        return isRecord(log) ? log : {};
+    } catch {
+        // 与宿主的日志配置缺省行为一致。不要输出配置内容。
+        return {};
+    }
+}
+
+function resolveHostConfig(config: NapukettoBotConfig, selfId: string, configPath: string): string {
+    const roots = (config.localMediaRoots ?? []).map((root) => root.trim()).filter(Boolean);
+    if (roots.some((root) => !isLocalPath(root))) {
+        throw new TypeError("配置项 localMediaRoots 必须为本地目录");
+    }
+    return JSON.stringify({
+        log: { ...readHostLogConfig(configPath), unboundReceive: false },
+        accounts: [
+            {
+                qq: selfId,
+                onebot11: {
+                    media: {
+                        outboundPolicy:
+                            config.remoteMediaPolicy === "compatible" ? "compat" : "public-only",
+                        localMediaRoots: roots.map((root) => resolve(root)),
+                    },
+                },
+            },
+        ],
+    });
 }
 
 /** 组装 launchSelfHost 选项（不 spawn；deps 测试注入）。 */
@@ -221,6 +264,8 @@ export async function resolveLaunchOptions(
             );
         }
     }
+    const configPath = resolveConfigPath({ dataRoot });
+    const hostConfig = resolveHostConfig(config, selfId, configPath);
     // 强制扫码一次性标记（面板「扫码登录」置 true）：本次 spawn 消费后清零，
     // 崩溃退避重启不重复扫码；NAPUKETTO_QR_ONLY=1 → 子进程跳过快速登录直接出码
     const qrOnly = deps.forceQr?.current === true;
@@ -243,9 +288,14 @@ export async function resolveLaunchOptions(
         ...(qrOnly ? { qrOnly: true } : {}),
         cfgDir,
         cwd: dataRoot,
-        configPath: resolveConfigPath({ dataRoot }),
-        // 宿主引导和 OB11 clean_cache 分别读取这两个变量。
-        extraEnv: { NAPUKETTO_DATA_ROOT: dataRoot, NAPUKETTO_DATA: dataRoot },
+        configPath,
+        diagnostics: config.diagnostics === true,
+        log: { level: config.logLevel ?? DEFAULT_LOG_LEVEL },
+        extraEnv: {
+            NAPUKETTO_DATA_ROOT: dataRoot,
+            NAPUKETTO_DATA: dataRoot,
+            NAPUKETTO_CONFIG_JSON: hostConfig,
+        },
         ...(stubDir !== undefined ? { stubDir } : {}),
         ...(linuxStubPath !== undefined ? { linuxStubPath } : {}),
         ...(winNodePath !== undefined ? { winNodePath } : {}),
@@ -274,10 +324,8 @@ export function buildLaunch(config: NapukettoBotConfig, host: LaunchHost = {}): 
             ...(host.onStage !== undefined ? { onStage: host.onStage } : {}),
             ...(host.forceQr !== undefined ? { forceQr: host.forceQr } : {}),
         });
-        const { child } = await launchSelfHost({
-            ...options,
-            ...(host.onStage !== undefined ? { onStage: host.onStage } : {}),
-        });
+        host.onStage?.("正在启动自建宿主");
+        const { child } = await launchSelfHost(options);
         return { child };
     };
 }

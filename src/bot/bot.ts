@@ -100,6 +100,7 @@ export class NapukettoBot extends Bot<SatoriContext, NapukettoBotConfig> {
         });
         this.internal = createInternal({
             config: this.config,
+            dataRoot,
             getClient: () => this.lifecycle.client,
             getSelfIdentity: () => this.login.snapshot.self,
             logger: { warn: (message) => logger.warn("[napuketto] %s", message) },

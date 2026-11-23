@@ -65,6 +65,8 @@ export interface NapukettoBotConfig extends OutboundMediaPolicy {
      * 关闭 = 只保留 kernel 点分动作面（子进程也不需要 adapter/network 依赖）。
      */
     ob11Actions?: boolean;
+    /** 供受信任的进程内集成启用宿主诊断动作。 */
+    diagnostics?: boolean;
     /** 日志等级，默认 info。 */
     logLevel?: LogLevel;
     /** 子进程重启策略。 */
@@ -73,7 +75,7 @@ export interface NapukettoBotConfig extends OutboundMediaPolicy {
 
 const localMediaRootsSchema = Schema.array(Schema.string())
     .role("table")
-    .description("允许低信任调用者发送的本地媒体白名单目录")
+    .description("OB11 IPC 与标准白名单模式允许的本地媒体目录")
     .default([]);
 
 // 表单中的「自动」对应省略字段，运行时仍只接收显式布尔值。
@@ -93,7 +95,7 @@ export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.intersec
             Schema.const("error" as const).description("错误"),
             Schema.const("debug" as const).description("调试"),
         ])
-            .description("当前账号的日志输出等级")
+            .description("当前账号与宿主的日志输出等级")
             .default(DEFAULT_LOG_LEVEL),
     }).description("基础设置"),
     Schema.intersect([
@@ -110,23 +112,18 @@ export const napukettoConfigSchema: Schema<NapukettoBotConfig> = Schema.intersec
             ])
                 .description("出站远程媒体下载策略")
                 .default(DEFAULT_REMOTE_MEDIA_POLICY),
+            diagnostics: Schema.boolean()
+                .description("允许受信任的进程内集成通过 requestDiagnostic 使用宿主诊断")
+                .default(false)
+                .hidden(),
             localFilePolicy: Schema.union([
                 Schema.const("legacy").description("兼容模式（沿用本地路径与 file://）"),
                 Schema.const("allowlist").description("白名单模式（仅允许指定目录）"),
             ])
                 .description("出站本地媒体读取策略")
                 .default(DEFAULT_LOCAL_FILE_POLICY),
+            localMediaRoots: localMediaRootsSchema,
         }).description(""),
-        Schema.union([
-            Schema.object({
-                localFilePolicy: Schema.const("allowlist").required(),
-                localMediaRoots: localMediaRootsSchema,
-            }),
-            Schema.object({
-                localFilePolicy: Schema.const("legacy"),
-                localMediaRoots: localMediaRootsSchema.hidden(),
-            }),
-        ]),
     ])
         .description("功能与媒体策略")
         .role("napuketto-config-group")

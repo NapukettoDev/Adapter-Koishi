@@ -171,13 +171,13 @@ describe("NapukettoDriver 状态重同步", () => {
     });
 
     it("onJunkLine 透传：子进程脏行触发回调", async () => {
-        const junk: string[] = [];
-        const harness = createHarness({}, { onJunkLine: (line) => junk.push(line) });
+        const onJunkLine = vi.fn();
+        const harness = createHarness({}, { onJunkLine });
         harness.driver.start();
         await flush();
         const line = "[00:13:40.523] INFO (kernel/4242): 撕裂的日志行\n";
         harness.peers[0]?.peer.write(line);
-        expect(junk).toEqual([line]);
+        expect(onJunkLine).toHaveBeenCalledExactlyOnceWith();
         void harness.driver.stop();
     });
 

@@ -51,15 +51,14 @@ export class SessionDispatcher {
         if (this.host.getClient() !== client) {
             return; // 预热期间子进程已退出或被替换
         }
-        // 消息路径关键日志（info，默认可见）：session 字段 + 渲染后文本
         this.host.logger.info(
-            "[napuketto] dispatch: type=%s self=%s channel=%s user=%s isDirect=%s msg=%s",
+            "[napuketto] dispatch: type=%s self=%s channel=%s user=%s isDirect=%s elements=%d",
             fields.type,
             fields.selfId,
             fields.channelId ?? "?",
             fields.userId ?? "?",
             fields.isDirect,
-            fields.type === "message" ? (fields.elements?.join("") ?? "") : "",
+            fields.elements?.length ?? 0,
         );
         this.host.bot.dispatch(session);
     }

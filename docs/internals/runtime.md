@@ -26,7 +26,7 @@
   qq, kernelEntry, selfHostEntry?, adapterEntry?, networkEntry?, qrOnly?,
   cfgDir, cwd, configPath, extraEnv, stubDir?, linuxStubPath?, winNodePath?,
   nativeMediaPatch?, quickUin, selfHost: true, ipc: true,
-  stdio: ["pipe", "pipe", "pipe"], onStage,
+  stdio: ["pipe", "pipe", "pipe"], diagnostics, log,
 }
 ```
 
@@ -44,7 +44,8 @@
 | `quickUin` | 配置 `selfId`（快速登录目标账号） |
 | `qrOnly` | 本次 spawn 前 `forceQr.current === true` 时置位，并立即清零 |
 | `adapterEntry` / `networkEntry` | `ob11Actions !== false` 时解析 `@napuketto/adapter` 与 `@napuketto/network`；任一失败只记录降级，子进程不挂载 OB11 面 |
-| `onStage` | 传给 loader 与 launchSelfHost，接 bot logger.info（下载/解包/win-node/启动阶段可见） |
+| `log` / `diagnostics` | 按账号传递日志等级和显式诊断授权。宿主环境继承由 loader 白名单限制 |
+| `onStage` | 适配器报告启动阶段的安全摘要 |
 
 `resolveEntry(pkg, override)` 用 `createRequire(import.meta.url).resolve`：CJS 产物下
 `import.meta.resolve` 不可用。显式 override 为相对路径时按 `process.cwd()` 展开。解析失败会抛出
@@ -191,8 +192,8 @@ spawn 流程：
 - 分帧器按字节块累计行长度，超过 `maxLineBytes` 时立即丢弃该行已缓冲的前缀并跳过剩余内容直到
   换行，不会为超长行持续占用内存；随后到达的有效行继续分发。UTF-8 多字节字符跨 chunk 时只在
   完整行解码，不会被截断。超限通过 `onOversizeLine` 上报 `IPC_LINE_TOO_LARGE`，driver 接 logger。
-- stdout/stderr 都先经过 `isNativeNoiseLine()` 过滤 wrapper 的原生噪音；stderr 其余内容以
-  `[napuketto 子进程] ` 前缀转发到父进程 stderr（保留原生宿主和 Node 原始报错）。
+- stdout 经过 `isNativeNoiseLine()` 过滤 wrapper 的原生噪音。不能解析的 IPC 行只报告丢弃事件。
+  stderr 直接排空，每次连接至多报告一次输出提示。宿主的结构化 IPC 日志只转发级别摘要，避免自由文本携带凭据、消息或二维码。
 - 子进程 `close` 事件触发 transport 关闭；`stdin`/`stdout` 不是 pipe 时构造直接抛错。
 - stdin 写入前不可用、已提交的写入回调报错或 stdin 发出 `error` 时，传输立即幂等关闭。
   写入回调和 stdin 错误监听在传输提前关闭后仍处理已提交写入的错误。监听保留到 stdin 关闭，

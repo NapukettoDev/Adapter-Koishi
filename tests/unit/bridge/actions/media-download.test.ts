@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname } from "node:path";
 import type { CanonicalElement } from "@napuketto/kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { prepareOutboundMedia } from "../../../../src/bridge/actions/media/prepare.js";
+import { prepareOutboundMedia as prepare } from "../../../../src/bridge/actions/media/prepare.js";
+
+const prepareOutboundMedia: typeof prepare = (elements, options) =>
+    prepare(elements, { remoteMediaPolicy: "compatible", ...options });
 
 /** 图片元素工厂。 */
 function imageEl(path: string): CanonicalElement {
@@ -147,12 +150,11 @@ describe("prepareOutboundMedia", () => {
         expect(existsSync(directory)).toBe(false);
     });
 
-    it("公网策略在已发布包缺少严格入口时拒绝下载，禁止兼容回退", async () => {
+    it("默认公网策略拒绝环回并且禁止兼容回退", async () => {
         const fetch = vi.fn();
         const warn = vi.fn();
         vi.stubGlobal("fetch", fetch);
-        const result = await prepareOutboundMedia([imageEl("http://127.0.0.1/image.png")], {
-            remoteMediaPolicy: "public-only",
+        const result = await prepare([imageEl("http://127.0.0.1/image.png")], {
             logger: { warn },
         });
         expect(result.elements[0]?.type).toBe("text");
@@ -171,13 +173,10 @@ describe("prepareOutboundMedia", () => {
         await result.cleanup();
     });
 
-    it("无远程媒体时零 IO（不建临时目录）", async () => {
+    it("纯文本发送不建临时目录", async () => {
         const fetchMock = vi.fn();
         vi.stubGlobal("fetch", fetchMock);
-        const elements: CanonicalElement[] = [
-            { type: "text", text: "hi" },
-            imageEl("C:/local/1.png"),
-        ];
+        const elements: CanonicalElement[] = [{ type: "text", text: "hi" }];
         const result = await prepareOutboundMedia(elements);
         expect(result.elements).toEqual(elements);
         expect(fetchMock).not.toHaveBeenCalled();

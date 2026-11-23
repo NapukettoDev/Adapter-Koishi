@@ -6,9 +6,18 @@ import type { DriverEvents } from "../runtime/driver/types.js";
 import type { IpcLoginPayload } from "../runtime/ipc/index.js";
 
 /** driver events 主机（bot 层提供依赖，避免工厂直接依赖 NapukettoBot 全量）。 */
+const HOST_LOG_METHOD = {
+    trace: "debug",
+    debug: "debug",
+    info: "info",
+    warn: "warn",
+    error: "error",
+    fatal: "error",
+} as const;
+
 export interface DriverEventsHost {
     /** 对应账号的 Bot logger。 */
-    logger: Pick<Logger, "debug" | "warn">;
+    logger: Pick<Logger, "debug" | "info" | "warn" | "error">;
     /** 登录状态机（onLogin/onQr/onExit 转发）。 */
     login: Pick<NapukettoLoginState, "onLogin" | "onQr" | "onExit">;
     /** 事件桥（kernel 事件 → koishi session）。 */
@@ -124,10 +133,17 @@ export function buildDriverEvents(host: DriverEventsHost): DriverEvents {
                 host.logger.warn("[napuketto] IPC 通道异常: %o", error);
             }
         },
-        onLog: (log) => {
+        onStderr: () => {
             if (current()) {
-                host.logger.debug("[napuketto 子进程] %s", log.message);
+                host.logger.debug("[napuketto 子进程] 已接收 stderr 输出");
             }
+        },
+        onLog: ({ level }) => {
+            if (!current()) {
+                return;
+            }
+            const method = HOST_LOG_METHOD[level];
+            host.logger[method]("[napuketto 子进程] 收到 %s 级别的日志", level);
         },
     };
 }

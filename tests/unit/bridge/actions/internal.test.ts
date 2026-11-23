@@ -13,6 +13,7 @@ import { ElementType } from "@napuketto/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NapukettoInternal } from "../../../../src/bridge/actions/internal.js";
 import type { RequestFn } from "../../../../src/bridge/actions/types.js";
+import { IpcError } from "../../../../src/shared.js";
 import { makeRawMessage, mockH } from "../../../helpers/events.js";
 
 const { encodePcmToSilkMock } = vi.hoisted(() => ({ encodePcmToSilkMock: vi.fn() }));
@@ -106,11 +107,12 @@ describe("NapukettoInternal", () => {
             writeFileSync(silk, "silk");
             return silk;
         });
-        const { internal, request } = createInternal(async (_action, params) => {
+        const request = vi.fn<RequestFn>(async (_action, params) => {
             expect(params?.["elements"]).toEqual([{ type: "voice", path: silk }]);
             expect(existsSync(silk)).toBe(true);
             throw new Error("IPC failed");
         });
+        const internal = new NapukettoInternal({ request, localMediaRoots: [dir] });
         await expect(internal.sendMessage("123456789", [audioElement(source)])).rejects.toThrow(
             "IPC failed",
         );
@@ -158,7 +160,33 @@ describe("NapukettoInternal", () => {
         expect(readFileSync(file, "utf8")).toBe("replacement");
     });
 
-    it("媒体策略仅约束标准发送，原始 OB11 请求保留参数与响应", async () => {
+    it("IPC 超时后保留工作文件直到延迟清理", async () => {
+        vi.useFakeTimers();
+        try {
+            const outboundRoot = join(dir, "outbound-media");
+            let staged = "";
+            const request = vi.fn<RequestFn>(async (_action, params) => {
+                const elements = params?.["elements"] as { path: string }[];
+                staged = elements[0]?.path ?? "";
+                throw new IpcError("模拟超时", "TIMEOUT");
+            });
+            const internal = new NapukettoInternal({ request, outboundRoot });
+            await expect(
+                internal.sendMessage("123456", img("data:image/png;base64,YQ==")),
+            ).rejects.toMatchObject({ code: "TIMEOUT" });
+            expect(dirname(dirname(staged))).toBe(outboundRoot);
+            expect(readFileSync(staged, "utf8")).toBe("a");
+            await vi.advanceTimersByTimeAsync(119_999);
+            expect(existsSync(staged)).toBe(true);
+            await vi.advanceTimersByTimeAsync(1);
+            vi.useRealTimers();
+            await vi.waitFor(() => expect(existsSync(staged)).toBe(false));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("标准发送执行本地策略，原始 OB11 请求保留参数与响应", async () => {
         const response = { status: "ok", retcode: 0, data: {} };
         const request = vi.fn<RequestFn>(async () => response);
         const internal = new NapukettoInternal({
@@ -180,12 +208,21 @@ describe("NapukettoInternal", () => {
         });
     });
 
-    it("受信任的诊断请求独立于发送媒体策略", async () => {
-        const response = {};
-        const request = vi.fn<RequestFn>(async () => response);
-        const internal = new NapukettoInternal({ request, localFilePolicy: "allowlist" });
-        await expect(internal._request("diag.richMediaTmpPaths")).resolves.toBe(response);
-        expect(request).toHaveBeenCalledExactlyOnceWith("diag.richMediaTmpPaths", undefined);
+    it("原始入口拒绝诊断，可信专用入口需要显式授权", async () => {
+        const action = "diag.richMediaTmpPaths";
+        const request = vi.fn<RequestFn>(async () => ({}));
+        const defaults = new NapukettoInternal({ request });
+        const trusted = new NapukettoInternal({ request, diagnostics: true });
+        await expect(defaults.requestDiagnostic(action)).rejects.toMatchObject({
+            code: "NOT_FOUND",
+        });
+        await expect(trusted._request(action)).rejects.toMatchObject({ code: "NOT_FOUND" });
+        await expect(trusted.requestDiagnostic("msg.sendMessage")).rejects.toMatchObject({
+            code: "NOT_FOUND",
+        });
+        expect(request).not.toHaveBeenCalled();
+        await expect(trusted.requestDiagnostic(action)).resolves.toEqual({});
+        expect(request).toHaveBeenCalledExactlyOnceWith(action, undefined);
     });
 
     it("sendMessage：私聊 → chatType=1", async () => {

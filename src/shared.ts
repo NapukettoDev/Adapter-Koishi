@@ -99,8 +99,8 @@ export class IpcError extends Error {
         this.code = code;
     }
 }
-export const DEFAULT_REMOTE_MEDIA_POLICY = "compatible";
-export const DEFAULT_LOCAL_FILE_POLICY = "legacy";
+export const DEFAULT_REMOTE_MEDIA_POLICY = "public-only";
+export const DEFAULT_LOCAL_FILE_POLICY = "allowlist";
 
 export interface OutboundMediaPolicy {
     remoteMediaPolicy?: "compatible" | "public-only";

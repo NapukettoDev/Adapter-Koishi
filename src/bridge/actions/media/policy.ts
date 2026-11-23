@@ -10,7 +10,8 @@ function contains(root: string, target: string): boolean {
 }
 
 async function isUnderAllowedRoot(target: string, roots: string[]): Promise<boolean> {
-    for (const entry of roots) {
+    for (const rootSpec of roots) {
+        const entry = rootSpec.trim();
         if (entry === "" || !isLocalPath(entry)) {
             continue;
         }

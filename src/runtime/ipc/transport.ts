@@ -5,7 +5,6 @@
  * 测试注入内存双端（MemoryLinePair，见 tests/helpers/ipc.ts）。
  */
 import type { ChildProcess } from "node:child_process";
-import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { KernelError } from "@napuketto/kernel";
 import { isNativeNoiseLine } from "@napuketto/loader";
@@ -98,6 +97,8 @@ export interface ChildProcessIpcTransportOptions {
     maxLineBytes?: number;
     /** 超限行被整行丢弃时的诊断回调。 */
     onOversizeLine?: (error: IpcError) => void;
+    /** 此连接首次收到 stderr 数据，只传递通知。 */
+    onStderr?: () => void;
 }
 
 /** 基于 ChildProcess stdio 的传输：stdout 增量分帧，stdin 发行。 */
@@ -105,7 +106,7 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
     private readonly stdin: Writable;
     private readonly stdout: Readable;
     private readonly framer: LineFramer;
-    private readonly stderrLines: Interface | undefined;
+    private readonly onStderr: (() => void) | undefined;
     private readonly onOversizeLine: ((error: IpcError) => void) | undefined;
     private writeFailed = false;
 
@@ -136,9 +137,11 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
         }
     };
 
-    private readonly onStderrLine = (line: string): void => {
-        if (!isNativeNoiseLine(line)) {
-            process.stderr.write(`[napuketto 子进程] ${line}\n`);
+    private readonly onStderrData = (): void => {
+        try {
+            this.onStderr?.();
+        } catch {
+            // 观察回调不能影响底层管道排空。
         }
     };
 
@@ -181,11 +184,12 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
         });
         stdout.on("data", this.onStdoutData);
         stdout.on("end", this.onStdoutEnd);
-        // stderr 保留宿主的原始诊断，同时过滤原生噪音。
-        if (child.stderr !== null) {
-            this.stderrLines = createInterface({ input: child.stderr, crlfDelay: Infinity });
-            this.stderrLines.on("line", this.onStderrLine);
+        // 排空 stderr 防止子进程阻塞。自由文本可能含凭据，不分帧也不转发。
+        this.onStderr = options.onStderr;
+        if (this.onStderr !== undefined) {
+            child.stderr?.once("data", this.onStderrData);
         }
+        child.stderr?.resume();
         child.once("close", this.onChildClose);
     }
 
@@ -209,6 +213,8 @@ export class ChildProcessIpcTransport extends BaseLineTransport {
         this.stdout.off("end", this.onStdoutEnd);
         this.stdout.pause();
         this.framer.reset();
-        this.stderrLines?.off("line", this.onStderrLine).close();
+        if (this.onStderr !== undefined) {
+            this.child.stderr?.off("data", this.onStderrData);
+        }
     }
 }
