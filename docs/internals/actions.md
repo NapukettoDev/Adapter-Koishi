@@ -87,8 +87,8 @@ IPC 参数使用 OB11 要求的安全整数。查询响应的数据或标识不�
 当前标准 Bot 没有接入 `getMessage` 和 `createReaction`。`msg.fetchMessages` 按锚点读历史，
 没有按 ID 精确取回锚点消息的契约。OB11 `get_msg` 和 `set_msg_emoji_like` 使用子进程分配的 `message_id`；
 Koishi 实时消息、历史和撤回使用原生 `msgId`。表态的原生调用还需要该消息的 `msgSeq` 和 QQ 表情 ID。
-上游分别跟进[按原生 ID 查消息](https://github.com/NapukettoDev/NapukettoQQ/issues/172)
-和[按原生 ID 添加表态](https://github.com/NapukettoDev/NapukettoQQ/issues/173)。
+上游分别跟进[按原生 ID 查消息](https://github.com/NapukettoDev/Napuketto/issues/172)
+和[按原生 ID 添加表态](https://github.com/NapukettoDev/Napuketto/issues/173)。
 
 ## channelId 解析
 
@@ -151,7 +151,7 @@ Koishi `sendMessage()` 为图片（`img` / `image`）、语音（`audio`）和�
    2 分钟消费窗口，再尝试清理。后续创建工作目录时回收已退出进程留下超过 24 小时的目录。调用方文件由调用方管理。
 
 OB11 的发送消息、下载、头像、群公告图和闪传等由上游动作执行媒体授权、单文件限制及缓存管理。
-标准发送的单消息预算只用于 Koishi 媒体准备。OB11 的单消息预算由[上游跟踪](https://github.com/NapukettoDev/NapukettoQQ/issues/181)。
+标准发送的单消息预算只用于 Koishi 媒体准备。OB11 的单消息预算由[上游跟踪](https://github.com/NapukettoDev/Napuketto/issues/181)。
 `ob11Actions: false` 关闭 OB11 桥，原始 kernel 动作仍由 `_request()` 调用。
 
 ## 子进程侧的动作实现
@@ -203,6 +203,6 @@ kernel 动作面（launch 已就绪）：
 | `guild-member-request` | `bot.handleGuildMemberRequest(messageId, approve, comment?)` 处理管理员队列里的入群请求。 |
 
 调用方应原样传入对应事件的 `session.messageId`。新版群请求的 ID 是不透明引用，记录发布事件的账号、群号、类型、队列和原始字符串序号。
-适配器按 [loader 的公开 IPC 契约](https://github.com/NapukettoDev/NapukettoQQ/blob/da84db076c1bdfadb97faca041cb869e01d42eea/packages/loader/docs/design.md#ipc-群请求与好友身份)
+适配器按 [loader 的公开 IPC 契约](https://github.com/NapukettoDev/Napuketto/blob/da84db076c1bdfadb97faca041cb869e01d42eea/packages/loader/docs/design.md#ipc-群请求与好友身份)
 调用 `group.respondToRequest`，由宿主校验当前账号并执行审批。旧的裸 flag 继续可传给 `handleGuildMemberRequest`，经 OB11 审批。
 原始 OB11 订阅的集成继续使用 OB11 的原始请求字段，多个队列匹配同一序号时同时传入 `doubt`、`group_id` 和 `request_kind`。

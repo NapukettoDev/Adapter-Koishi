@@ -47,7 +47,7 @@ function fixtureNotice(noticeType: string, fields: Record<string, unknown>): Ob1
     };
 }
 
-// Fixtures mirror the raw listeners and broadcasts in NapukettoQQ's OB11 adapter tests.
+// Fixtures mirror the raw listeners and broadcasts in Napuketto's OB11 adapter tests.
 const groupRecall = fixtureNotice("group_recall", {
     group_id: GROUP,
     operator_id: ADMIN,
@@ -358,7 +358,7 @@ describe("QQ 通知和请求", () => {
             ]),
         );
         bridge.handle(ob11(poke));
-        // NapukettoQQ Milky 732:16 fixture, with the actor field holding the bot placeholder.
+        // Napuketto Milky 732:16 fixture, with the actor field holding the bot placeholder.
         const bytes = Buffer.from(
             "0a06088ba1ac8d04120b08dc05101030a0ff9cd7061a21121fe2021c0a1a0a18080112030896011a0f0a023736280118012205755f626f74",
             "hex",

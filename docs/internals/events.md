@@ -169,7 +169,7 @@ const off = bot.onOb11((event) => {
 
 ### 仅原始入口的通知
 
-依据 [Satori 事件资源](https://satori.chat/zh-CN/protocol/events.html) 和 [上游 OB11 通知类型](https://github.com/NapukettoDev/NapukettoQQ/blob/da84db076c1bdfadb97faca041cb869e01d42eea/packages/adapter/src/onebot11/event/notice.ts)：
+依据 [Satori 事件资源](https://satori.chat/zh-CN/protocol/events.html) 和 [上游 OB11 通知类型](https://github.com/NapukettoDev/Napuketto/blob/da84db076c1bdfadb97faca041cb869e01d42eea/packages/adapter/src/onebot11/event/notice.ts)：
 
 | 来源 | 保持原始的依据 |
 | :--- | :--- |

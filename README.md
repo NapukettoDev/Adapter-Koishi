@@ -5,7 +5,7 @@
 <h1 id="Adapter-Napuketto">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
-    <img src=".github/assets/wordmark-light.svg" alt="NapukettoQQ Koishi Adapter" width="800">
+    <img src=".github/assets/wordmark-light.svg" alt="Napuketto Koishi Adapter" width="656">
   </picture>
 </h1>
 <p>
@@ -85,7 +85,7 @@ bots:
 ## 文档
 
 * **文档**：[文档索引](./docs/README.md) ｜ [架构总览](./docs/architecture/overview.md) ｜ [配置](./docs/guides/configuration.md) ｜ [排障](./docs/guides/troubleshooting.md)
-* **上游**：[NapukettoQQ 主仓](https://github.com/NapukettoDev/NapukettoQQ) ｜ [架构书](https://github.com/NapukettoDev/NapukettoQQ/blob/main/docs/architecture.md)
+* **上游**：[Napuketto 主仓](https://github.com/NapukettoDev/Napuketto) ｜ [架构书](https://github.com/NapukettoDev/Napuketto/blob/main/docs/architecture/overview.md)
 
 ---
 
@@ -97,4 +97,4 @@ bots:
 
 ## English
 
-`koishi-plugin-adapter-napuketto` is the [Koishi](https://koishi.chat) adapter for [NapukettoQQ](https://github.com/NapukettoDev/NapukettoQQ). Each QQ account runs in a dedicated self-hosted Node.js child process; kernel events are bridged to Koishi sessions and Koishi actions to kernel API calls — no external WebUI or separate protocol server required.
+`koishi-plugin-adapter-napuketto` is the [Koishi](https://koishi.chat) adapter for [Napuketto](https://github.com/NapukettoDev/Napuketto). Each QQ account runs in a dedicated self-hosted Node.js child process; kernel events are bridged to Koishi sessions and Koishi actions to kernel API calls — no external WebUI or separate protocol server required.

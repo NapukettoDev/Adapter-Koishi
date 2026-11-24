@@ -24,7 +24,7 @@ const MSG_RECV_EVENT = "onRecvMsg";
 /** QQ 系统占位消息的发送者 uin（无业务内容，群通知走专门事件）。 */
 const SYSTEM_SENDER_UIN = "0";
 
-/** 兼容 QQ 服务端与宿主时钟偏差（NapukettoQQ #122）。 */
+/** 兼容 QQ 服务端与宿主时钟偏差（Napuketto #122）。 */
 const STARTUP_GRACE_SECONDS = 5;
 const MAX_RECENT_EVENTS = 4096;
 const RECALL_FALLBACK_MS = 500;
