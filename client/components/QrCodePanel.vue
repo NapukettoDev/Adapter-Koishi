@@ -9,7 +9,7 @@
   <div class="qrcode-panel">
     <!-- 二维码卡片（白底 + 阴影，参照 bilibili-dm） -->
     <div v-if="image" class="qrcode-container">
-      <img class="qrcode" :src="image" alt="NapukettoQQ 登录二维码" />
+      <img class="qrcode" :src="image" alt="Napuketto 登录二维码" />
       <!-- 本地 2 分钟过期遮罩（kernel 过期会自动推新码，新码到达即复位） -->
       <div v-if="qrExpired" class="refresh-overlay">
         <p>二维码已过期</p>

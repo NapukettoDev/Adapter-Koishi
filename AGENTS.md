@@ -11,7 +11,7 @@
 
 ## 项目概览
 
-`koishi-plugin-adapter-napuketto`：NapukettoQQ 的 Koishi 适配器，让 Koishi 直接驱动 QQ NT
+`koishi-plugin-adapter-napuketto`：Napuketto 的 Koishi 适配器，让 Koishi 直接驱动 QQ NT
 （自研 `wrapper.node` 协议层），零外部协议端、零网络端口。每个 QQ 账号对应一个自建宿主子进程，
 插件通过 stdin/stdout 的 JSON Lines（IPC v1）编排子进程，并把 kernel 事件 / 动作翻译成 Koishi
 的 session / 动作。

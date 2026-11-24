@@ -27,7 +27,7 @@
 `DEPS_APP_PRIVATE_KEY`。生成锁文件的 job 不持有 App 凭据，创建 PR 的 job 只接收
 `package.json` 和 `pnpm-lock.yaml`。依赖分支走同样的规则集，App 无需主分支 bypass。
 
-NapukettoQQ 的发布 App 也须安装到 Adapter-Koishi，发布通知只使用对本仓的 **Contents: Write**。
+Napuketto 的发布 App 也须安装到 Adapter-Koishi，发布通知只使用对本仓的 **Contents: Write**。
 通知失败时可重跑上游通知 job 或从本仓手动发起检查。
 首条有实际版本变更的 App PR 应在 Checks 中出现 `build / check / test` 和 `windows (test)`，
 其中包括已发布包的 IPC v1 报文、入口与资产检查。Dependabot PR 也走相同门禁。

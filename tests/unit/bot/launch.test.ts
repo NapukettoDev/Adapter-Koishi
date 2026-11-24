@@ -345,7 +345,7 @@ describe("resolveLaunchOptions", () => {
     });
 
     it("qqPath 解析失败只点名配置项，不回显底层路径", async () => {
-        const root = mkdtempSync(join(tmpdir(), "napuketto-qq-path-"));
+        const root = mkdtempSync(join(tmpdir(), "napuketto-path-"));
         try {
             const qqPath = join(root, "QQ.exe");
             writeFileSync(qqPath, "x");

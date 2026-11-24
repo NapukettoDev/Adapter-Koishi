@@ -1,8 +1,8 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "koishi-plugin-adapter-napuketto",
-    "version": "0.0.65",
-    "description": "NapukettoQQ内嵌到Koishi的适配器：让Koishi直接驱动NapukettoQQ",
+    "version": "0.0.66",
+    "description": "Napuketto 内嵌到 Koishi 的适配器：让 Koishi 直接驱动 Napuketto",
     "keywords": [
         "chatbot",
         "koishi",
@@ -87,8 +87,8 @@
     },
     "koishi": {
         "description": {
-            "zh": "NapukettoQQ 适配器，无需外部协议端",
-            "en": "NapukettoQQ adapter for Koishi, no external protocol required"
+            "zh": "Napuketto 适配器，无需外部协议端",
+            "en": "Napuketto adapter for Koishi, no external protocol required"
         },
         "service": {
             "optional": [

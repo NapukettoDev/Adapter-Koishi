@@ -1,5 +1,11 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.66
+
+### Patch Changes
+
+- 品牌与文档去掉 `QQ` 后缀：README / AGENTS.md / `docs/**` / 客户端注释与无障碍文案统一为 `Napuketto`，上游仓库链接改指 `NapukettoDev/Napuketto`；wordmark 与 npm、Koishi 市场描述同步为 `Napuketto`。包名 `koishi-plugin-adapter-napuketto` 与 QQ NT 运行契约（原生文件名、`qq` 字段、账号配置）保持不变。
+
 ## 0.0.65
 
 ### Patch Changes

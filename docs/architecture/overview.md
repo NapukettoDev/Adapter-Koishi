@@ -2,7 +2,7 @@
 
 ## 定位
 
-`koishi-plugin-adapter-napuketto` 是 NapukettoQQ 的 Koishi 适配器。它把 NapukettoQQ 自研的
+`koishi-plugin-adapter-napuketto` 是 Napuketto 的 Koishi 适配器。它把 Napuketto 自研的
 QQ NT `wrapper.node` 协议层嵌进 Koishi：Koishi 直接驱动 QQ，不需要 NapCat 之类的外部协议端，
 不需要独立的 WebUI，也不需要额外端口。
 
