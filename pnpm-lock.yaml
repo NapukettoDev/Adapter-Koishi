@@ -167,14 +167,14 @@ importers:
   .:
     dependencies:
       '@napuketto/adapter':
-        specifier: 0.23.0
-        version: 0.23.0(supports-color@8.1.1)
+        specifier: 0.23.1
+        version: 0.23.1(supports-color@8.1.1)
       '@napuketto/kernel':
-        specifier: 0.18.1
-        version: 0.18.1
+        specifier: 0.19.0
+        version: 0.19.0
       '@napuketto/loader':
-        specifier: 0.15.0
-        version: 0.15.0
+        specifier: 0.16.0
+        version: 0.16.0
       '@napuketto/media':
         specifier: 0.4.0
         version: 0.4.0(supports-color@8.1.1)
@@ -426,16 +426,16 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
-  '@napuketto/adapter@0.23.0':
-    resolution: {integrity: sha512-kVVpdpb7pUfjn/Hjfd5ok7A+v0zkzjdbTdPCKfTS3LD8tsmqUCY4FzCdYEavyP3aK+bOWmS4oFg21Aj4YJpozA==}
+  '@napuketto/adapter@0.23.1':
+    resolution: {integrity: sha512-f4XbeCLsEwklb978h9+xD3cYvIMq+/V1l37X+/CZMIKyh1ubiNif7O6s2+W5fvDXIHaXd4PhbGrU+Lf3I698/Q==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/kernel@0.18.1':
-    resolution: {integrity: sha512-hzOdKUoqFuIsNzIE+rYvHwyZiRTxAR7V/RAg8oRC76Oux4fqNNE8Ek4zOS5zbWoVofQ0iKIeOKNMFuG0nngyuA==}
+  '@napuketto/kernel@0.19.0':
+    resolution: {integrity: sha512-O/eRChkGTuAZ9/pmr1XTFh5n4HlWu3stWFTRtg753SnN1MkExnEye+fVyMIrHHHiGdzlCceluAfUwK2TJUlumA==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/loader@0.15.0':
-    resolution: {integrity: sha512-Fh/bJeYDPAO56FSn21dJz8YZZp3zZM77wB9yEbmR/cPAs1Xo577WBYvrZgb3Bj1dYO90y4CFgG/NIzohhxIMdA==}
+  '@napuketto/loader@0.16.0':
+    resolution: {integrity: sha512-bylSTWDZo8UlEytZzd41STQuhIpnX+vFBggVD8Thlqq29gyDyYwPbLtAx5j6TreT9ejSqZu/xwXAoqVPQKLHkA==}
     engines: {node: '>=22.12.0'}
 
   '@napuketto/media@0.4.0':
@@ -2254,9 +2254,9 @@ snapshots:
       '@tybys/wasm-util': 0.10.5
     optional: true
 
-  '@napuketto/adapter@0.23.0(supports-color@8.1.1)':
+  '@napuketto/adapter@0.23.1(supports-color@8.1.1)':
     dependencies:
-      '@napuketto/kernel': 0.18.1
+      '@napuketto/kernel': 0.19.0
       '@napuketto/media': 0.4.0(supports-color@8.1.1)
       '@napuketto/network': 0.5.0
       zod: 4.6.7
@@ -2265,12 +2265,12 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@napuketto/kernel@0.18.1':
+  '@napuketto/kernel@0.19.0':
     dependencies:
       pino: 10.4.0
       smol-toml: 1.9.1
 
-  '@napuketto/loader@0.15.0':
+  '@napuketto/loader@0.16.0':
     dependencies:
       zod: 4.6.7
 
