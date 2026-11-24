@@ -145,6 +145,8 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 `Bot.stop()`：
 
 1. 递增停止序号、清 `clientRef`、立即解除 `driver` 引用：进行中的 `start()` 会放弃创建。
+   清 `clientRef` 时同时调用事件桥的 `cancelPending()`，中止在途语音解码与消息适配并清空
+   待派发队列；已派发的 WAV 仍由 TTL 清理，供 Koishi 继续消费。
 2. `driver.stop()`：置 `stopping`、清重试计时器、停心跳。
 3. client 存活时发 `control stop`；等待子进程退出，最多 5s，超时 `kill()`。
 4. `resolveStop()`：清计时器、关 client（pending 全部 reject）、状态置 `stopped`。
@@ -174,6 +176,6 @@ koishi 的受理人闸门（`channel.assignee !== session.selfId` 时静默 retu
 新宿主，收到新一轮 `ready` 后恢复在线。这样扫码登录使用新宿主的原生登录会话。
 
 软重登（已就绪宿主收到 `control login`，loader 先报 `status.sessioning`）复用同一 driver：
-`onRelogin` 立即清空快照身份、`clientRef` 与派发闸门，Bot 回到连接中；装配期间收到的事件不会
-派发，动作请求按“未就绪”失败。新会话 `ready` 触发 `onReassembled`，重新走身份校验后才恢复
-`online()` 与动作桥。
+`onRelogin` 立即清空快照身份、`clientRef` 与派发闸门，并取消旧会话的在途入站适配/解码与待派发
+队列，Bot 回到连接中；装配期间收到的事件不会派发，动作请求按“未就绪”失败。新会话 `ready`
+触发 `onReassembled`，重新走身份校验后才恢复 `online()` 与动作桥。

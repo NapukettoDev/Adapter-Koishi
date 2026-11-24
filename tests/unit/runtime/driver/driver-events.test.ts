@@ -127,6 +127,12 @@ describe("NapukettoDriver 事件转发", () => {
             );
         };
         const dispatchedIds = () => dispatch.mock.calls.map(([fields]) => fields.messageId);
+        /** 按频道串行派发需要多轮微任务才能排空队列。 */
+        const settle = async (rounds = 64) => {
+            for (let index = 0; index < rounds; index += 1) {
+                await Promise.resolve();
+            }
+        };
         try {
             vi.setSystemTime(initial);
             driver.start();
@@ -145,7 +151,7 @@ describe("NapukettoDriver 事件转发", () => {
 
             vi.setSystemTime(initial + 20_000);
             emit("ready");
-            await flush();
+            await settle();
             expect(
                 dispatch.mock.calls.map(([fields]) => [fields.messageId, fields.timestamp]),
             ).toEqual([
@@ -164,7 +170,7 @@ describe("NapukettoDriver 事件转发", () => {
                 ["soft-new", String(initial + 29_000)],
             );
             emit("ready");
-            await flush();
+            await settle();
             expect(onReady).toHaveBeenCalledOnce();
             expect(dispatchedIds()).toEqual([
                 "within-grace",
@@ -181,7 +187,7 @@ describe("NapukettoDriver 事件转发", () => {
                 ["restart-new", String(Date.now())],
             );
             emit("ready");
-            await flush();
+            await settle();
             expect(onReady).toHaveBeenCalledTimes(2);
             expect(dispatchedIds()).toEqual([
                 "within-grace",

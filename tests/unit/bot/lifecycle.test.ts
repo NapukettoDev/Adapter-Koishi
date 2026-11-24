@@ -10,7 +10,7 @@ const SELF = { uin: "10001", uid: "u1", nick: "当前账号" };
 
 function setup() {
     const login = new NapukettoLoginState();
-    const bridge = { handle: vi.fn(), resetMessageBaseline: vi.fn() };
+    const bridge = { handle: vi.fn(), resetMessageBaseline: vi.fn(), cancelPending: vi.fn() };
     const bot = {
         status: 0,
         get isActive() {
@@ -121,6 +121,27 @@ describe("BotLifecycleController", () => {
         expect(bridge.resetMessageBaseline).not.toHaveBeenCalled();
         expect(lifecycle.client).toBe(client);
         expect(login.snapshot.self).toEqual(SELF);
+        await lifecycle.stop();
+    });
+
+    it("停止与软重登都会取消在途入站工作", async () => {
+        const { lifecycle, createDriver, bridge } = setup();
+        await lifecycle.start();
+        const events = createDriver.mock.calls[0]?.[0];
+        events?.onRelogin?.();
+        expect(bridge.cancelPending).toHaveBeenCalled();
+        const callsBeforeStop = bridge.cancelPending.mock.calls.length;
+        await lifecycle.stop();
+        expect(bridge.cancelPending.mock.calls.length).toBeGreaterThan(callsBeforeStop);
+    });
+
+    it("错账号拒绝上线时也取消在途入站工作", async () => {
+        const { lifecycle, createDriver, bridge } = setup();
+        await lifecycle.start();
+        const events = createDriver.mock.calls[0]?.[0];
+        const callsBefore = bridge.cancelPending.mock.calls.length;
+        events?.onLogin?.({ state: "logged_in", selfInfo: { ...SELF, uin: "20002" } });
+        expect(bridge.cancelPending.mock.calls.length).toBeGreaterThan(callsBefore);
         await lifecycle.stop();
     });
 });

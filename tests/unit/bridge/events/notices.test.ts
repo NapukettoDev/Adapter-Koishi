@@ -144,7 +144,7 @@ function rawMembership(type: 1 | 3): IpcEventPayload {
 }
 
 function setup(ob11Actions = false) {
-    const dispatch = vi.fn<(fields: NapukettoSessionFields) => void>();
+    const dispatch = vi.fn<(fields: NapukettoSessionFields) => undefined>();
     const bridge = new NapukettoEventBridge({
         dispatch,
         selfId: () => String(SELF),

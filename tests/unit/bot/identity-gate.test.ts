@@ -72,7 +72,11 @@ function setup() {
         bot,
         login,
         logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-        getBridge: () => ({ handle: vi.fn(), resetMessageBaseline: vi.fn() }),
+        getBridge: () => ({
+            handle: vi.fn(),
+            resetMessageBaseline: vi.fn(),
+            cancelPending: vi.fn(),
+        }),
         getSelfId: () => SELF_ID,
         stopBot: async () => {
             bot.status = 0;

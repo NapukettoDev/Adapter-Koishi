@@ -28,7 +28,7 @@ interface LifecycleHost {
         | "rejectIdentity"
         | "currentGeneration"
     >;
-    getBridge(): Pick<NapukettoEventBridge, "handle" | "resetMessageBaseline">;
+    getBridge(): Pick<NapukettoEventBridge, "handle" | "resetMessageBaseline" | "cancelPending">;
     getSelfId(): string;
     stopBot(): Promise<void>;
     syncUser(user: { uin: string; nick: string }): void;
@@ -154,6 +154,9 @@ export class BotLifecycleController {
 
     /** 关闭动作/派发闸门并作废在途身份查询（不改变登录状态机）。 */
     private clearSessionClient(): void {
+        // 在途消息适配（含语音解码）与待派发队列绑定旧会话，必须立即取消；
+        // 否则软重登/退出后仍可能把旧工作写进新一轮派发。
+        this.host.getBridge().cancelPending();
         this.clientRef = null;
         this.announcedClient = null;
         this.sessionReady = false;

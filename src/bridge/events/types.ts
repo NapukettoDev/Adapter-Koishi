@@ -38,8 +38,13 @@ export type EventDiagnostic = (error: unknown, context: string) => void;
 
 /** 事件桥选项（apply() 层注入）。 */
 export interface EventBridgeOptions {
-    /** dispatch 回调（koishi Bot.dispatch(session)）；可返回 Promise，异步失败会被统一收口。 */
-    dispatch: (session: NapukettoSessionFields) => void | Promise<void>;
+    /**
+     * dispatch 回调（koishi Bot.dispatch(session)）。
+     * 返回 false 表示会话未真正进入 Koishi（如子进程已退出），事件桥不会提交
+     * 消息去重记录，允许软重登后的重放；返回 Promise 时异步失败会被统一收口。
+     * 其余返回值（含 undefined）按已送达处理，保持对旧实现的兼容。
+     */
+    dispatch: (session: NapukettoSessionFields) => unknown;
     /** 登录账号 uin（selfId）。 */
     selfId: () => string;
     selfUid?: () => string | undefined;
@@ -48,10 +53,21 @@ export interface EventBridgeOptions {
     h: HFn;
     /** 平台名（默认 "onebot"）。 */
     platform?: string;
-    /** 收向元素富化（voice NT silk → WAV 等，2026-09-08 T6；缺省直通）。 */
-    enrichElements?: (elements: CanonicalElement[]) => Promise<CanonicalElement[]>;
-    /** 诊断回调（坏事件 / 富化失败 / 订阅者异常 / 会话派发失败）。 */
+    /** 收向元素富化（voice NT silk → WAV 等；缺省直通）。signal 用于取消在途解码。 */
+    enrichElements?: (
+        elements: CanonicalElement[],
+        signal?: AbortSignal,
+    ) => Promise<CanonicalElement[]>;
+    /** 诊断回调（坏事件 / 富化失败 / 订阅者异常 / 会话派发失败 / 队列饱和）。 */
     onError?: EventDiagnostic;
+    /** 每频道待派发消息上限（缺省 64）。 */
+    maxPendingPerChannel?: number;
+    /** 全部频道待派发消息上限（缺省 256）。 */
+    maxPendingTotal?: number;
+    /** 普通消息去重窗口（毫秒，缺省 10 分钟）。 */
+    messageDedupeWindowMs?: number;
+    /** 普通消息去重记录上限（缺省 4096）。 */
+    maxRecentMessages?: number;
 }
 
 /** 原始 OB11 事件（宽松结构：post_type 定大类，其余字段按 OneBot 11 规范按需断言）。 */
@@ -72,4 +88,10 @@ export interface EventBridge {
      * 返回退订函数。
      */
     onOb11(listener: (event: Ob11EventPayload) => void): () => void;
+    /**
+     * 取消当前登录轮次的在途消息适配/派发与待派发队列。
+     * 软重登、停止、退出和账号不一致拒绝上线时调用；取消后旧工作不会写入
+     * 新轮次的会话或去重状态。旧实现可省略（事件按原样继续处理）。
+     */
+    cancelPending?(): void;
 }
