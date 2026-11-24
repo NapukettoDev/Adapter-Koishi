@@ -2,7 +2,7 @@
 import { ElementType, type RawMessage } from "@napuketto/kernel";
 import { IpcGroupRequestSchema } from "../../runtime/ipc/index.js";
 import { normalizeMessageTime } from "../../shared.js";
-import { adaptRawMessageWithMedia, messageIdentities } from "./adapt.js";
+import { adaptRawMessageWithMedia, messageChannel, messageIdentities } from "./adapt.js";
 import {
     type AdaptedEvent,
     adaptGroupRequest,
@@ -10,6 +10,7 @@ import {
     adaptRecall,
     findSystemTip,
 } from "./notices.js";
+import { BoundedChannelQueue } from "./queue.js";
 import type {
     EventBridge,
     EventBridgeOptions,
@@ -27,7 +28,16 @@ const SYSTEM_SENDER_UIN = "0";
 /** 兼容 QQ 服务端与宿主时钟偏差（Napuketto #122）。 */
 const STARTUP_GRACE_SECONDS = 5;
 const MAX_RECENT_EVENTS = 4096;
+/** 普通消息去重窗口：覆盖软重登重放，同时避免长期占用内存。 */
+const MESSAGE_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+const MAX_RECENT_MESSAGES = 4096;
 const RECALL_FALLBACK_MS = 500;
+
+/** 普通消息去重登记：提交（已派发）或释放（取消/未派发）。 */
+interface MessageReservation {
+    readonly key: string;
+    readonly token: symbol;
+}
 
 /** 安全收窄 OB11 事件外壳（读取字段抛错按非法事件处理）。 */
 function asOb11Event(value: unknown): Ob11EventPayload | null {
@@ -48,28 +58,70 @@ export class NapukettoEventBridge implements EventBridge {
     private readonly ob11Listeners = new Set<(event: Ob11EventPayload) => void>();
     // 软重登会重建上游 OB11 订阅。保留 Bot 的去重记录以吸收未处理请求的重放。
     private readonly recentEvents = new Map<string, number>();
+    /**
+     * 普通消息去重：进行中登记与已派发窗口分离。只有真正交给 Koishi 的消息
+     * 才写入 recentMessages；取消/未派发会释放登记，让重放仍可派发。
+     */
+    private readonly pendingMessages = new Map<string, symbol>();
+    private readonly recentMessages = new Map<string, number>();
+    private readonly queue: BoundedChannelQueue;
     private readonly identities = new Map<string, string>();
     private readonly recalls = new Map<
         string,
         { event: AdaptedEvent; timer: NodeJS.Timeout; fromOb11: boolean }
     >();
     private minMessageTime = 0;
+    /** 入站代次：软重登/停止/退出后旧的在途工作作废。 */
+    private generation = 0;
 
     private readonly resolveUin = (uid: string) =>
         uid === this.options.selfUid?.() ? this.options.selfId() : this.identities.get(uid);
 
     constructor(options: EventBridgeOptions) {
         this.options = options;
+        this.queue = new BoundedChannelQueue({
+            ...(options.maxPendingPerChannel !== undefined
+                ? { maxPendingPerChannel: options.maxPendingPerChannel }
+                : {}),
+            ...(options.maxPendingTotal !== undefined
+                ? { maxPendingTotal: options.maxPendingTotal }
+                : {}),
+            onOverflow: (_key, reason) => {
+                this.report(
+                    new Error(reason === "channel" ? "频道消息队列已满" : "全局消息队列已满"),
+                    "消息队列饱和（已立即派发，顺序降级）",
+                );
+            },
+        });
+    }
+
+    private get dedupeWindow(): number {
+        return this.options.messageDedupeWindowMs ?? MESSAGE_DEDUPE_WINDOW_MS;
+    }
+
+    private get maxRecentMessages(): number {
+        return this.options.maxRecentMessages ?? MAX_RECENT_MESSAGES;
     }
 
     /** 在订阅或重新装配时记录基准，ready 回放沿用同一个值。 */
     resetMessageBaseline(): void {
+        // 真实订阅重置（首订/软重登）意味着旧会话在途的适配与派发都已失效。
+        this.cancelPending();
         this.identities.clear();
+        this.minMessageTime = (Math.floor(Date.now() / 1000) - STARTUP_GRACE_SECONDS) * 1000;
+    }
+
+    /**
+     * 取消当前代次的在途与待派发消息，并停止撤回回退计时器。
+     * 已派发消息的去重记录保留，用于吸收重登后的重放。
+     */
+    cancelPending(): void {
+        this.generation += 1;
+        this.queue.cancelAll();
         for (const { timer } of this.recalls.values()) {
             clearTimeout(timer);
         }
         this.recalls.clear();
-        this.minMessageTime = (Math.floor(Date.now() / 1000) - STARTUP_GRACE_SECONDS) * 1000;
     }
 
     /** 处理一条 kernel 事件（apply() 层作为 DriverEvents.onEvent 注入）。 */
@@ -144,7 +196,90 @@ export class NapukettoEventBridge implements EventBridge {
             raw.elements.length > 0 &&
             raw.elements.every((element) => element.elementType === ElementType.GRAY_TIP);
         if (raw.senderUin !== SYSTEM_SENDER_UIN && !grayOnly) {
-            this.dispatchMessage(raw);
+            this.acceptMessage(raw);
+        }
+    }
+
+    /**
+     * 普通消息进入按频道有界队列。
+     *
+     * 去重键使用账号 + 频道 + 原生消息 ID：只对能可靠确定频道的消息登记，
+     * 不同消息 ID、不同频道或不同账号不会互相吞掉。命中窗口内重复（含软重登
+     * 重放）直接丢弃；取消/未真正派发时释放登记，重放仍可送达。
+     */
+    private acceptMessage(raw: RawMessage): void {
+        const selfId = this.options.selfId();
+        const channel = messageChannel(raw, selfId, this.resolveUin);
+        const reservation =
+            channel === undefined
+                ? undefined
+                : this.reserveMessage(selfId, channel.channelId, raw.msgId);
+        if (reservation === "duplicate") {
+            return;
+        }
+        const key = channel?.channelId ?? "unroutable";
+        const generation = this.generation;
+        this.queue.enqueue(key, {
+            run: (signal) => this.adaptAndDispatch(raw, reservation, generation, signal),
+            cancel: () => {
+                if (reservation !== undefined) {
+                    this.releaseMessage(reservation);
+                }
+            },
+        });
+    }
+
+    private reserveMessage(
+        selfId: string,
+        channelId: string,
+        messageId: string,
+    ): MessageReservation | "duplicate" {
+        // U+0000 不会出现在 QQ 号、频道 ID 或消息 ID 中，避免拼接歧义。
+        const key = `${selfId}\u0000${channelId}\u0000${messageId}`;
+        const now = Date.now();
+        const seenUntil = this.recentMessages.get(key);
+        if (seenUntil !== undefined) {
+            if (seenUntil >= now) {
+                return "duplicate";
+            }
+            this.recentMessages.delete(key);
+        }
+        if (this.pendingMessages.has(key)) {
+            return "duplicate";
+        }
+        const token = Symbol(key);
+        this.pendingMessages.set(key, token);
+        return { key, token };
+    }
+
+    private commitMessage(reservation: MessageReservation): void {
+        if (this.pendingMessages.get(reservation.key) !== reservation.token) {
+            return;
+        }
+        this.pendingMessages.delete(reservation.key);
+        const now = Date.now();
+        this.recentMessages.delete(reservation.key);
+        this.recentMessages.set(reservation.key, now + this.dedupeWindow);
+        if (this.recentMessages.size <= this.maxRecentMessages) {
+            return;
+        }
+        for (const [key, expiresAt] of this.recentMessages) {
+            if (expiresAt <= now) {
+                this.recentMessages.delete(key);
+            }
+        }
+        while (this.recentMessages.size > this.maxRecentMessages) {
+            const oldest = this.recentMessages.keys().next().value;
+            if (oldest === undefined) {
+                break;
+            }
+            this.recentMessages.delete(oldest);
+        }
+    }
+
+    private releaseMessage(reservation: MessageReservation): void {
+        if (this.pendingMessages.get(reservation.key) === reservation.token) {
+            this.pendingMessages.delete(reservation.key);
         }
     }
 
@@ -214,31 +349,77 @@ export class NapukettoEventBridge implements EventBridge {
         this.dispatchSafely(fields);
     }
 
-    /** 单条 RawMessage → session → dispatch（含收向媒体富化，异步 fail-soft）。 */
-    private dispatchMessage(msg: RawMessage): void {
-        // adaptAndDispatch 内部收口全部失败，不会产生未处理 rejection。
-        void this.adaptAndDispatch(msg);
-    }
-
-    private async adaptAndDispatch(msg: RawMessage): Promise<void> {
+    /** 单条 RawMessage → 富化 → session → dispatch（同一频道按队列顺序）。 */
+    private async adaptAndDispatch(
+        msg: RawMessage,
+        reservation: MessageReservation | undefined,
+        generation: number,
+        signal: AbortSignal,
+    ): Promise<void> {
         let session: NapukettoSessionFields;
         try {
             session = await adaptRawMessageWithMedia(msg, {
                 ...this.eventContext(),
                 resolveUin: this.resolveUin,
+                signal,
                 ...(this.options.enrichElements !== undefined
                     ? { enrichElements: this.options.enrichElements }
                     : {}),
                 onError: (error, context) => this.report(error, context),
             });
         } catch (error) {
-            this.report(error, "消息事件转换失败（已丢弃）");
+            if (reservation !== undefined) {
+                this.releaseMessage(reservation);
+            }
+            if (generation === this.generation && !signal.aborted) {
+                this.report(error, "消息事件转换失败（已丢弃）");
+            }
             return;
         }
-        this.dispatchSafely(session);
+        // 旧登录轮次的适配结果不得写入新轮次的去重/会话状态。
+        if (generation !== this.generation || signal.aborted) {
+            if (reservation !== undefined) {
+                this.releaseMessage(reservation);
+            }
+            return;
+        }
+        await this.dispatchMessage(session, reservation);
     }
 
-    /** 会话派发：同步抛错与 Promise 拒绝都收敛为诊断，后续事件继续。 */
+    private async dispatchMessage(
+        fields: NapukettoSessionFields,
+        reservation: MessageReservation | undefined,
+    ): Promise<void> {
+        let result: unknown;
+        try {
+            result = this.options.dispatch(fields);
+        } catch (error) {
+            if (reservation !== undefined) {
+                this.releaseMessage(reservation);
+            }
+            this.report(error, "会话派发失败（同步）");
+            return;
+        }
+        try {
+            const delivered = await result;
+            if (delivered === false) {
+                if (reservation !== undefined) {
+                    this.releaseMessage(reservation);
+                }
+                return;
+            }
+            if (reservation !== undefined) {
+                this.commitMessage(reservation);
+            }
+        } catch (error) {
+            if (reservation !== undefined) {
+                this.releaseMessage(reservation);
+            }
+            this.report(error, "会话派发失败（异步）");
+        }
+    }
+
+    /** 会话派发（非消息事件）：同步抛错与 Promise 拒绝都收敛为诊断，后续事件继续。 */
     private dispatchSafely(fields: NapukettoSessionFields): void {
         try {
             const result = this.options.dispatch(fields);

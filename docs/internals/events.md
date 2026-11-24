@@ -11,18 +11,20 @@
        │         → validateRawMessage()（坏条目诊断后跳过，不影响同批其他条目）
        │         → 过滤启动前历史积压并分流撤回、成员变动和戳一戳灰条
        │         → 过滤系统占位消息
-       │         → adaptRawMessageWithMedia()
-       │              ├─ kernel toCanonicalElements()
-       │              ├─ 收向媒体富化（语音 silk → WAV，失败诊断后透传）
-       │              └─ toKoishiElements()
-       │         → SessionDispatcher.dispatch(fields)
-       │              → 消息预热 channel/user（失败 warn，继续派发）→ Bot.session()
-       │              → applySessionFields → dispatch（同步/异步失败均诊断）
+       │         → 按账号 + 频道 + 消息 ID 做有限窗口去重
+       │         → 按频道进入有界队列（同频道串行，异频道并行）
+       │              → adaptRawMessageWithMedia()
+       │                   ├─ kernel toCanonicalElements()
+       │                   ├─ 收向媒体富化（语音 silk → WAV，失败/超时降级透传）
+       │                   └─ toKoishiElements()
+       │              → SessionDispatcher.dispatch(fields)
+       │                   → 消息预热 channel/user（失败 warn，继续派发）→ Bot.session()
+       │                   → applySessionFields → dispatch（同步/异步失败均诊断）
        └─ service === "ob11"
             └─ args[0] → 结构校验 → 成员变动和请求转换，同时保留 bot.onOb11() 原始订阅
 ```
 
-涉及代码：`src/bridge/events/bridge.ts`、`adapt.ts`、`validate.ts`、`notices.ts`、`src/shared.ts`、`voice-decode.ts`、`types.ts`；
+涉及代码：`src/bridge/events/bridge.ts`、`queue.ts`、`adapt.ts`、`validate.ts`、`notices.ts`、`src/shared.ts`、`voice-decode.ts`、`types.ts`；
 `src/bot/dispatcher.ts` 的 `SessionDispatcher`。
 
 ## kernel 事件入口
@@ -55,6 +57,26 @@ kernel `ChatType` 的整数、`elements` 是数组且每个元素带整数 `elem
 早于基准（宿主时间按秒取整再减 5 秒）的原始 `Msg/onRecvMsg` 消息会被跳过。5 秒用于容纳服务端与宿主的
 时钟偏差。基准在 ready 前确定，启动期暂存的新消息仍会在 ready 后回放。缺失或非法的消息时间保留派发，
 时间字段使用宿主当前时间。原始 OB11 订阅和历史查询保持各自的行为。
+
+## 同频道顺序与有界队列
+
+普通消息按 `selfId + channelId` 进入有界队列：同一频道串行完成「媒体富化 → 字段转换 →
+dispatch」，因此慢语音不会让同频道后续文本抢先派发；不同频道各自推进，互不等待。
+每频道默认最多积压 64 条、全进程 256 条。达到上限时该条消息立即派发（不再等待前序）
+并经 `onError` 告警「消息队列饱和（已立即派发，顺序降级）」，队列深度不会无界增长。
+
+软重登、停止、退出与账号不一致拒绝上线时，生命周期层调用 `bridge.cancelPending()`：
+递增入站代次、中止运行中的富化/解码、丢弃排队消息并停止撤回回退计时器。旧代次结果在
+派发前按代次校验丢弃，不会写入新会话或新去重记录。
+
+## 普通消息去重
+
+对能可靠确定频道的普通消息，事件桥使用 `selfId + channelId + msgId` 做有限窗口去重
+（默认 10 分钟，最多保留 4096 条）。接收时先登记「进行中」；只有真正交给
+`bot.dispatch()` 才提交到去重窗口，取消或未派发（`SessionDispatcher.dispatch` 返回
+`false`）会释放登记，因此软重登后的重放仍可送达。不同消息 ID、不同频道或不同账号不会
+互相吞掉；窗口内的重复（含上游重放）直接丢弃。撤回、成员变动等通知继续使用各自的事件
+key 去重。
 
 ## 会话字段映射
 
@@ -125,14 +147,21 @@ koishi 运行时。
    普通 Windows 宿主通过 QQ 获取实际目录（可由用户自定义），当前 loader IPC 不传递该值，适配器原样派发语音元素。
 3. `resolveQqVoiceFile` 统一相对路径的分隔符，拒绝父目录跳转，并解析基准和候选文件的真实路径。
    解析符号链接或 Windows 目录联接后，只有基准目录内的普通文件才会交给解码器。
-4. 每次解码使用独占临时目录，避免并发时同名 QQ 文件覆盖彼此。WAV 供 Koishi 消费 10 分钟，
-   期满后清理。进程最多保留 64 个解码中或等待消费的 WAV，达到上限时新语音原样透传。
-   Bot 停止后，已派发的 WAV 仍可能被 Koishi 消费，继续由 TTL 清理。进程非正常退出留下的目录由系统临时目录策略清理。
-5. 目录未知、路径校验失败或解码失败时原样返回原路径，消息继续派发。
+4. 解码并发（默认 2）与可消费缓存（默认 64 个目录）是两个独立名额：并发名额限制同时运行的
+   SILK Worker，缓存名额限制供 Koishi 消费的 WAV。等待解码的队列最多 32 条，排队到解码完成
+   的总截止时间为 10 秒；队列满、缓存满或超过截止时间时语音原样透传。
+5. 每次解码使用独占临时目录，避免并发时同名 QQ 文件覆盖彼此。WAV 在解码完成后保留 10 分钟
+   供 Koishi 消费，期满清理。清理失败最多重试 2 次（间隔 60 秒）；仍失败时释放缓存名额并保留
+   受控残留（最多 32 个目录），避免反复失败让后续语音永久无法解码，也不删除消费期内的文件。
+   进程非正常退出留下的目录由系统临时目录策略清理。
+6. 目录未知、路径校验失败、解码失败或队列/缓存饱和时原样返回原路径，消息继续派发。
+7. 软重登、停止或退出时，事件桥把取消信号传入富化器；`@napuketto/media` 会终止实际运行
+   SILK WASM 的 Worker，取消产生的临时目录按上述清理规则处理。
 
-事件桥对富化做了异步化：`adaptRawMessageWithMedia()` 富化失败时先经 `onError` 诊断，再回退到
-普通 `adaptRawMessage()`；`dispatch()` 回调返回 Promise 时由事件桥接管拒绝，不留下未处理的
-Promise。元素转换失败与富化失败分开处理，前者丢弃当前事件并诊断，后者保留既有透传降级。
+事件桥对富化做了异步化与按频道串行化：`adaptRawMessageWithMedia()` 富化失败时先经 `onError`
+诊断，再回退到普通元素；同频道消息等待前一条完成派发后才继续，异频道并行。`dispatch()` 回调
+返回 Promise 时由事件桥接管拒绝，不留下未处理的 Promise。元素转换失败与富化失败分开处理，
+前者丢弃当前事件并诊断，后者保留透传降级。
 
 ## OB11 原始事件
 

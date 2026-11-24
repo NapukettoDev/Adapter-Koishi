@@ -126,8 +126,8 @@ export interface BridgeHost {
     /** 配置（selfId 兜底）。 */
     config: NapukettoBotConfig;
     dataRoot: string;
-    /** 派发（预热 + session 组装 + dispatch）。 */
-    dispatchSession: (session: NapukettoSessionFields) => Promise<void>;
+    /** 派发（预热 + session 组装 + dispatch）；false 表示未真正进入 Koishi。 */
+    dispatchSession: (session: NapukettoSessionFields) => Promise<boolean>;
 }
 
 /** 装配事件桥：kernel 事件 → koishi session（dispatch 异步化 + 预热不阻断）。 */
@@ -141,8 +141,13 @@ export function createBridge(host: BridgeHost): NapukettoEventBridge {
         // koishi h 可调用（Element 工厂）；绑定生产 h
         h: bindKoishiH(koishiH),
         platform: "onebot",
-        enrichElements: (elements) =>
-            enrichReceiveVoice(elements, host.dataRoot, (message) => host.logger.warn(message)),
+        enrichElements: (elements, signal) =>
+            enrichReceiveVoice(
+                elements,
+                host.dataRoot,
+                (message) => host.logger.warn(message),
+                signal,
+            ),
         onError: (error, context) => host.logger.warn("[napuketto] %s: %o", context, error),
     });
 }

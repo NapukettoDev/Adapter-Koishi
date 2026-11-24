@@ -21,11 +21,16 @@ interface DispatchHost {
 export class SessionDispatcher {
     constructor(private readonly host: DispatchHost) {}
 
-    /** kernel 事件 session 字段 → koishi session → dispatch。 */
-    async dispatch(fields: NapukettoSessionFields): Promise<void> {
+    /**
+     * kernel 事件 session 字段 → koishi session → dispatch。
+     *
+     * 返回 false 表示这次会话没有真正进入 Koishi（子进程已退出/被替换），
+     * 事件桥据此释放消息去重登记，允许软重登后的重放继续派发。
+     */
+    async dispatch(fields: NapukettoSessionFields): Promise<boolean> {
         const client = this.host.getClient();
         if (client === null) {
-            return;
+            return false;
         }
         // 先建 session：动态 Computed 需要用真实 session 求值（见 policy.ts）。
         // session 字段在 dispatch 前不会变，求值结果与 Koishi 后续求值一致。
@@ -51,7 +56,7 @@ export class SessionDispatcher {
             }
         }
         if (this.host.getClient() !== client) {
-            return; // 预热期间子进程已退出或被替换
+            return false; // 预热期间子进程已退出或被替换
         }
         this.host.logger.info(
             "[napuketto] dispatch: type=%s self=%s channel=%s user=%s isDirect=%s elements=%d",
@@ -63,6 +68,7 @@ export class SessionDispatcher {
             fields.elements?.length ?? 0,
         );
         this.host.bot.dispatch(session);
+        return true;
     }
 
     private async preheat(fields: NapukettoSessionFields, session: object): Promise<void> {

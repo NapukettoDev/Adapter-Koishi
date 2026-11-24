@@ -114,12 +114,13 @@ optional：未启用数据库/控制台插件时插件仍要能跑（控制台�
 
 kernel / OB11 事件 → 事件桥产出 `NapukettoSessionFields` → `SessionDispatcher.dispatch(fields)`：
 
-1. `identityMismatch` 为真 → 直接丢弃（不得用错账号落库）。
+1. `identityMismatch` 为真或 IPC 客户端未就绪 → 返回 `false`，不进入 Koishi。
 2. 普通消息按需调用 `preheat(fields)` 预热 channel / user（见下节），失败不阻断。
 3. `this.session({ type, subtype?, selfId, platform, timestamp, member? })`。
 4. `applySessionFields(session, fields)`（见 [事件桥](events.md#session-写入规则)）。
 5. 输出 info 级会话元数据和元素数量。消息正文、URL 与元素属性留在 session 中。
-6. `this.dispatch(session)`。
+6. `this.dispatch(session)` 后返回 `true`。`false` 让事件桥释放消息去重登记，允许软重登
+   后的重放继续派发；预热期间客户端被替换同样返回 `false`。
 
 ## 数据库预热
 

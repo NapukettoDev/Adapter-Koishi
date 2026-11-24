@@ -110,7 +110,7 @@ describe("SessionDispatcher", () => {
         const { dispatcher, dispatch, warn, ensureUser } = makeDispatcher();
         const failure = new Error("数据库暂时不可写");
         ensureUser.mockRejectedValueOnce(failure);
-        await expect(dispatcher.dispatch(fields)).resolves.toBeUndefined();
+        await expect(dispatcher.dispatch(fields)).resolves.toBe(true);
         expect(warn).toHaveBeenCalledWith("[napuketto] 会话预热失败（继续派发）: %o", failure);
         expect(dispatch).toHaveBeenCalledOnce();
     });
@@ -313,7 +313,7 @@ describe("SessionDispatcher", () => {
             .mockReturnValueOnce(client)
             .mockReturnValueOnce(null);
         const { dispatcher, dispatch } = makeDispatcher({ getClient });
-        await dispatcher.dispatch(fields);
+        await expect(dispatcher.dispatch(fields)).resolves.toBe(false);
         expect(dispatch).not.toHaveBeenCalled();
     });
 });

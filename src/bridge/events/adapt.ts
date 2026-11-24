@@ -26,7 +26,13 @@ interface AdaptOptions {
     platform: string;
     h: HFn;
     resolveUin?: ResolveUin;
-    enrichElements?: (elements: CanonicalElement[]) => Promise<CanonicalElement[]>;
+    /** 收向媒体富化；signal 在登录轮次/停止后中止在途解码。 */
+    enrichElements?: (
+        elements: CanonicalElement[],
+        signal?: AbortSignal,
+    ) => Promise<CanonicalElement[]>;
+    /** 本次适配的取消信号（透传给富化器）。 */
+    signal?: AbortSignal;
     onError?: EventDiagnostic;
 }
 
@@ -181,8 +187,9 @@ export async function adaptRawMessageWithMedia(
     const canonical = convertMessage(raw, resolveUin, options.selfId);
     let enriched = canonical;
     try {
-        if (options.enrichElements !== undefined) {
-            enriched = await options.enrichElements(canonical);
+        // 已取消的派发不再启动新的解码工作。
+        if (options.enrichElements !== undefined && options.signal?.aborted !== true) {
+            enriched = await options.enrichElements(canonical, options.signal);
         }
     } catch (error) {
         try {

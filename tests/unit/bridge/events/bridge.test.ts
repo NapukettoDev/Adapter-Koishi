@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { NapukettoEventBridge } from "../../../../src/bridge/events/bridge.js";
+import type { EventBridgeOptions } from "../../../../src/bridge/events/types.js";
 import type { IpcEventPayload } from "../../../../src/runtime/ipc/index.js";
 import { makeRawMessage, mockH } from "../../../helpers/events.js";
 
@@ -189,6 +190,164 @@ describe("NapukettoEventBridge", () => {
             userId: "20001",
             channelId: "10001",
         });
+    });
+});
+
+describe("NapukettoEventBridge（顺序、饱和与去重）", () => {
+    const Now = () => String(Math.floor(Date.now() / 1000));
+
+    function message(overrides: Record<string, unknown> = {}) {
+        return makeRawMessage({ msgTime: Now(), ...overrides });
+    }
+
+    function makeBridge(overrides: Partial<EventBridgeOptions> = {}) {
+        const dispatch = vi.fn();
+        const onError = vi.fn();
+        const bridge = new NapukettoEventBridge({
+            dispatch,
+            selfId: () => "10086",
+            h: mockH(),
+            onError,
+            ...overrides,
+        });
+        return { bridge, dispatch, onError };
+    }
+
+    it("同频道慢派发后文本仍按入站顺序送达", async () => {
+        const { bridge, dispatch } = makeBridge();
+        const first = Promise.withResolvers<void>();
+        dispatch.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+        bridge.handle(recvPayload(message({ msgId: "voice" })));
+        bridge.handle(recvPayload(message({ msgId: "text" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({ messageId: "voice" });
+        first.resolve();
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+        expect(dispatch.mock.calls[1]?.[0]).toMatchObject({ messageId: "text" });
+    });
+
+    it("慢频道不阻塞其他频道", async () => {
+        const { bridge, dispatch } = makeBridge();
+        const first = Promise.withResolvers<void>();
+        dispatch.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+        bridge.handle(recvPayload(message({ msgId: "slow", peerUin: "10001" })));
+        bridge.handle(recvPayload(message({ msgId: "fast", peerUin: "10002" })));
+        // 两个频道各自立即派发：慢频道的 promise 尚未结束。
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+            channelId: "10001",
+            messageId: "slow",
+        });
+        expect(dispatch.mock.calls[1]?.[0]).toMatchObject({
+            channelId: "10002",
+            messageId: "fast",
+        });
+        first.resolve();
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+    });
+
+    it("频道队列饱和：降级立即派发并告警，队列不无界增长", async () => {
+        const { bridge, dispatch, onError } = makeBridge({ maxPendingPerChannel: 1 });
+        const first = Promise.withResolvers<void>();
+        dispatch.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+        bridge.handle(recvPayload(message({ msgId: "first" })));
+        bridge.handle(recvPayload(message({ msgId: "queued" })));
+        bridge.handle(recvPayload(message({ msgId: "overflow" })));
+        // first 仍在等待派发；overflow 不等前序，立即送达。
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({ messageId: "first" });
+        expect(dispatch.mock.calls[1]?.[0]).toMatchObject({ messageId: "overflow" });
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "频道消息队列已满" }),
+            "消息队列饱和（已立即派发，顺序降级）",
+        );
+        first.resolve();
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(3));
+    });
+
+    it("同账号同频道的相同消息 ID 在窗口内只派发一次", async () => {
+        const { bridge, dispatch } = makeBridge();
+        bridge.handle(recvPayload(message({ msgId: "dup" })));
+        bridge.handle(recvPayload(message({ msgId: "dup" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        bridge.handle(recvPayload(message({ msgId: "other" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+        expect(dispatch.mock.calls[1]?.[0]).toMatchObject({ messageId: "other" });
+    });
+
+    it("进行中的重复消息不再派发；不同频道或不同消息 ID 互不吞掉", async () => {
+        const { bridge, dispatch } = makeBridge();
+        const first = Promise.withResolvers<void>();
+        dispatch.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+        bridge.handle(recvPayload(message({ msgId: "dup" })));
+        bridge.handle(recvPayload(message({ msgId: "dup" })));
+        bridge.handle(recvPayload(message({ msgId: "dup", peerUin: "10002" })));
+        bridge.handle(recvPayload(message({ msgId: "different" })));
+        first.resolve();
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(3));
+        const ids = dispatch.mock.calls.map(
+            ([fields]) => `${fields.channelId}:${fields.messageId}`,
+        );
+        expect(ids).toEqual(["10001:dup", "10002:dup", "10001:different"]);
+    });
+
+    it("去重窗口过期后同一消息可再次派发", async () => {
+        const { bridge, dispatch } = makeBridge({ messageDedupeWindowMs: 10 });
+        bridge.handle(recvPayload(message({ msgId: "later" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        bridge.handle(recvPayload(message({ msgId: "later" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+    });
+
+    it("派发返回 false 时不提交去重，重放仍可送达", async () => {
+        const { bridge, dispatch } = makeBridge();
+        dispatch.mockResolvedValueOnce(false).mockResolvedValueOnce(undefined);
+        bridge.handle(recvPayload(message({ msgId: "retry" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        bridge.handle(recvPayload(message({ msgId: "retry" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
+    });
+
+    it("订阅重置取消在途适配，并释放未派发消息的去重登记", async () => {
+        const enrich = Promise.withResolvers<void>();
+        let started!: () => void;
+        const adaptStarted = Promise.withResolvers<void>();
+        started = () => adaptStarted.resolve();
+        const { bridge, dispatch } = makeBridge({
+            enrichElements: async (elements, signal) => {
+                started();
+                await enrich.promise;
+                expect(signal?.aborted).toBe(true);
+                return elements;
+            },
+        });
+        bridge.handle(recvPayload(message({ msgId: "old" })));
+        await adaptStarted.promise;
+        bridge.resetMessageBaseline();
+        enrich.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(dispatch).not.toHaveBeenCalled();
+
+        // 取消时释放了登记：新代次重放同一消息仍可派发。
+        bridge.handle(recvPayload(message({ msgId: "old" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+    });
+
+    it("取消排队中的消息后，重放可重新派发", async () => {
+        const { bridge, dispatch } = makeBridge();
+        const first = Promise.withResolvers<void>();
+        dispatch.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+        bridge.handle(recvPayload(message({ msgId: "first" })));
+        bridge.handle(recvPayload(message({ msgId: "queued" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+        bridge.cancelPending();
+        first.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(dispatch).toHaveBeenCalledTimes(1);
+
+        bridge.handle(recvPayload(message({ msgId: "queued" })));
+        await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2));
     });
 });
 
