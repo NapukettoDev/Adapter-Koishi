@@ -167,20 +167,20 @@ importers:
   .:
     dependencies:
       '@napuketto/adapter':
-        specifier: 0.23.1
-        version: 0.23.1(supports-color@8.1.1)
+        specifier: 0.24.2
+        version: 0.24.2(supports-color@8.1.1)
       '@napuketto/kernel':
-        specifier: 0.19.0
-        version: 0.19.0
+        specifier: 0.19.3
+        version: 0.19.3
       '@napuketto/loader':
-        specifier: 0.16.0
-        version: 0.16.0
+        specifier: 0.16.1
+        version: 0.16.1
       '@napuketto/media':
-        specifier: 0.4.0
-        version: 0.4.0(supports-color@8.1.1)
+        specifier: 0.4.1
+        version: 0.4.1(supports-color@8.1.1)
       '@napuketto/network':
-        specifier: 0.5.0
-        version: 0.5.0
+        specifier: 0.5.1
+        version: 0.5.1
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.6
@@ -426,24 +426,24 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
-  '@napuketto/adapter@0.23.1':
-    resolution: {integrity: sha512-f4XbeCLsEwklb978h9+xD3cYvIMq+/V1l37X+/CZMIKyh1ubiNif7O6s2+W5fvDXIHaXd4PhbGrU+Lf3I698/Q==}
+  '@napuketto/adapter@0.24.2':
+    resolution: {integrity: sha512-gv/rtRfta+l71MIUiWL1qpgIkOlpALg3Bl0jFyhb8u4yFoqEeKSf54wq0TNPKLu2M8zHy3mMnBnbVSmnzF+biA==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/kernel@0.19.0':
-    resolution: {integrity: sha512-O/eRChkGTuAZ9/pmr1XTFh5n4HlWu3stWFTRtg753SnN1MkExnEye+fVyMIrHHHiGdzlCceluAfUwK2TJUlumA==}
+  '@napuketto/kernel@0.19.3':
+    resolution: {integrity: sha512-Hu3L50cntF+7qWho1DNwUlr6oNMFf3ypMrUkbDLeMPHugF1845xGMRlLOzjbGEjffWtypPYr+ZAIz2zoeIYfiA==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/loader@0.16.0':
-    resolution: {integrity: sha512-bylSTWDZo8UlEytZzd41STQuhIpnX+vFBggVD8Thlqq29gyDyYwPbLtAx5j6TreT9ejSqZu/xwXAoqVPQKLHkA==}
+  '@napuketto/loader@0.16.1':
+    resolution: {integrity: sha512-VNLBkxJWTg8H3EEhM5u/YiHQ05Uzje4kz1Y5J6HSlwh0jzUS+JJGLLzFvqFvmoLhq5TE4yl+5RFe94ClQzcMRQ==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/media@0.4.0':
-    resolution: {integrity: sha512-te0s/0VUNJQDFi5DWxhwgM0GfOQKU2As2HP8ow3eiJpwvYmfarPVl8VDGYjhLko3WKF8bfq+ZqPyHX7AyEjSvg==}
+  '@napuketto/media@0.4.1':
+    resolution: {integrity: sha512-3+bd+nuVtCk3JNvObGcaMOZI0BkeONLnVpRG2E4E8FtkHNykP3DYvKTtPwr7GAgF07XEEODB13yiWoOHr2Wf+A==}
     engines: {node: '>=22.12.0'}
 
-  '@napuketto/network@0.5.0':
-    resolution: {integrity: sha512-p+XnZQqhNcnUEKpE+/Mj9NCN3pGfZP4I8jpSG28DIwpclE4SpSwY/A9vjr0f6AnZlpbnskRM7aPBfj03u0W1Eg==}
+  '@napuketto/network@0.5.1':
+    resolution: {integrity: sha512-lChRy5MoescYZit44Z7BJzKHVPf40t7Q9361MiE/ag5BYQdJeuHf/q5Ttt3k0BFwCcg7uiGYYoyWMRgk7dVr6A==}
     engines: {node: '>=22.12.0'}
 
   '@noble/hashes@1.8.0':
@@ -2254,27 +2254,27 @@ snapshots:
       '@tybys/wasm-util': 0.10.5
     optional: true
 
-  '@napuketto/adapter@0.23.1(supports-color@8.1.1)':
+  '@napuketto/adapter@0.24.2(supports-color@8.1.1)':
     dependencies:
-      '@napuketto/kernel': 0.19.0
-      '@napuketto/media': 0.4.0(supports-color@8.1.1)
-      '@napuketto/network': 0.5.0
+      '@napuketto/kernel': 0.19.3
+      '@napuketto/media': 0.4.1(supports-color@8.1.1)
+      '@napuketto/network': 0.5.1
       zod: 4.6.7
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - utf-8-validate
 
-  '@napuketto/kernel@0.19.0':
+  '@napuketto/kernel@0.19.3':
     dependencies:
       pino: 10.4.0
       smol-toml: 1.9.1
 
-  '@napuketto/loader@0.16.0':
+  '@napuketto/loader@0.16.1':
     dependencies:
       zod: 4.6.7
 
-  '@napuketto/media@0.4.0(supports-color@8.1.1)':
+  '@napuketto/media@0.4.1(supports-color@8.1.1)':
     dependencies:
       execa: 10.2.1
       file-type: 22.3.0(supports-color@8.1.1)
@@ -2283,7 +2283,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@napuketto/network@0.5.0':
+  '@napuketto/network@0.5.1':
     dependencies:
       '@hono/node-server': 2.1.10(hono@4.13.19)
       hono: 4.13.19
