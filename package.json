@@ -63,11 +63,11 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
-        "@napuketto/adapter": "0.24.2",
-        "@napuketto/kernel": "0.19.3",
-        "@napuketto/loader": "0.16.1",
+        "@napuketto/adapter": "0.25.0",
+        "@napuketto/kernel": "0.19.7",
+        "@napuketto/loader": "0.16.7",
         "@napuketto/media": "0.4.1",
-        "@napuketto/network": "0.5.1"
+        "@napuketto/network": "0.6.0"
     },
     "peerDependencies": {
         "koishi": "^4.18.11",
