@@ -91,7 +91,7 @@ bots:
 | 数据根 `dataRoot` | `resolveDataRoot(config.dataDir)`（kernel：显式参数 > 环境变量 > 项目根 `.napuketto` > 用户目录兜底） |
 | 账号目录（driver `accountDir`、loader `cfgDir`） | `<dataRoot>/<selfId>`，为数据根的直属子目录 |
 | 子进程 `cwd` | `dataRoot`（避免原生层把频道库等文件写进 Koishi 工作目录） |
-| 全局配置 `configPath` | `resolveConfigPath({ dataRoot })`（`NAPKETTO_CONFIG` > 项目根探测 > 数据根兜底） |
+| 全局配置 `configPath` | `resolveConfigPath({ dataRoot })`（`NAPUKETTO_CONFIG` > 项目根探测 > 数据根兜底） |
 | 子进程 `NAPUKETTO_DATA_ROOT` | 同一个 `dataRoot`，用于 Linux 的 QQ 数据及入站相对语音路径 |
 | QQ 文件（Linux） | 优先复用本机安装或数据根缓存，缺失时下载官方 Linux 包 |
 
@@ -102,7 +102,7 @@ YAML 中请给 QQ 号加引号以保留字符串原值。登录成其他 QQ 号�
 ## QQ 安装
 
 - **Windows**：缺省 `resolveQqInstall()` 自动探测本机 QQ NT；显式 `qqPath` 时直接使用。
-- **Linux / WSL**：使用标准 Linux Node 和 ELF stub。loader 探测 `/opt/QQ`，也可通过 `NAPUTO_QQ_DIR` 指定官方 deb 的其他安装目录。缺失时复用数据根缓存或下载并解包，阶段日志显示进度。
+- **Linux / WSL**：使用标准 Linux Node 和 ELF stub。loader 探测 `/opt/QQ`，也可通过 `NAPUKETTO_QQ_DIR` 指定官方 deb 的其他安装目录。缺失时复用数据根缓存或下载并解包，阶段日志显示进度。
 - Linux / WSL 直接运行原生 ELF 宿主，无需 Wine。WSL 使用 Linux 版 QQ 文件及 Linux 文件系统上的数据目录。
 
 ## 登录
@@ -137,5 +137,5 @@ YAML 中请给 QQ 号加引号以保留字符串原值。登录成其他 QQ 号�
 
 - Koishi `^4.18.11`。
 - `@koishijs/plugin-console` `^5.30.11`（peer，可选启用；面板依赖它）。
-- Node.js ≥ 22.12，CI 使用 Node 24 和 pnpm 12.4.1。
+- Node.js ≥ 24.11.0，CI 使用 Node 24 和 pnpm 12.4.1。
 - Windows 使用 PE stub `QQNT.dll`。Linux / WSL 使用 Linux 版 QQ 和 ELF stub，需要系统提供 `libgnutls.so.30`。loader 随包提供 x64 stub，其他架构须提供兼容的 `linuxStubPath`。语音转码需要 FFmpeg。

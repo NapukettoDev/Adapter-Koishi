@@ -225,7 +225,7 @@ spawn 流程：
 
 ## 子进程侧契约
 
-`launchSelfHost(..., ipc: true)` 注入 `NAPUTO_IPC=1`，loader 的 `self-host.cjs` 打开 IPC 分支：
+`launchSelfHost(..., ipc: true)` 注入 `NAPUKETTO_IPC=1`，loader 的 `self-host.cjs` 打开 IPC 分支：
 
 - **引导期**：先启动 stdin 服务端与心跳，动作表只有 `login.refreshQr`（登录中即可刷新二维码）。
 - **登录成功后**：并入 kernel 服务动作表：
@@ -237,7 +237,7 @@ spawn 流程：
   `uinToUid` 转 uid。群聊 `at.target`（uin）在发送前也批量转 uid 并尽量补 `display`。
 - **事件转发**：kernel 事件通道 `onAny` → `event { service, name, args }`。事件名 `Service/method`
   被拆成 `service` 与 `name`。
-- **OB11 面**：同时存在 `NAPUTO_ADAPTER_ENTRY` / `NAPUTO_NETWORK_ENTRY` 时，动态 import adapter
+- **OB11 面**：同时存在 `NAPUKETTO_ADAPTER_ENTRY` / `NAPUKETTO_NETWORK_ENTRY` 时，动态 import adapter
   的 `onebot11` / `core` 子路径与 network 入口，实例化 `NapukettoOneBot11Adapter` 后只调用
   `subscribeOnly()`（不装配任何网络传输），把动作名平铺进同一张动作表，事件经 `service: "ob11"` 透出。
   失败只降级，不阻断登录。

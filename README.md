@@ -32,7 +32,7 @@ npm install koishi-plugin-adapter-napuketto
 
 ### 运行环境
 
-使用 Node.js 22.12 或更新版本。Windows 使用 QQ NT 安装和随包 DLL stub。Linux / WSL 使用原生 Linux QQ、ELF stub 和 `libgnutls.so.30`，可复用 `/opt/QQ`，缺失时由 loader 下载官方 Linux 包。Wine 已退役。
+使用 Node.js 24.11 或更新版本。Windows 使用 QQ NT 安装和随包 DLL stub。Linux / WSL 使用原生 Linux QQ、ELF stub 和 `libgnutls.so.30`，可复用 `/opt/QQ`，缺失时由 loader 下载官方 Linux 包。Wine 已退役。
 
 ### 配置
 

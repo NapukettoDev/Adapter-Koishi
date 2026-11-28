@@ -84,7 +84,7 @@ RPC 要求参数中的 `selfId` 精确匹配服务所属账号，接受操作返
 `planRelogin()` 根据当前登录状态选择原地重登或重启。宿主重启开始时，面板立即清除旧的登录快照。
 需要重启才能扫码时，Bot 先置一次性 `qrOnly` 标记，再由 driver 通知旧宿主退出。
 当前没有连接时，刷新和普通重登记录告警，强制扫码保留标记并告警。下次 spawn 消费标记并注入
-`NAPUTO_QR_ONLY=1`。状态与指令对应关系见 [生命周期](../architecture/lifecycle.md#重新登录与强制扫码)。
+`NAPUKETTO_QR_ONLY=1`。状态与指令对应关系见 [生命周期](../architecture/lifecycle.md#重新登录与强制扫码)。
 
 ## 前端入口与 403 防护
 
@@ -95,10 +95,12 @@ RPC 要求参数中的 `selfId` 精确匹配服务所属账号，接受操作返
 2. `ensureServeableProd()`：prod 目录是 `<packageRoot>/dist`。
    `@koishijs/plugin-console` 的 `serveAssets` 要求入口路径以 console root 开头或**包含
    `node_modules`**，否则返回 403（浏览器动态 import 失败，面板永不挂载）。
-   - 标准 npm/pnpm 安装路径天然包含 `node_modules` → 直接使用。
-   - portal/本地路径/桌面端等非标准安装 → 把 `index.js` / `index.css` 复制到
-     `<baseDir>/data/napuketto-console/node_modules/koishi-plugin-adapter-napuketto/dist`，
-     addEntry 指向复制产物。按 size/mtime 比较，未变化不重复写盘。
+   - 生产态先校验固定清单 `index.js` / `index.css`，缺失或无法读取时报告具体文件。
+   - 标准 npm/pnpm 安装路径天然包含 `node_modules`，校验后直接使用。
+   - portal、本地路径和桌面端等安装把两份产物写入同一暂存目录，再按内容摘要一次发布目录。
+     addEntry 指向 `<baseDir>/data/napuketto-console/node_modules/koishi-plugin-adapter-napuketto/<摘要>/dist`。
+     并行安装、版本切换和回滚各使用完整的一组文件。保留已经发布的目录，供仍持有旧入口的控制台读取。
+   - 官方 Console 开启 `devMode` 且存在开发入口时直接使用客户端源码。
 3. 从 Koishi 根作用域创建一个依赖 `console` 的注入作用域，在其中调用
    `addEntry({ dev: <root>/client/index.ts, prod })`。入口独立于任一 Bot，并在 console 服务卸载前销毁。
 4. 每个 console 的入口由其活跃 Bot 共享。Bot 的注入作用域销毁时释放一次引用，最后一个 Bot 释放时
