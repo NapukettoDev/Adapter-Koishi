@@ -67,3 +67,33 @@ test("rejects lockfile fallback and a split transitive Napuketto release", () =>
     };
     assert.throws(() => verifyGroup(split, latest), /adapter@0.18.20 → @napuketto\/kernel@0.16.2/);
 });
+
+test("checks both regular and optional entries with the same name", () => {
+    const { locked, latest } = fixture();
+    const mixed = {
+        dependencies: {
+            ...locked.dependencies,
+            "@napuketto/adapter": {
+                version: latest["@napuketto/adapter"],
+                dependencies: { "@napuketto/kernel": { version: "0.16.2" } },
+            },
+        },
+        optionalDependencies: {
+            "@napuketto/adapter": { version: latest["@napuketto/adapter"] },
+        },
+    };
+    assert.throws(() => verifyGroup(mixed, latest), /@napuketto\/kernel@0.16.2/);
+});
+
+test("reports oversized dependency depth before recursing further", () => {
+    type Entry = { version: string; dependencies?: Record<string, Entry> };
+    let entry: Entry = { version: "1.0.0" };
+    for (let depth = 0; depth < 130; depth += 1) {
+        entry = { version: "1.0.0", dependencies: { child: entry } };
+    }
+    const { locked, latest } = fixture();
+    assert.throws(
+        () => verifyGroup({ ...locked, optionalDependencies: { entry } }, latest),
+        /依赖树超过检查预算/,
+    );
+});

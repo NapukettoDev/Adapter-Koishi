@@ -43,7 +43,7 @@ jobs:
 
             - uses: actions/setup-node@v7
               with:
-                  node-version: 24
+                  node-version: 24.11.0
                   cache: pnpm
 
             - name: 安装依赖并验证 peer 与发布龄
@@ -56,11 +56,11 @@ jobs:
               run: pnpm check
 
             - name: 验证 Napuketto 依赖组
-              run: node tooling/sync-napuketto-deps.ts --verify
+              run: pnpm run deps:sync --verify
 
             - name: 确认宿主依赖 PR 测试的是 npm latest
               if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'dependabot/npm_and_yarn/koishi-host-')
-              run: node tooling/sync-napuketto-deps.ts --verify-hosts
+              run: pnpm run deps:sync --verify-hosts
 
             - name: 测试（含已发布 loader 的 IPC 契约）
               run: pnpm test

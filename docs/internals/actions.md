@@ -180,7 +180,7 @@ kernel 动作面（launch 已就绪）：
 
 1. `resolveLaunchOptions` 解析 `@napuketto/adapter` 与 `@napuketto/network` 的磁盘入口
    （`adapterEntry` / `networkEntry`，可用配置覆盖），经 launcher 注入
-   `NAPUTO_ADAPTER_ENTRY` / `NAPUTO_NETWORK_ENTRY`。任一入口解析失败 → 记录降级，子进程不挂载。
+   `NAPUKETTO_ADAPTER_ENTRY` / `NAPUKETTO_NETWORK_ENTRY`。任一入口解析失败 → 记录降级，子进程不挂载。
 2. 子进程登录成功后，loader 动态 import adapter 的 `onebot11` / `core` 子路径与 network 入口，
    实例化 `NapukettoOneBot11Adapter`，只调用 `subscribeOnly()`：接收链路生效，**不启动 HTTP/WS**。
 3. loader 将已安装的 OneBot 11 注册表（含别名）挂到 IPC，并读取当前 QQ 账号的 `onebot11.media`。

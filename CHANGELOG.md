@@ -1,5 +1,15 @@
 # koishi-plugin-adapter-napuketto
 
+## 0.0.69
+
+### Patch Changes
+
+- 校验生产控制台的固定产物清单，非标准安装按内容发布完整目录，支持相同大小产物的版本切换和回滚。
+- npm 包在 development 条件下解析到已发布的入口，工作树保留源码入口。
+- 依赖同步通过 pnpm 的 CLI 入口传递原始参数，并限制锁文件依赖树的检查预算。
+- 同步 Napuketto 的 Node.js 24.11.0 最低版本与整组依赖，升级前先更新运行时。
+- 更正宿主环境变量文档，现有部署使用 `NAPUKETTO_` 前缀。
+
 ## 0.0.68
 
 ### Patch Changes

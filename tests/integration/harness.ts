@@ -242,6 +242,8 @@ export function createConsole() {
         return {
             on,
             console: {
+                // 源码接线测试沿用 Console 开发入口，无需预先构建 dist。
+                config: { devMode: true },
                 entries,
                 listeners,
                 broadcast,

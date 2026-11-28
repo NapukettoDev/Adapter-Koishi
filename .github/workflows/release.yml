@@ -9,7 +9,7 @@
 #   detect   查 registry：版本未发布 → publish=true（约 10 秒）
 #   prepare  install → 构建（CJS bundle + 控制台前端）→ check → test → 打包 artifact
 #            （contents: read，**无** id-token）
-#   publish  解包 artifact → npm publish
+#   publish  下载准备阶段的 npm tarball → npm publish
 #            （id-token: write + environment 审批，**无** contents 写权限）
 #
 # 为什么拆两个 job：npm 的可信发布把发布权授给「谁能让本文件在 main 上跑起来」，
@@ -126,21 +126,21 @@ jobs:
             - name: 构建（CJS bundle + 控制台前端）
               run: pnpm build && pnpm build:client
 
-            - name: biome + tsc + eslint
+            - name: biome + tsc
               run: pnpm check
 
             - name: 单测
               run: pnpm test
 
-            # 打包给 publish job；node_modules 与 .git 都不需要
-            - name: 打包工作区
-              run: tar --exclude=./node_modules --exclude=./.git -czf "$RUNNER_TEMP/release-workspace.tgz" .
+            # pnpm pack 应用 publishConfig.exports。publish 原样使用这份归档。
+            - name: 打包 npm 归档
+              run: pnpm pack --out "$RUNNER_TEMP/release-package.tgz"
 
             # retention 必须长于「等人工审批」这段不可控时长（30 天 = 仓库默认）
             - uses: actions/upload-artifact@v7
               with:
-                  name: release-workspace
-                  path: ${{ runner.temp }}/release-workspace.tgz
+                  name: release-package
+                  path: ${{ runner.temp }}/release-package.tgz
                   retention-days: 30
 
     publish:
@@ -173,18 +173,10 @@ jobs:
 
             - uses: actions/download-artifact@v8
               with:
-                  name: release-workspace
+                  name: release-package
                   path: ${{ runner.temp }}
 
-            - name: 解包到工作区
-              run: |
-                  mkdir -p "$GITHUB_WORKSPACE"
-                  tar -xzf "$RUNNER_TEMP/release-workspace.tgz" -C "$GITHUB_WORKSPACE"
-
-            # 不跑 pnpm install：npm publish 不需要 node_modules，且 install 是
-            # 构建期代码执行入口，不该出现在持 OIDC token 的 job 里。
             - name: npm publish（单包）
-              working-directory: ${{ github.workspace }}
               env:
                   NPM_CONFIG_LOGLEVEL: verbose
-              run: npm publish --access public
+              run: npm publish "$RUNNER_TEMP/release-package.tgz" --access public --ignore-scripts

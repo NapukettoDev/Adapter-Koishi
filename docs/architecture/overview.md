@@ -126,8 +126,8 @@ client/                      控制台前端（由本仓 vite.config.client.ts �
   安装的真实包提供。**不是**单文件自包含 bundle。
 - 控制台前端单独构建为 `dist/index.js` + `dist/index.css`，文件名固定，运行时由
   `src/console/entry.ts` 注册。
-- `package.json` 的 `files` 只发布 `lib`、`client`、`dist`；`exports.development` 指向的
-  `src/` 不在发布内容中，因此该条件只对仓库内开发有效。
+- `package.json` 的 `files` 只发布 `lib`、`client`、`dist`。打包时由 `publishConfig.exports` 提供
+  指向已发布产物的入口，本地开发仍可使用仓库的 `development` 条件。
 
 ## 能力边界
 

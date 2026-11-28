@@ -1,6 +1,7 @@
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 
 interface Manifest {
@@ -86,40 +87,46 @@ export function verifyGroup(locked: LockImporter, targets?: Record<string, strin
     verifyTransitive(locked, roots);
 }
 
-function verifyTransitive(
-    node: DependencyTree,
-    roots: Record<string, LockedDependency>,
-    chain: string[] = [],
-): void {
-    for (const [name, dep] of Object.entries({
-        ...node.dependencies,
-        ...node.optionalDependencies,
-    })) {
-        const path = [...chain, `${name}@${dep.version}`];
-        const rootVersion = roots[name]?.version;
-        if (packages.includes(name) && dep.version !== rootVersion) {
-            throw new Error(`${path.join(" → ")}，根依赖锁定为 ${name}@${rootVersion}`);
-        }
-        if (dep.dependencies || dep.optionalDependencies) {
-            verifyTransitive(dep, roots, path);
+function verifyTransitive(locked: DependencyTree, roots: Record<string, LockedDependency>): void {
+    const maxDepth = 128;
+    const maxEntries = 50_000;
+    let remaining = maxEntries;
+    function visit(node: DependencyTree, chain: string[]): void {
+        for (const group of [node.dependencies, node.optionalDependencies]) {
+            for (const [name, dep] of Object.entries(group ?? {})) {
+                remaining -= 1;
+                if (chain.length >= maxDepth || remaining < 0) {
+                    throw new Error(
+                        `pnpm 依赖树超过检查预算（深度 ${maxDepth}，条目 ${maxEntries}）`,
+                    );
+                }
+                const path = [...chain, `${name}@${dep.version}`];
+                const rootVersion = roots[name]?.version;
+                if (packages.includes(name) && dep.version !== rootVersion) {
+                    throw new Error(`${path.join(" → ")}，根依赖锁定为 ${name}@${rootVersion}`);
+                }
+                if (dep.dependencies || dep.optionalDependencies) visit(dep, path);
+            }
         }
     }
+    visit(locked, []);
 }
 
 function pnpm(args: string[], capture = false): string {
+    const cli = process.env["npm_execpath"];
+    if (!cli || !isAbsolute(cli)) {
+        throw new Error("请使用 pnpm run deps:sync 调用同步工具");
+    }
     const options: ExecFileSyncOptionsWithStringEncoding = {
         encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
         stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
     };
-    if (process.platform === "win32") {
-        // The Windows launcher is a .cmd shim. Accept only shell-safe pnpm arguments.
-        if (args.some((arg) => !/^[\w@./=+^~*<>| -]+$/.test(arg))) {
-            throw new Error("Windows 下不支持这组 pnpm 参数");
-        }
-        const command = `pnpm ${args.map((arg) => `"${arg}"`).join(" ")}`;
-        return execFileSync(command, { ...options, shell: true }) ?? "";
+    const extension = extname(cli).toLowerCase();
+    if ([".js", ".cjs", ".mjs"].includes(extension)) {
+        return execFileSync(process.execPath, [cli, ...args], options) ?? "";
     }
-    return execFileSync("pnpm", args, options) ?? "";
+    return execFileSync(cli, args, options) ?? "";
 }
 
 function readLock(...args: string[]): LockImporter {

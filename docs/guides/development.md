@@ -2,7 +2,7 @@
 
 ## 环境
 
-- Node 24（CI 基线）、pnpm 12.4.1（`packageManager` 字段；corepack 可钉住）。
+- Node 24.11.0 起（Linux CI 验证最低版本，Windows CI 验证 Node 24）、pnpm 12.4.1（`packageManager` 字段；corepack 可钉住）。
 - TypeScript 7（`devDependencies`）。
 - 单包工程，根包即唯一 workspace；`pnpm-workspace.yaml` 只承载 pnpm 12 的构建审批/发布龄等设置。
 - 单元测试不需要真实 QQ 或原生宿主。
@@ -22,8 +22,8 @@
 
 只跑某个测试文件：`pnpm exec vitest run tests/unit/bridge/events/adapt.test.ts --reporter=dot`。
 
-`tooling/` 的 TypeScript 脚本由 Node 24 直接运行。可用 `node tooling/sync-napuketto-deps.ts --verify`
-检查锁文件中的 Napuketto 发布组。
+执行 `pnpm run deps:sync --verify` 检查锁文件中的 Napuketto 发布组。同步脚本通过
+pnpm 提供的 CLI 路径运行后续锁文件命令。
 
 ## 产物与依赖形态
 
@@ -38,7 +38,7 @@ client/index.ts ──vite──▶ dist/index.js + dist/index.css
 - `package.json` 的 `files` 只含 `lib`、`client`、`dist`，**`src` 不发布**。
 - `exports`：
   - `types` → `lib/index.d.cts`
-  - `development` → `src/index.ts`（只对仓库内开发有效；发布包没有 `src`）
+  - 工作树中的 `development` → `src/index.ts` 由 `publishConfig.exports` 在打包时移除。
   - `default` → `lib/index.cjs`
 - koishi 以 `require()` 加载插件时按 Node 默认条件解析，通常走 `default`（即 `lib`）。因此：
   - 在 Koishi 里联调本仓库源码时，先 `pnpm build`（必要时再 `pnpm build:client`）；

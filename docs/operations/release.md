@@ -17,7 +17,8 @@
 
 无差异时同步任务不提交。registry 不可用、tarball 尚未可取、`latest` 回退或指向预发行版、
 上游分批发布造成版本冲突、或 pnpm 解析到不同版本时，任务会记录目标和实际错误并停止。
-可在 registry 恢复或整批发布后重跑。
+可在 registry 恢复或整批发布后用 `pnpm run deps:sync --update` 重跑。
+同步失败时恢复原 manifest 和 lockfile。工具按 pnpm 返回的 JSON 检查生产依赖树。
 现有候选 PR 的编译或 IPC 契约检查失败时，根据 CI 日志协调上游或修正适配器，再运行更新。
 
 ## 机器人配置与验收
@@ -34,9 +35,13 @@ Napuketto 的发布 App 也须安装到 Adapter-Koishi，发布通知只使用�
 
 ## npm 发布
 
+从旧版升级前先将 Koishi 的 Node.js 升至 24.11.0 或更高。新的 Napuketto 发布组统一声明此下限，
+并延用平台原生宿主的 IPC v1。回滚时按适配器版本恢复整组 npm 依赖，不混装不同发布组。
+
 维护者在发布 PR 中更新 `package.json` 版本和 `CHANGELOG.md`。合并后
 `release.yml` 检查 npm 是否已有该版本。未发布时依次使用 frozen lockfile 安装、构建后端及控制台、
-静态检查、测试和打包。实际发布 job 通过 `release` environment 审批获取 npm OIDC 权限。
+静态检查、测试和 `pnpm pack`。实际发布 job 通过 `release` environment 审批获取 npm OIDC 权限，
+发布准备阶段交付的同一份 npm tarball。
 
 环境部署分支限制为 `main`。npm 信任配置须匹配仓库 `NapukettoDev/Adapter-Koishi`、
 工作流 `release.yml` 与环境 `release`。OIDC 失败时检查 publish job 的 token exchange 日志。

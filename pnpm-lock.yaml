@@ -167,20 +167,20 @@ importers:
   .:
     dependencies:
       '@napuketto/adapter':
-        specifier: 0.26.1
-        version: 0.26.1(supports-color@8.1.1)
+        specifier: 0.27.0
+        version: 0.27.0(supports-color@8.1.1)
       '@napuketto/kernel':
-        specifier: 0.19.8
-        version: 0.19.8
+        specifier: 0.20.0
+        version: 0.20.0
       '@napuketto/loader':
-        specifier: 0.19.0
-        version: 0.19.0
+        specifier: 0.20.0
+        version: 0.20.0
       '@napuketto/media':
-        specifier: 0.5.0
-        version: 0.5.0(supports-color@8.1.1)
-      '@napuketto/network':
         specifier: 0.6.0
-        version: 0.6.0
+        version: 0.6.0(supports-color@8.1.1)
+      '@napuketto/network':
+        specifier: 0.7.0
+        version: 0.7.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.6
@@ -469,25 +469,25 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
-  '@napuketto/adapter@0.26.1':
-    resolution: {integrity: sha512-1KVEqFaUiRR+tBCzp+jHFoDrwmm6iovl6Hv9jUcVZUDb8kYkQMycv9zUwr8kTIijJFtty6cR/ZRzNRVojtcJwA==}
-    engines: {node: '>=22.12.0'}
+  '@napuketto/adapter@0.27.0':
+    resolution: {integrity: sha512-eAb5UK9FDLbCI9mdG5/IGJ5rB5d7KGZSyygoMl8/wzKbtR+YR/76ztTIL0P1NTjjCyh6plG51YxVFGVqdJW7IA==}
+    engines: {node: '>=24.11.0'}
 
-  '@napuketto/kernel@0.19.8':
-    resolution: {integrity: sha512-JIDoB5kHWfppFkRYNFCH8gQg9pDS76crb3l0o7psogBWo+PCKMEUm0TER+lh/lAVTUDMZI7Ya0GZHBD5TYmSUQ==}
-    engines: {node: '>=22.12.0'}
+  '@napuketto/kernel@0.20.0':
+    resolution: {integrity: sha512-JSOoUBej2KhYBAy31AHAIoNKtoD81ZnpBHFgRewX8GkMvqNH+9uV69eKeusQCOD4uV6Q72jaXo37dcuFuhKptw==}
+    engines: {node: '>=24.11.0'}
 
-  '@napuketto/loader@0.19.0':
-    resolution: {integrity: sha512-gAgxSmIC8RqHLrDmtm9LWhL3xJmGVjw2JF3lYG3t3tBUZC//8BlwbNo9gI5rJqLnVL9RkWWlKGU5MWxAG/R89g==}
-    engines: {node: '>=22.12.0'}
+  '@napuketto/loader@0.20.0':
+    resolution: {integrity: sha512-F/R6ZKmTlQUgJogvQcSDaTrQhxLlBB+/zdKOSCEuMOjya5nCVtNdUVfiQGFozPwfVPBirzqjFtWvPaxDkx1iLQ==}
+    engines: {node: '>=24.11.0'}
 
-  '@napuketto/media@0.5.0':
-    resolution: {integrity: sha512-dxQcblKG09468N4i99avuXifNrfakBnY+VNR0QQCJq7Ck6clegZPOlR7eS2AeQzrVCqQ/IyJvEu+cNEQ91q9zg==}
-    engines: {node: '>=22.12.0'}
+  '@napuketto/media@0.6.0':
+    resolution: {integrity: sha512-wVPtZg0j5PX5p9dLPoNzh1OWiBQXKxEcYdluvZpirzz4ufFzB6NuumaI+uMK9Zb48+0vdF2hsKQMKuGYCPEr7g==}
+    engines: {node: '>=24.11.0'}
 
-  '@napuketto/network@0.6.0':
-    resolution: {integrity: sha512-jP9vOLSKvWQfA9jSVHGW/QV7Xq46Wbd6XuHC6sgqFq5A8RWUmx5IEJaMaISqrLazXaWkMZ2tVsy8ZrlrTApIlw==}
-    engines: {node: '>=22.12.0'}
+  '@napuketto/network@0.7.0':
+    resolution: {integrity: sha512-Q5gQm42aEluN9ZABFrbx7twtwfhujmumrxOkFjpHMiJ7wFtWZyULnWc0FdD4+yqXeJljvitiXcuH8whdFHTRxw==}
+    engines: {node: '>=24.11.0'}
 
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
@@ -2432,27 +2432,27 @@ snapshots:
       '@tybys/wasm-util': 0.10.5
     optional: true
 
-  '@napuketto/adapter@0.26.1(supports-color@8.1.1)':
+  '@napuketto/adapter@0.27.0(supports-color@8.1.1)':
     dependencies:
-      '@napuketto/kernel': 0.19.8
-      '@napuketto/media': 0.5.0(supports-color@8.1.1)
-      '@napuketto/network': 0.6.0
+      '@napuketto/kernel': 0.20.0
+      '@napuketto/media': 0.6.0(supports-color@8.1.1)
+      '@napuketto/network': 0.7.0
       zod: 4.6.7
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - utf-8-validate
 
-  '@napuketto/kernel@0.19.8':
+  '@napuketto/kernel@0.20.0':
     dependencies:
       pino: 10.4.0
       smol-toml: 1.9.1
 
-  '@napuketto/loader@0.19.0':
+  '@napuketto/loader@0.20.0':
     dependencies:
       zod: 4.6.7
 
-  '@napuketto/media@0.5.0(supports-color@8.1.1)':
+  '@napuketto/media@0.6.0(supports-color@8.1.1)':
     dependencies:
       execa: 10.2.1
       file-type: 22.3.0(supports-color@8.1.1)
@@ -2461,7 +2461,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@napuketto/network@0.6.0':
+  '@napuketto/network@0.7.0':
     dependencies:
       '@hono/node-server': 2.1.10(hono@4.13.19)
       hono: 4.13.19
