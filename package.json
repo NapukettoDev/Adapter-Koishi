@@ -63,10 +63,10 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
-        "@napuketto/adapter": "0.25.0",
-        "@napuketto/kernel": "0.19.7",
-        "@napuketto/loader": "0.16.7",
-        "@napuketto/media": "0.4.1",
+        "@napuketto/adapter": "0.26.1",
+        "@napuketto/kernel": "0.19.8",
+        "@napuketto/loader": "0.19.0",
+        "@napuketto/media": "0.5.0",
         "@napuketto/network": "0.6.0"
     },
     "peerDependencies": {
