@@ -18,8 +18,8 @@ export const SchemaBase: {
     extensions: Set<{ role: string; component: Component; important?: boolean }>;
 };
 
-/** 控制台 WebSocket 事件上行（同步发送，无 Promise）。 */
-export function send(name: string, body?: unknown): void;
+/** 控制台 RPC：没有连接时返回 undefined，收到响应时兑现或拒绝 Promise。 */
+export function send(name: string, body?: unknown): Promise<unknown> | undefined;
 
 /** 控制台全局 store（DataService 推送数据，按 serviceId 隔离）。 */
 export const store: Record<string, unknown>;

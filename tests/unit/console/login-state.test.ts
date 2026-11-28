@@ -30,6 +30,24 @@ describe("NapukettoLoginState", () => {
         expect(changes).toEqual(["waiting_scan", "scanned", "logged_in"]);
     });
 
+    it("扫码确认与终态释放二维码，快速登录清空上一轮错误", () => {
+        const machine = new NapukettoLoginState();
+        machine.onLogin("waiting_scan");
+        machine.onQr(QR);
+        machine.onLogin("scanned");
+        expect(machine.snapshot.qr).toBeUndefined();
+
+        machine.onQr(QR);
+        machine.onLogin("waiting_scan");
+        expect(machine.snapshot.qr).toMatchObject(QR);
+
+        machine.onLogin("failed", undefined, "上一轮错误");
+        machine.onQr(QR);
+        expect(machine.snapshot.qr).toBeUndefined();
+        machine.onReady();
+        expect(machine.snapshot).toEqual({ state: "logged_in", generation: 0 });
+    });
+
     it("快速登录直通：onLogin(logged_in) 不经过 waiting_scan", () => {
         const machine = new NapukettoLoginState();
         machine.onLogin("logged_in", { uin: "1", uid: "u1", nick: "n" });
@@ -45,11 +63,13 @@ describe("NapukettoLoginState", () => {
 
         machine.onQr(QR); // 先收二维码（IPC 乱序）
         expect(machine.currentState).toBe("idle"); // 状态不变
-        expect(qrChanges).toHaveLength(1); // 但 onQrChange 已通知
-        expect(machine.snapshot.qr).toEqual(QR);
+        expect(qrChanges).toHaveLength(0);
+        expect(machine.snapshot.qr).toBeUndefined();
 
         machine.onLogin("waiting_scan");
-        expect(machine.currentState).toBe("waiting_scan");
+        expect(machine.snapshot.qr).toMatchObject(QR);
+        machine.onQr(QR);
+        expect(qrChanges).toHaveLength(1);
     });
 
     it("failed 记录 lastError 并通知", () => {

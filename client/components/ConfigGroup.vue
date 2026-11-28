@@ -1,6 +1,6 @@
 <template>
   <details class="config-group">
-    <summary>{{ schema.meta.description }}</summary>
+    <summary>{{ description }}</summary>
     <component :is="SchemaBase.Schema" v-bind="$attrs" :schema="innerSchema" />
   </details>
 </template>
@@ -12,8 +12,13 @@ import { computed } from 'vue';
 defineOptions({ inheritAttrs: false });
 
 const props = defineProps<{
-  schema: { meta: { description?: string } };
+  schema: { meta?: { description?: unknown } | null };
 }>();
+
+const description = computed(() => {
+  const value = props.schema.meta?.description;
+  return typeof value === 'string' && value.trim() ? value : '高级配置';
+});
 
 const innerSchema = computed(() => ({
   ...props.schema,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { IPC_VERSION } from "../../src/runtime/ipc/index.js";
 import { BOT_STATUS } from "../../src/shared.js";
+import { PNG_DATA_URI } from "../fixtures/png.js";
 import {
     createConsole,
     latestChild,
@@ -30,7 +31,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(current.provider).not.toBe(first.provider);
         expect(shared.connections.size).toBe(1);
         expect(shared.pushed).toEqual([]);
-        const payload = { selfId: SELF_ID, qr: { qrcodeUrl: "https://current.example/qr" } };
+        const payload = { selfId: SELF_ID, qrUrl: "https://current.example/qr" };
         expect(await shared.connect()).toMatchObject([payload]);
         expect(shared.pushed).toMatchObject([payload]);
         current.click("refresh-qr");
@@ -61,7 +62,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(Object.keys(shared.listeners)).toHaveLength(3);
         expect(shared.connections.size).toBe(1);
 
-        const payload = { selfId: SELF_ID, qr: { qrcodeUrl: "https://current.example/qr" } };
+        const payload = { selfId: SELF_ID, qrUrl: "https://current.example/qr" };
         expect(await shared.connect()).toMatchObject([payload]);
         expect(shared.pushed).toMatchObject([payload]);
         current.click("relogin");
@@ -100,7 +101,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
         expect(shared.entries.size).toBe(1);
         expect(shared.services.get(current.serviceName)).toBe(current.provider);
         expect(shared.connections.size).toBe(1);
-        const payload = { selfId: SELF_ID, qr: { qrcodeUrl: "https://current.example/qr" } };
+        const payload = { selfId: SELF_ID, qrUrl: "https://current.example/qr" };
         expect(await shared.connect()).toMatchObject([payload]);
         expect(shared.pushed.at(-1)).toMatchObject(payload);
         current.click("refresh-qr", admin);
@@ -251,7 +252,7 @@ describe("控制台事件到子进程 IPC 的接线", () => {
             await vi.advanceTimersByTimeAsync(0);
             expect(consoleHost.pushed.at(-1)).toMatchObject({
                 state: "waiting_scan",
-                image: "data:image/png;base64,aGVsbG8=",
+                image: PNG_DATA_URI,
             });
             second.login({ state: "scanned" });
             await vi.advanceTimersByTimeAsync(0);

@@ -21,12 +21,12 @@
              与 import 的 QrCodePanel 大小写不匹配 → 编译器无法静态关联 → 渲染成空元素。 -->
         <QrCodePanel
           v-if="data.state === 'waiting_scan'"
-          :image="data.image"
+          :image="qrImage"
           :message="data.message"
-          :qr="data.qr"
+          :qr-url="qrUrl"
           :qr-expired="qrExpired"
           :qr-loading="qrLoading"
-          @refresh-qr="refreshQr"
+          @refresh-qr="runAction('refresh-qr')"
           @open-qr-url="openQrUrl"
         />
         <!-- 其余状态：idle/scanned/logged_in/failed -->
@@ -37,9 +37,10 @@
           :self="data.self"
           :last-error="data.lastError"
           :qr-loading="qrLoading"
-          @relogin="relogin"
-          @qr-login="qrLogin"
+          @relogin="runAction('relogin')"
+          @qr-login="runAction('qr-login')"
         />
+        <p v-if="actionError" role="alert">{{ actionError }}</p>
       </k-comment>
     </div>
     <!-- 正在查看本插件但数据尚未推送：轻量加载态 -->
@@ -58,165 +59,132 @@ import { computed, inject, onUnmounted, ref, watch } from 'vue';
 import QrCodePanel from './components/QrCodePanel.vue';
 import StatusSection from './components/StatusSection.vue';
 
-/** 登录状态（对齐 kernel LoginState 与后端推送结构）。 */
 type LoginState = 'idle' | 'waiting_scan' | 'scanned' | 'logged_in' | 'failed';
+type LoginAction = 'relogin' | 'qr-login' | 'refresh-qr';
 
-/** 后端推送的登录面板数据结构（store['napuketto-login-<uin>']）。 */
 interface LoginPanelData {
+  selfId: string;
   state: LoginState;
+  generation: number;
   message?: string;
-  /** 二维码完整 data URI（waiting_scan 时有；直接 <img :src> 展示）。 */
   image?: string;
-  /** state=waiting_scan 时有。 */
-  qr?: { pngBase64: string; qrcodeUrl: string };
-  /** state=logged_in 时有。 */
+  qrUrl?: string;
+  qrExpiresAt?: number;
   self?: { nick: string; uin: string };
   lastError?: string;
 }
 
-/** 二维码有效期（毫秒，与提示文案「两分钟内」一致）。 */
-const QR_EXPIRY_MS = 2 * 60 * 1000;
-/** 插件名（package.json name，插件详情页校验用）。 */
 const PLUGIN_NAME = 'koishi-plugin-adapter-napuketto';
-/** DataService serviceId 前缀（与后端 src/console/provider.ts 对齐）。 */
 const SERVICE_PREFIX = 'napuketto-login';
-
-// ── 插件详情页上下文注入（识别当前查看的插件实例 + 配置） ──
+const ACTION_WAIT_MS = 3000;
 
 const local = inject('manager.settings.local', ref({ name: '' }));
-const config = inject('manager.settings.config', ref({}));
-const current = inject('manager.settings.current', ref({}));
+const config = inject('manager.settings.config', ref<{ selfId?: unknown } | null>(null));
+const current = inject('manager.settings.current', ref<{ disabled?: boolean } | null>(null));
 
-/** 是否正在查看本插件（且未被禁用）——决定面板是否渲染。 */
-const isCurrentPlugin = computed(() => {
-  const name = (local.value as { name?: string } | undefined)?.name;
-  if (name !== PLUGIN_NAME) return false;
-  return (current.value as { disabled?: boolean })?.disabled !== true;
+const isCurrentPlugin = computed(() =>
+  local.value?.name === PLUGIN_NAME && current.value?.disabled !== true,
+);
+const selfId = computed(() => {
+  const value = config.value?.selfId;
+  return isCurrentPlugin.value && typeof value === 'string' && /^[0-9]{5,11}$/.test(value)
+    ? value
+    : undefined;
 });
-
-/** 后端推送的登录面板数据（store['napuketto-login-<uin>']，Vue 响应式）。 */
 const data = computed<LoginPanelData | null>(() => {
-  if (!isCurrentPlugin.value) return null;
-  // 从配置拿 selfId（多账号隔离：serviceId 按 uin 区分）
-  const selfId = (config.value as { selfId?: string })?.selfId;
-  if (!selfId) return null;
-  // 从全局 store 按 serviceId 取后端推送的数据
-  const serviceData = (store as Record<string, unknown>)[`${SERVICE_PREFIX}-${selfId}`];
-  return serviceData !== undefined && typeof serviceData === 'object'
-    ? (serviceData as LoginPanelData)
-    : null;
+  if (!selfId.value) return null;
+  const payload = store[`${SERVICE_PREFIX}-${selfId.value}`];
+  if (payload === null || typeof payload !== 'object' || !('selfId' in payload)) return null;
+  return payload.selfId === selfId.value ? payload as LoginPanelData : null;
 });
 
-/** 刷新二维码按钮 loading 态。 */
-const qrLoading = ref(false);
-/** 二维码过期遮罩（本地计时，kernel 自动推新码即复位）。 */
-const qrExpired = ref(false);
-/** 过期计时器。 */
-let qrTimer: number | null = null;
-
-/** 面板提示色（k-comment type）。⚠️ 不能用 'info'：k-comment 只有
- * primary/secondary/warning/success/error 五种类型有样式规则。 */
 const commentType = computed(() => {
-  const state = data.value?.state;
-  if (state === 'logged_in') return 'success';
-  if (state === 'failed') return 'error';
+  if (data.value?.state === 'logged_in') return 'success';
+  if (data.value?.state === 'failed') return 'error';
   return 'warning';
 });
 
-// ── 二维码过期计时（B站模板同款：2 分钟遮罩；kernel 过期自动推新码即复位） ──
-
-function startQrExpiryTimer(): void {
-  clearQrExpiryTimer();
-  qrExpired.value = false;
-  qrTimer = window.setTimeout(() => {
-    qrExpired.value = true;
-  }, QR_EXPIRY_MS) as unknown as number;
-}
-
-function clearQrExpiryTimer(): void {
-  if (qrTimer !== null) {
-    window.clearTimeout(qrTimer);
-    qrTimer = null;
+const expiresAt = computed(() => {
+  const value = data.value?.qrExpiresAt;
+  return data.value?.state === 'waiting_scan' && typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+});
+const qrImage = computed(() => {
+  const image = data.value?.image;
+  return typeof image === 'string' && image.startsWith('data:image/png;base64,') ? image : '';
+});
+const qrExpired = ref(false);
+const qrUrl = computed(() => {
+  const value = data.value?.qrUrl;
+  if (typeof value !== 'string' || qrExpired.value) return '';
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password
+      ? url.href
+      : '';
+  } catch {
+    return '';
   }
-}
-
-onUnmounted(() => {
-  clearQrExpiryTimer();
 });
 
-// 进入 waiting_scan：复位 loading + 启动过期计时
+const pending = ref<symbol>();
+const qrLoading = computed(() => pending.value !== undefined);
+const actionError = ref('');
+let actionTimer: number | undefined;
+
+function clearAction(): void {
+  window.clearTimeout(actionTimer);
+  actionTimer = undefined;
+  pending.value = undefined;
+  actionError.value = '';
+}
+
+// 快照切换结束等待。比较状态和二维码字段，避免重复广播提前解锁。
 watch(
-  () => data.value?.state,
-  (state) => {
-    if (state === 'waiting_scan') {
-      qrLoading.value = false;
-      startQrExpiryTimer();
-    } else {
-      clearQrExpiryTimer();
-      qrExpired.value = false;
-    }
-  },
-  { immediate: true },
+  [selfId, () => data.value?.state, () => data.value?.generation,
+    expiresAt, qrImage, () => data.value?.qrUrl, () => data.value?.lastError],
+  clearAction,
 );
 
-// 新二维码到达（首次 / 手动刷新 / kernel 过期自动推新码）→ 复位 loading + 重启计时
-watch(
-  () => data.value?.qr?.pngBase64,
-  () => {
-    qrLoading.value = false;
-    if (data.value?.state === 'waiting_scan') {
-      startQrExpiryTimer();
-    }
-  },
-);
+watch([selfId, expiresAt], ([, deadline], _, onCleanup) => {
+  qrExpired.value = deadline !== undefined && deadline <= Date.now();
+  if (deadline === undefined || qrExpired.value) return;
+  const timer = window.setTimeout(() => { qrExpired.value = true; }, deadline - Date.now());
+  onCleanup(() => window.clearTimeout(timer));
+}, { immediate: true });
 
-// ── 指令上行：重新登录 / 刷新二维码 ──
+onUnmounted(clearAction);
 
-function currentSelfId(): string {
-  return (config.value as { selfId?: string })?.selfId ?? '';
-}
+async function runAction(action: LoginAction): Promise<void> {
+  const account = selfId.value;
+  if (!account || !data.value || pending.value !== undefined) return;
 
-function relogin(): void {
-  const selfId = currentSelfId();
-  if (!selfId) return;
-  qrLoading.value = true;
-  send(`${SERVICE_PREFIX}-${selfId}/relogin`, { selfId });
-}
+  const token = Symbol();
+  pending.value = token;
+  actionError.value = '';
+  function fail(message: string): void {
+    // 迟到的响应可以属于已经切换的账号或已经结束的请求。
+    if (pending.value !== token) return;
+    clearAction();
+    actionError.value = message;
+  }
 
-function qrLogin(): void {
-  const selfId = currentSelfId();
-  if (!selfId) return;
-  qrLoading.value = true;
-  send(`${SERVICE_PREFIX}-${selfId}/qr-login`, { selfId });
-}
-
-function refreshQr(): void {
-  const selfId = currentSelfId();
-  if (!selfId) return;
-  qrLoading.value = true;
-  qrExpired.value = false;
-  send(`${SERVICE_PREFIX}-${selfId}/refresh-qr`, { selfId });
-  // 兜底：刷新失败 / 无新二维码时 3s 后复位 loading
-  setTimeout(() => {
-    qrLoading.value = false;
-  }, 3000);
-}
-
-/** 二维码外链只允许 http/https（后端已过滤，前端再兜底一次）。 */
-function isSafeExternalUrl(value: string): boolean {
+  actionTimer = window.setTimeout(() => fail('等待登录状态更新超时，请重试。'), ACTION_WAIT_MS);
   try {
-    const protocol = new URL(value).protocol;
-    return protocol === 'http:' || protocol === 'https:';
+    if (await send(`${SERVICE_PREFIX}-${account}/${action}`, { selfId: account }) !== true) {
+      fail('登录操作未执行，请重试。');
+    }
   } catch {
-    return false;
+    fail('登录操作请求失败，请重试。');
   }
 }
 
-/** 新窗口打开登录链接（无法扫码时兜底）。 */
 function openQrUrl(): void {
-  const url = data.value?.qr?.qrcodeUrl;
-  if (url && isSafeExternalUrl(url)) {
-    window.open(url, '_blank', 'noopener');
+  const deadline = expiresAt.value;
+  const url = qrUrl.value;
+  if (url && deadline !== undefined && deadline > Date.now()) {
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
 </script>

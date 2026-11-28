@@ -255,6 +255,7 @@ describe("Bot 启停生命周期", () => {
                 [first, firstChild, firstId],
                 [second, secondChild, secondId],
             ] as const) {
+                child.login({ state: "waiting_scan" });
                 child.qr("https://example.com/qr?ticket=qr-ticket", "cWgtc2VjcmV0");
                 child.ready(selfId);
                 child.send({

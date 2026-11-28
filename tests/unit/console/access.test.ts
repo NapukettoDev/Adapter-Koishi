@@ -32,7 +32,7 @@ describe("passesLoginPanelAuthority", () => {
     it("低权限已登录客户端被拒绝（含权限等级 0-2）", () => {
         for (const authority of [0, 1, 2]) {
             expect(
-                passesLoginPanelAuthority({ auth: { authority, expiredAt: FUTURE } }, PAST),
+                passesLoginPanelAuthority({ auth: { authority, expiredAt: FUTURE } }, true, PAST),
             ).toBe(false);
         }
     });
@@ -40,20 +40,43 @@ describe("passesLoginPanelAuthority", () => {
     it("管理员（3 级及以上）放行", () => {
         for (const authority of [3, 4, 5]) {
             expect(
-                passesLoginPanelAuthority({ auth: { authority, expiredAt: FUTURE } }, PAST),
+                passesLoginPanelAuthority({ auth: { authority, expiredAt: FUTURE } }, true, PAST),
             ).toBe(true);
         }
     });
 
     it("令牌过期时一律拒绝，即使权限等级足够", () => {
-        expect(passesLoginPanelAuthority({ auth: { authority: 5, expiredAt: 100 } }, 100)).toBe(
-            false,
-        );
+        expect(
+            passesLoginPanelAuthority({ auth: { authority: 5, expiredAt: 100 } }, true, 100),
+        ).toBe(false);
     });
 
-    it("没有 auth 或已登出（auth=null）时放行：门槛由控制台拦截器决定", () => {
-        expect(passesLoginPanelAuthority({}, PAST)).toBe(true);
-        expect(passesLoginPanelAuthority({ auth: null }, PAST)).toBe(true);
+    it("Auth 启用时匿名及登出都拒绝，无 Auth 时允许访问", () => {
+        for (const client of [{}, { auth: null }]) {
+            expect(passesLoginPanelAuthority(client, true, PAST)).toBe(false);
+            expect(passesLoginPanelAuthority(client, false, PAST)).toBe(true);
+        }
+    });
+
+    it("拒绝无效的权限或截止时间", () => {
+        expect(
+            passesLoginPanelAuthority(
+                {
+                    auth: { authority: Number.NaN, expiredAt: FUTURE },
+                },
+                true,
+                PAST,
+            ),
+        ).toBe(false);
+        expect(
+            passesLoginPanelAuthority(
+                {
+                    auth: { authority: 5, expiredAt: Infinity },
+                },
+                true,
+                PAST,
+            ),
+        ).toBe(false);
     });
 });
 
@@ -63,9 +86,10 @@ describe("redactLoginPanelPayload", () => {
         expect(payload).toEqual({
             state: "idle",
             selfId: "10001",
+            generation: 0,
             message: "无权限查看登录状态（需要管理员权限）",
         });
-        expect(payload.qr).toBeUndefined();
+        expect(payload.qrUrl).toBeUndefined();
         expect(payload.image).toBeUndefined();
         expect(payload.self).toBeUndefined();
         expect(payload.lastError).toBeUndefined();

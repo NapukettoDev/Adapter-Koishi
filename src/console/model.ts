@@ -1,4 +1,4 @@
-import type { LoginState, QrCodeData, SelfInfo } from "@napuketto/kernel";
+import type { LoginState, SelfInfo } from "@napuketto/kernel";
 import type { LoginSnapshot } from "./login-state.js";
 
 /**
@@ -9,12 +9,14 @@ export interface LoginPanelPayload {
     state: LoginState;
     /** 登录账号（QQ 号）——多账号隔离：serviceId 后缀 + 前端校验。 */
     selfId: string;
+    generation: number;
     /** 人类可读状态文案（面板主提示）。 */
     message?: string;
     /** 二维码完整 data URI（waiting_scan 时推送；前端直接 <img :src> 展示）。 */
     image?: string;
-    /** 二维码（waiting_scan 时推送；pngBase64 + qrcodeUrl 链接兜底）。 */
-    qr?: QrCodeData;
+    /** 独立校验的扫码登录外链与本轮二维码截止时间。 */
+    qrUrl?: string;
+    qrExpiresAt?: number;
     /** 登录成功 selfInfo（logged_in 时）。 */
     self?: SelfInfo;
     /** 最近错误（failed 时）。 */
@@ -56,25 +58,36 @@ export function sanitizeQrCodeUrl(value: string): string | undefined {
     } catch {
         return undefined;
     }
-    return ALLOWED_QR_URL_PROTOCOLS.has(url.protocol) ? url.href : undefined;
+    return ALLOWED_QR_URL_PROTOCOLS.has(url.protocol) && !url.username && !url.password
+        ? url.href
+        : undefined;
 }
 
-/** LoginSnapshot → LoginPanelPayload（exactOptionalPropertyTypes：条件展开，不显式赋 undefined）。 */
-export function toLoginPanelPayload(snapshot: LoginSnapshot, selfId: string): LoginPanelPayload {
-    const qr = snapshot.qr;
-    const qrUrl = qr === undefined ? undefined : sanitizeQrCodeUrl(qr.qrcodeUrl);
+// 校验 Base64 字符和 PNG 文件头（含 IHDR），避免把其他编码当作 PNG 发送。
+const PNG_BASE64 = /^iVBORw0KGgoAAAANSUhEUg[A-Za-z0-9+/]*={0,2}(?![\s\S])/;
+
+export function toLoginPanelPayload(
+    snapshot: LoginSnapshot,
+    selfId: string,
+    now = Date.now(),
+): LoginPanelPayload {
+    const { state, generation, self, lastError } = snapshot;
+    const qr = state === "waiting_scan" ? snapshot.qr : undefined;
+    const fresh = qr !== undefined && qr.expiresAt > now ? qr : undefined;
+    const png = fresh?.pngBase64;
+    const qrUrl = fresh === undefined ? undefined : sanitizeQrCodeUrl(fresh.qrcodeUrl);
     return {
-        state: snapshot.state,
+        state,
         selfId,
-        message: loginStateMessage(snapshot.state),
-        // 外链协议不合法时只丢掉 qr（前端隐藏“打开登录链接”），二维码图片照常展示。
-        ...(qr !== undefined && qrUrl !== undefined ? { qr: { ...qr, qrcodeUrl: qrUrl } } : {}),
-        // 二维码完整 data URI（前端 <img> 直接展示，参照 bilibili-dm 的 image 字段）
-        ...(qr !== undefined && qr.pngBase64 !== ""
-            ? { image: `data:image/png;base64,${qr.pngBase64}` }
+        generation,
+        message: loginStateMessage(state),
+        ...(qr !== undefined ? { qrExpiresAt: qr.expiresAt } : {}),
+        ...(qrUrl !== undefined ? { qrUrl } : {}),
+        ...(png !== undefined && png.length % 4 === 0 && PNG_BASE64.test(png)
+            ? { image: `data:image/png;base64,${png}` }
             : {}),
-        ...(snapshot.self !== undefined ? { self: snapshot.self } : {}),
-        ...(snapshot.lastError !== undefined ? { lastError: snapshot.lastError } : {}),
+        ...(state === "logged_in" && self?.uin === selfId ? { self } : {}),
+        ...(state === "failed" && lastError !== undefined ? { lastError } : {}),
     };
 }
 
@@ -103,23 +116,22 @@ export interface ConsoleAuthClient {
     readonly auth?: ConsoleClientAuth | null | undefined;
 }
 
-/**
- * 已登录客户端的本地权限复核（纵深防御）。
- *
- * 与 @koishijs/plugin-auth 的 `console/intercept` 判定一致：
- *  - 没有 auth（未启用鉴权插件或已登出）→ 放行：门槛交给控制台拦截器，本地不额外封锁；
- *  - 令牌过期或 authority 低于门槛 → 拒绝。
- * 正常路径由 intercept 先拒绝，本判定只覆盖拦截器缺失或被绕过的场景。
- */
-export function passesLoginPanelAuthority(client: ConsoleAuthClient, now = Date.now()): boolean {
+/** 官方 Auth 就绪时缺少登录态也拒绝。无 Auth 的可信部署保留匿名访问。 */
+export function passesLoginPanelAuthority(
+    client: ConsoleAuthClient,
+    authEnabled: boolean,
+    now = Date.now(),
+): boolean {
     const auth = client.auth;
-    if (auth === undefined || auth === null) {
-        return true;
+    if (auth == null) {
+        return !authEnabled;
     }
-    if (auth.expiredAt <= now) {
-        return false;
-    }
-    return auth.authority >= LOGIN_PANEL_AUTHORITY;
+    return (
+        Number.isFinite(auth.expiredAt) &&
+        auth.expiredAt > now &&
+        Number.isFinite(auth.authority) &&
+        auth.authority >= LOGIN_PANEL_AUTHORITY
+    );
 }
 
 /** 无权限客户端拿到的脱敏快照：不含二维码、登录账号与错误详情。 */
@@ -127,6 +139,7 @@ export function redactLoginPanelPayload(selfId: string): LoginPanelPayload {
     return {
         state: "idle",
         selfId,
+        generation: 0,
         message: "无权限查看登录状态（需要管理员权限）",
     };
 }

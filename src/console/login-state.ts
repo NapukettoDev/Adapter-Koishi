@@ -22,11 +22,15 @@ interface LoginObserver {
     onExit(): void;
 }
 
+/** 与 QQ 扫码提示一致的本地展示期限，宿主仍负责决定是否自动刷新。 */
+const QR_EXPIRY_MS = 2 * 60 * 1000;
+type TimedQrCode = QrCodeData & { expiresAt: number };
+
 /** 登录状态快照（apply() 层查询用）。 */
 export interface LoginSnapshot {
     state: LoginState;
     /** 最新二维码（waiting_scan 时有）。 */
-    qr?: QrCodeData;
+    qr?: TimedQrCode;
     /** 登录成功 selfInfo。 */
     self?: SelfInfo;
     /** 最近错误（failed 时）。 */
@@ -42,7 +46,7 @@ export interface LoginSnapshot {
 export class NapukettoLoginState implements LoginObserver {
     private readonly view: LoginView;
     private state: LoginState = "idle";
-    private qr: QrCodeData | null = null;
+    private qr: TimedQrCode | null = null;
     private self: SelfInfo | null = null;
     private lastError: string | null = null;
     private generation = 0;
@@ -65,7 +69,7 @@ export class NapukettoLoginState implements LoginObserver {
     get snapshot(): LoginSnapshot {
         return {
             state: this.state,
-            ...(this.qr !== null ? { qr: this.qr } : {}),
+            ...(this.state === "waiting_scan" && this.qr !== null ? { qr: this.qr } : {}),
             ...(this.self !== null ? { self: this.self } : {}),
             ...(this.lastError !== null ? { lastError: this.lastError } : {}),
             generation: this.generation,
@@ -74,36 +78,40 @@ export class NapukettoLoginState implements LoginObserver {
 
     /** 收到登录状态（driver.onLogin）。message 为失败原因（如登录超时）。 */
     onLogin(state: LoginState, selfInfo?: SelfInfo, message?: string): void {
+        const previousSelf = this.self;
+        const previousError = this.lastError;
         if (state === "logged_in") {
             if (selfInfo !== undefined) {
                 this.self = selfInfo;
             }
         } else {
-            // 非 logged_in 状态不再持有可派发的身份；下一次 logged_in 必须重新给出。
             this.self = null;
         }
-        if (state === "failed") {
-            this.lastError = message ?? "登录失败";
+        if (state !== "waiting_scan") {
+            this.qr = null;
         }
-        this.transition(state);
-    }
-
-    /** 收到二维码（driver.onQr；可能先于 waiting_scan 到达，缓冲）。 */
-    onQr(qr: QrCodeData): void {
-        this.qr = qr;
-        this.view.onQrChange?.(qr);
-        // 若已处于 waiting_scan，无需迁移；否则等待 onLogin(waiting_scan) 时随状态送出
-        if (this.state === "waiting_scan") {
+        this.lastError = state === "failed" ? (message ?? "登录失败") : null;
+        if (state !== this.state) {
+            this.transition(state);
+        } else if (this.self !== previousSelf || this.lastError !== previousError) {
             this.notifyState();
         }
     }
 
-    /** 就绪（driver.onReady）：状态机保持 logged_in（快照保留）。 */
-    onReady(): void {
-        // 子进程就绪 = 登录已完成；若状态机还没到 logged_in（快速登录直通），补发
-        if (this.state !== "logged_in") {
-            this.transition("logged_in");
+    /** Loader 在 waiting_scan 进度前先发二维码。终态的迟到二维码直接丢弃。 */
+    onQr(qr: QrCodeData): void {
+        if (this.state === "logged_in" || this.state === "failed") {
+            return;
         }
+        this.qr = { ...qr, expiresAt: Date.now() + QR_EXPIRY_MS };
+        if (this.state === "waiting_scan") {
+            this.view.onQrChange?.(qr);
+        }
+    }
+
+    /** 快速登录可以直接收到 ready。 */
+    onReady(): void {
+        this.onLogin("logged_in");
     }
 
     /** 子进程退出（driver.onExit）：登录状态归 idle（重启后重新登录）。 */
