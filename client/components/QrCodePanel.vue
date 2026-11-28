@@ -8,28 +8,18 @@
 <template>
   <div class="qrcode-panel">
     <!-- 二维码卡片（白底 + 阴影，参照 bilibili-dm） -->
-    <div v-if="image" class="qrcode-container">
+    <div v-if="image && !qrExpired" class="qrcode-container">
       <img class="qrcode" :src="image" alt="Napuketto 登录二维码" />
-      <!-- 本地 2 分钟过期遮罩（kernel 过期会自动推新码，新码到达即复位） -->
-      <div v-if="qrExpired" class="refresh-overlay">
-        <p>二维码已过期</p>
-        <k-button :disabled="qrLoading" @click="emit('refresh-qr')">
-          <span class="button-inner">
-            <k-icon name="redo" />
-            刷新二维码
-          </span>
-        </k-button>
-      </div>
     </div>
-    <!-- 二维码尚未到达：加载态 -->
-    <div v-else class="qrcode-loading">
+    <p v-else-if="qrExpired">二维码已过期</p>
+    <div v-else-if="!qrUrl" class="qrcode-loading">
       <span class="spinner" aria-hidden="true" />
       <span>正在获取二维码…</span>
     </div>
 
     <p class="instructions">
       {{ message || '请使用手机 QQ 扫描二维码登录' }}
-      <span v-if="image">，二维码两分钟内有效</span>
+      <span v-if="image && !qrExpired">，二维码两分钟内有效</span>
     </p>
 
     <div class="qrcode-actions">
@@ -40,7 +30,7 @@
           {{ qrLoading ? '刷新中…' : '刷新二维码' }}
         </span>
       </k-button>
-      <k-button v-if="qr?.qrcodeUrl" frameless type="primary" @click="emit('open-qr-url')">
+      <k-button v-if="qrUrl" frameless type="primary" @click="emit('open-qr-url')">
         <span class="button-inner">
           <k-icon name="external" />
           无法扫码？点此打开登录链接
@@ -51,19 +41,13 @@
 </template>
 
 <script setup lang="ts">
-/** 二维码信息（state=waiting_scan 时有）。 */
-interface QrInfo {
-  pngBase64: string;
-  qrcodeUrl: string;
-}
-
 defineProps<{
   /** 二维码完整 data URI（直接 <img :src> 展示）。 */
   image?: string;
   /** 登录提示文案。 */
   message?: string;
   /** 二维码信息（打开登录链接用）。 */
-  qr?: QrInfo;
+  qrUrl?: string;
   /** 本地过期遮罩（父组件计时）。 */
   qrExpired: boolean;
   /** 刷新按钮 loading。 */
@@ -107,34 +91,6 @@ const emit = defineEmits<{
   gap: 0.5rem;
   margin: 0.5rem 0;
   color: var(--k-text-normal);
-}
-
-.refresh-overlay {
-  position: absolute;
-  inset: 0;
-  background-color: rgb(0 0 0 / 70%);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 0.5rem;
-  color: #fff;
-  border-radius: 8px;
-
-  p {
-    margin: 0;
-  }
-
-  /* 遮罩上的按钮改白字，避免深色底上不可读 */
-  :deep(.k-button) {
-    color: #fff;
-    border-color: rgb(255 255 255 / 60%);
-
-    &:hover:not(.disabled) {
-      color: #fff;
-      border-color: #fff;
-    }
-  }
 }
 
 .instructions {

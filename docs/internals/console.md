@@ -41,46 +41,27 @@
 runtime name 改成 `console.services.<serviceId>`，reggol 按名字查日志等级，插件 `logLevel` 对它无效，
 INFO 诊断会一直刷屏。Provider 使用当前 Bot 注入的 logger，诊断日志为 debug 级。
 
-payload 形状（`src/console/model.ts`）：
-
-```ts
-interface LoginPanelPayload {
-  state: "idle" | "waiting_scan" | "scanned" | "logged_in" | "failed"
-  selfId: string
-  message?: string      // 人类可读文案（loginStateMessage）
-  image?: string        // 完整 data URI：data:image/png;base64,...
-  qr?: { pngBase64: string; qrcodeUrl: string }
-  self?: { uin: string; uid: string; nick: string }
-  lastError?: string
-}
-```
-
-`toLoginPanelPayload()` 是纯函数：状态文案映射 + 条件展开字段 + 从 `pngBase64` 拼 `image`。
-
-二维码外链只保留 `http` / `https`：`sanitizeQrCodeUrl()` 解析 `qrcodeUrl`，其他协议（`javascript:` /
-`data:` / `file:` 等）或无法解析的值会被丢弃；此时 `qr` 字段不出现，二维码图片仍照常展示。前端
-`openQrUrl()` 在 `window.open` 前再校验一次协议。
+登录快照包含 `state`、`selfId`、`generation` 和状态文案。登录成功只交付对应账号的
+`self`，失败时才交付本次 `lastError`。扫码等待期间，`image` 是唯一一份 PNG data URI，
+`qrUrl` 是独立校验的 HTTP(S) 外链。图片校验 PNG 头和 Base64 格式，外链禁止携带 URL 用户信息。
+收到二维码时记录本地两分钟截止时间 `qrExpiresAt`，拉取和重复广播沿用同一个截止时间。
+截止后服务只交付过期时间，及时收到二维码的页面也会停止展示二维码和外链。
 
 ## 鉴权
 
-登录数据包含二维码（等价于登录凭证），三个控制事件会驱动 QQ 重新登录，因此面板统一要求
-**管理员**权限等级：
+锁文件中的官方 Console 5.30.11 和官方 Auth 4.1.7 共用 `console/intercept`。面板数据服务和三个
+RPC 都声明 `authority: 3`。连接及 Auth 状态变更后的拉取由 `Client.refresh()` 逐客户端检查，
+拒绝时清空对应的 store 数据。广播由 `Console.broadcast()` 逐客户端检查。RPC 由
+`Client.receive()` 先检查权限，再用当前 `Client` 作为回调的 `this`。
 
-- `LOGIN_PANEL_AUTHORITY = 3`（Koishi 权限系统 3 级 = 管理员），由 `src/console/model.ts`
-  的 `loginPanelAccessOptions()` 生成唯一的鉴权选项；
-- `DataService` 构造选项带 `authority`：数据推送（`refresh()` → `broadcast`）和连接时拉取
-  （`Client.refresh()` 读取服务的 `options`）都走同一门槛；
-- 三个 `ctx.console.addListener(..., loginPanelAccessOptions())` 使用同一选项。
+Provider 在交付数据或执行动作时再次检查当前客户端。官方 Auth 公开的服务名是 `auth`，该服务就绪时，
+缺失登录态、已登出、令牌过期或当前会话权限低于 3 均拒绝。没有接收客户端的 Provider 读取只返回脱敏快照。
+RPC 要求参数中的 `selfId` 精确匹配服务所属账号，接受操作返回 `true`，未触发返回 `false`。
+权限使用官方 Console 客户端持有的会话数据，管理端改权后以 Auth 更新该会话或重新登录后的权限为准。
 
-门槛由 `@koishijs/plugin-auth` 的 `console/intercept` 判定：客户端未登录、令牌过期或
-`client.auth.authority` 低于 `authority` 时，控制台拒绝推送和事件调用。provider 的 `get()` 与
-三个控制回调额外按同一门槛复核已登录客户端（`passesLoginPanelAuthority()`，纵深防御）：
-复核失败时 `get()` 返回不含二维码 / 登录账号 / 错误详情的脱敏快照，控制回调直接返回，不发送 IPC。
-
-**未启用 `@koishijs/plugin-auth` 时**：控制台没有 `console/intercept` 拦截器，`authority` 门槛
-不生效，任何能打开控制台的客户端都能读取登录数据并触发控制事件。面板只在客户端带 `auth` 时执行
-本地复核，不会因为“未登录”而额外封锁，以免无鉴权插件的部署直接失去面板。公网或多用户共用的
-控制台必须启用鉴权插件。
+有意在可信环境中运行无 Auth 的 Console 时，缺少 Auth 服务及客户端登录态仍可使用面板。启用官方 Auth
+需要 Console 与数据库服务。`admin.enabled: false` 只关闭内置管理员账号的初始化，鉴权仍会生效。
+官方 Auth 是可选部署组件，适配器无需新增运行时依赖。
 
 ## 面板装配
 
@@ -141,12 +122,13 @@ Koishi 原生交叉表单渲染器会给子组传入 `foldable: false`。高级�
 
 - 插件识别：`inject("manager.settings.local")` 的 `name === "koishi-plugin-adapter-napuketto"`，
   且 `inject("manager.settings.current").disabled !== true` 才渲染。
-- selfId：从 `inject("manager.settings.config")` 取，用于拼 store key。
-- 数据：`store["napuketto-login-<selfId>"]`；没有数据时显示加载态。
-- 过期：本地 2 分钟计时（纯 UI 辅助）；kernel 过期会自动推新码，`pngBase64` 变化即复位计时。
-- 刷新：`send(.../refresh-qr)`，loading 最多 3s 兜底复位。
-- 打开登录链接：`openQrUrl()` 只接受 `http` / `https` 协议后才调用 `window.open`；与后端
-  `sanitizeQrCodeUrl()` 同一原则。
+- selfId 从 `inject("manager.settings.config")` 读取。配置、store 键和 payload 中的账号须一致。
+  无数据时显示加载态。
+- 扫码期使用快照的截止时间管理过期状态。刷新期间保留已有的过期提示，新二维码到达后更新截止时间。
+- 三个动作共用一个可清理的等待计时器。拒绝、未触发或 RPC 失败会立即解锁并显示错误。
+  新二维码、状态或登录轮次变化也会解锁。账号切换、面板禁用或卸载会清理两个计时器。
+- 打开登录链接前再次校验 HTTP(S)，以 `noopener,noreferrer` 打开。过期后隐藏外链。
+- 配置分组缺少描述时显示默认标题，保留传入 schema 的其他元数据以及原生字段编辑能力。
 - 组件标签必须与 import 名大小写完全一致（如 `<QrCodePanel>`）。全小写 `<qrcode-panel>` 会被
   编译器反推为 `QrcodePanel`，与 `QrCodePanel` 不匹配，降级为运行时解析并渲染空元素。
 

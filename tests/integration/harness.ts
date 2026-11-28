@@ -16,6 +16,7 @@ import {
     IPC_VERSION,
     type IpcMessage,
 } from "../../src/runtime/ipc/index.js";
+import { PNG_BASE64 } from "../fixtures/png.js";
 
 vi.mock("koishi", async () => {
     const { mockH } = await import("../helpers/events.js");
@@ -160,7 +161,7 @@ class IpcChild extends EventEmitter {
         this.send({ v: IPC_VERSION, type: "status", payload: { phase: "ready" } });
     }
 
-    qr(qrcodeUrl = "https://example.com/qr", pngBase64 = "aGVsbG8="): void {
+    qr(qrcodeUrl = "https://example.com/qr", pngBase64 = PNG_BASE64): void {
         this.send({ v: IPC_VERSION, type: "qr", payload: { pngBase64, qrcodeUrl } });
     }
 
@@ -260,7 +261,7 @@ export function createConsole() {
     const root = {
         inject(_services: string[], setup: (owner: unknown) => void) {
             const effects = new Set<() => void>();
-            setup({ ...createScope(effects), set: this.set.bind(this, effects) });
+            setup({ ...createScope(effects), root: this, set: this.set.bind(this, effects) });
             return {
                 dispose() {
                     for (const dispose of effects) {
@@ -323,7 +324,10 @@ interface TestLoginProvider {
 }
 
 interface TestConsoleListener {
-    readonly callback: (this: TestConsoleClient, data: { selfId: string }) => void;
+    readonly callback: (
+        this: TestConsoleClient,
+        data: { selfId: string },
+    ) => boolean | Promise<boolean>;
     readonly options: { authority?: number } | undefined;
 }
 
@@ -370,7 +374,7 @@ export function setupPanel(selfId = SELF_ID, consoleHost = createConsole(), logL
             if (entry === undefined) {
                 throw new Error(`面板事件未注册: ${action}`);
             }
-            entry.callback.call(client, { selfId });
+            void entry.callback.call(client, { selfId });
         },
     };
 }

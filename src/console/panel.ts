@@ -41,7 +41,7 @@ export class NapukettoLoginPanel {
                 logger: this.deps.logger,
                 onRelogin: () => this.requestRelogin(),
                 onQrLogin: () => this.requestQrLogin(),
-                onRefreshQr: () => void this.requestRefreshQr(),
+                onRefreshQr: () => this.requestRefreshQr(),
             });
             this.publish = publish;
             fork.on("dispose", () => {
@@ -59,34 +59,36 @@ export class NapukettoLoginPanel {
     }
 
     /** 重新登录（引导期原地重登，已登录时重启宿主）。 */
-    requestRelogin(): void {
-        this.relogin(false);
+    requestRelogin(): boolean {
+        return this.relogin(false);
     }
 
     /** 强制扫码登录，必要时留下一次性扫码标记。 */
-    requestQrLogin(): void {
-        this.relogin(true);
+    requestQrLogin(): boolean {
+        return this.relogin(true);
     }
 
-    private relogin(qrOnly: boolean): void {
+    private relogin(qrOnly: boolean): boolean {
         const plan = planRelogin({
             state: this.deps.getSnapshot().state,
             uin: this.deps.selfId,
             qrOnly,
         });
-        executeRelogin(plan, this.deps);
+        return executeRelogin(plan, this.deps);
     }
 
     /** 刷新二维码：IPC 直达子进程内 kernel 的 QrLoginSession.refresh()（不重启子进程）。 */
-    async requestRefreshQr(): Promise<void> {
+    async requestRefreshQr(): Promise<boolean> {
         try {
             const triggered = await this.deps.request("login.refreshQr");
             this.deps.logger.info(
                 "[napuketto] 刷新二维码: %s",
                 triggered === true ? "已触发新二维码" : "当前不在扫码态（忽略）",
             );
+            return triggered === true;
         } catch (error) {
             this.deps.logger.warn("[napuketto] 刷新二维码失败: %o", error);
+            return false;
         }
     }
 }
@@ -136,7 +138,7 @@ export interface ReloginExecutor {
 }
 
 /** 执行计划：按 kind 发对应指令（control-login 失败回落 restart）。 */
-export function executeRelogin(plan: ReloginPlan, exec: ReloginExecutor): void {
+export function executeRelogin(plan: ReloginPlan, exec: ReloginExecutor): boolean {
     if (plan.kind === "control-login") {
         if (exec.sendControl({ command: "login", uin: plan.uin, qr: plan.qr })) {
             exec.logger.info(
@@ -144,7 +146,7 @@ export function executeRelogin(plan: ReloginPlan, exec: ReloginExecutor): void {
                     ? "[napuketto] 控制台请求强制扫码（control login qr）"
                     : "[napuketto] 控制台请求重新登录（control login 原地重登）",
             );
-            return;
+            return true;
         }
         // client 不可用回落整进程重启路径
     }
@@ -155,9 +157,12 @@ export function executeRelogin(plan: ReloginPlan, exec: ReloginExecutor): void {
                 ? "[napuketto] 控制台请求强制扫码（重启子进程）"
                 : "[napuketto] 控制台请求重新登录（重启子进程）",
         );
-    } else if (forceQr) {
+        return true;
+    }
+    if (forceQr) {
         exec.logger.warn("[napuketto] 子进程未就绪，已标记下次启动时扫码");
     } else {
         exec.logger.warn("[napuketto] 子进程未就绪，无法重新登录");
     }
+    return false;
 }

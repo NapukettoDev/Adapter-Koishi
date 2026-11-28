@@ -15,18 +15,24 @@ declare module "@koishijs/plugin-console" {
         }
     }
     interface Events {
-        [key: `napuketto-login-${string}/relogin`]: (data: { selfId: string }) => void;
-        [key: `napuketto-login-${string}/qr-login`]: (data: { selfId: string }) => void;
-        [key: `napuketto-login-${string}/refresh-qr`]: (data: { selfId: string }) => void;
+        [key: `napuketto-login-${string}/relogin`]: (data: {
+            selfId: string;
+        }) => boolean | Promise<boolean>;
+        [key: `napuketto-login-${string}/qr-login`]: (data: {
+            selfId: string;
+        }) => boolean | Promise<boolean>;
+        [key: `napuketto-login-${string}/refresh-qr`]: (data: {
+            selfId: string;
+        }) => boolean | Promise<boolean>;
     }
 }
 
 interface LoginPanelBinding {
     getPayload: () => LoginPanelPayload;
     logger: Logger;
-    onRelogin: () => void;
-    onQrLogin: () => void;
-    onRefreshQr: () => void;
+    onRelogin: () => boolean;
+    onQrLogin: () => boolean;
+    onRefreshQr: () => Promise<boolean>;
 }
 
 class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
@@ -73,23 +79,27 @@ class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
     private addControlListener(
         ctx: Context,
         name: string,
-        action: (binding: LoginPanelBinding) => void,
+        action: (binding: LoginPanelBinding) => boolean | Promise<boolean>,
     ): void {
         const provider = this;
         const { listeners } = ctx.console;
         ctx.console.addListener(
             name as keyof Events,
-            function (this: Client): void {
+            function (this: Client, data: unknown): boolean | Promise<boolean> {
                 const binding = provider.binding;
-                if (binding === undefined) {
-                    return;
+                if (binding === undefined || !provider.canAccess(this)) {
+                    return false;
                 }
-                // Client.auth 由可选的 plugin-auth 扩展，转给现有的本地权限复核。
-                if (!passesLoginPanelAuthority(this as ConsoleAuthClient)) {
-                    binding.logger.debug("[napuketto] 控制台客户端权限不足，忽略登录控制事件");
-                    return;
+                if (
+                    data === null ||
+                    typeof data !== "object" ||
+                    !("selfId" in data) ||
+                    data.selfId !== provider.selfId
+                ) {
+                    binding.logger.debug("[napuketto] 控制台登录操作与账号不匹配");
+                    return false;
                 }
-                action(binding);
+                return action(binding);
             },
             loginPanelAccessOptions(),
         );
@@ -102,13 +112,23 @@ class NapukettoLoginProvider extends DataService<LoginPanelPayload> {
         });
     }
 
+    private canAccess(client: Client): boolean {
+        // AuthService 公开注册为 auth。每次交付重新检查，覆盖 Auth 的启用和卸载。
+        return passesLoginPanelAuthority(
+            client as ConsoleAuthClient,
+            this.ctx.root.get("auth") != null,
+        );
+    }
+
     override async get(_forced?: boolean, client?: Client): Promise<LoginPanelPayload> {
-        const binding = this.binding;
-        if (client !== undefined && !passesLoginPanelAuthority(client as ConsoleAuthClient)) {
-            binding?.logger.debug("[napuketto] 控制台客户端权限不足，返回脱敏登录快照");
+        if (client === undefined || !this.canAccess(client)) {
+            this.binding?.logger.debug("[napuketto] 控制台客户端权限不足，返回脱敏登录快照");
             return redactLoginPanelPayload(this.selfId);
         }
-        return binding?.getPayload() ?? { state: "idle", selfId: this.selfId };
+        const payload = this.binding?.getPayload();
+        return payload?.selfId === this.selfId
+            ? payload
+            : { state: "idle", selfId: this.selfId, generation: 0 };
     }
 }
 
